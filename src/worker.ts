@@ -69,7 +69,15 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
   if (!out.length) return new Response(null, { status: 202, headers: SEC_HEADERS });
   // One line per request: method/tool names, outcome and latency only. Never arguments or results.
   const outcome = out.map((o: any) => (o.error ? `err${o.error.code}` : o.result?.isError ? "toolError" : "ok")).join(",");
-  log.info(`mcp ${msgs.map((m) => (m?.method === "tools/call" ? `tools/call:${String(m.params?.name).slice(0, 40)}` : String(m?.method).slice(0, 40))).join(",")} ${outcome} ${Date.now() - t0}ms`);
+  // Protocol version and tool count help diagnose client caching. Both are fixed strings or numbers, never user data.
+  const ver = (v: unknown) => (typeof v === "string" && /^\d{4}-\d\d-\d\d$/.test(v) ? v : "?");
+  const label = (m: any, i: number) => {
+    if (m?.method === "tools/call") return `tools/call:${String(m.params?.name).slice(0, 40)}`;
+    if (m?.method === "initialize") return `initialize(v=${ver(m.params?.protocolVersion)})`;
+    if (m?.method === "tools/list") { const r: any = (out as any[]).find((o: any) => o?.id === m.id); return `tools/list(n=${Array.isArray(r?.result?.tools) ? r.result.tools.length : "?"}${headerVersion ? `,v=${ver(headerVersion)}` : ""})`; }
+    return String(m?.method).slice(0, 40);
+  };
+  log.info(`mcp ${msgs.map(label).join(",")} ${outcome} ${Date.now() - t0}ms`);
   return json(Array.isArray(body) ? out : out[0], Array.isArray(body) ? 200 : statusOf(out[0]));
 }
 
