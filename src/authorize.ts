@@ -17,8 +17,15 @@ export function redirectAllowed(uri: string) {
   try { const u = new URL(uri); if (u.username || u.password || u.hash) return false; return u.protocol === "https:" || u.protocol === "cursor:" || (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)); } catch { return false; }
 }
 
-/** When REDIRECT_ALLOWLIST is set (comma-separated exact URIs), only those callbacks may receive a code. This closes the
- * phishing path where someone starts a connect from their own app and talks the owner into approving it. */
+/** When REDIRECT_ALLOWLIST is set (comma-separated exact URIs), only those callbacks may receive a code. This stops codes
+ * going to arbitrary sites. It does NOT stop a stranger using the same hosted app (same callback); see CLIENT_ALLOWLIST. */
+/** When CLIENT_ALLOWLIST is set (comma-separated exact client_ids), only those registered clients may connect. A hosted
+ * callback such as Cursor's is shared by every user of that app, so REDIRECT_ALLOWLIST alone can't tell the owner's
+ * app from a stranger's app on the same platform. */
+export function clientListed(env: Pick<Env, "CLIENT_ALLOWLIST">, clientId: string) {
+  const list = (env.CLIENT_ALLOWLIST ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  return !list.length || list.includes(clientId);
+}
 export function redirectListed(env: Pick<Env, "REDIRECT_ALLOWLIST">, uri: string) {
   const list = (env.REDIRECT_ALLOWLIST ?? "").split(",").map((x) => x.trim()).filter(Boolean);
   if (!list.length) return true;
@@ -78,7 +85,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
   try {
     if (req.method === "GET") {
       const request = await oauth.parseAuthRequest(req);
-      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1><p class="muted">It asked to send access somewhere this connector doesn't allow. Only the apps listed in this connector's settings can connect.</p>`, 400);
+      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri) || !clientListed(env, request.clientId)) return page("Not allowed", `<h1>This app can't connect</h1><p class="muted">It asked to send access somewhere this connector doesn't allow. Only the apps listed in this connector's settings can connect.</p>`, 400);
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
@@ -107,7 +114,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
-    if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
+    if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri) || !clientListed(env, approved.request.clientId)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
     const { redirectTo } = await oauth.completeAuthorization({ request: approved.request, userId: "owner", metadata: { label: "Grok Bot" }, scope: approved.request.scope, props: { epoch: env.GRANT_EPOCH } });
     log.info("connection approved");
     approved.headers.set("Location", redirectTo);

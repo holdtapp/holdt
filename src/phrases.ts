@@ -101,6 +101,15 @@ function hourFrom(hs: string, ms: string | undefined, ap: string | undefined, ct
 
 /** Resolve a phrase like "next friday 3pm" or "end of month" at instant now in zone tz. Throws UserError if it can't. */
 export function resolvePhrase(input: string, now: number, tz: string): Resolved {
+  // "in 99999 months" and friends overflow the calendar: NaN, a RangeError deep in Intl, or a year past 9999 that
+  // iCalendar can't write. Refuse them like any other phrase we can't read.
+  let r: Resolved;
+  try { r = resolveInner(input, now, tz); } catch (e) { if (e instanceof RangeError) throw bad(String(input ?? "")); throw e; }
+  for (const x of [r.start, r.end]) if (x && !(Number.isFinite(x.utc) && x.utc >= MIN_UTC && x.utc <= MAX_UTC)) throw new UserError(`"${String(input).slice(0, 40)}" lands outside the years 1900 to 9999.`);
+  return r;
+}
+const MIN_UTC = Date.UTC(1900, 0, 1), MAX_UTC = Date.UTC(9999, 11, 31);
+function resolveInner(input: string, now: number, tz: string): Resolved {
   if (typeof input !== "string" || !input.trim()) throw bad(String(input ?? ""));
   let s = input.toLowerCase().replace(/a\.m\.?/g, "am").replace(/p\.m\.?/g, "pm").replace(/[,!?]+/g, " ").replace(/\.$/, "").replace(/\s+/g, " ").trim().replace(/^(on|by) /, "");
   const today = Math.floor(toFloating(now, tz) / DAY) * DAY;

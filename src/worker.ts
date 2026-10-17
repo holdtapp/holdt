@@ -17,6 +17,7 @@ export interface Env {
   TIMEZONE?: string; WRITES_ENABLED?: string; CALENDAR_ALLOWLIST?: string; CALDAV_URL?: string;
   /** Off in v1: Apple's upgraded Reminders aren't reachable over CalDAV. */ REMINDERS_EXPERIMENTAL?: string;
   /** Comma-separated exact OAuth callback URIs allowed to receive a code. Unset: any https or loopback callback. */ REDIRECT_ALLOWLIST?: string;
+  /** Comma-separated exact OAuth client_ids allowed to connect. Unset: any registered client. */ CLIENT_ALLOWLIST?: string;
   /** Workers Rate Limiting bindings (wrangler.toml). Absent: no limit. */ RL_REGISTER?: RateLimiter; RL_APPROVE?: RateLimiter; RL_MCP?: RateLimiter;
   /** "on" turns on passkey one-tap connect (src/passkey.ts). The approval code always stays as the fallback. */ PASSKEYS?: string;
   /** SHA-256 of the one-time enroll token from `npm run setup -- --add-device`, and when it was issued. */ ENROLL_TOKEN_HASH?: string; ENROLL_TOKEN_ISSUED?: string;
@@ -128,13 +129,27 @@ export interface RateLimiter { limit(o: { key: string }): Promise<{ success: boo
 /** Per-IP limits on sign-up (DCR) and approval-code submits, per-connection on /mcp. A limiter error fails open,
  * because every route behind it has its own hard checks; the limits are there to stop floods and lockout griefing. */
 export async function rateLimited(req: Request, env: Env, path: string): Promise<boolean> {
-  const ip = req.headers.get("cf-connecting-ip") ?? "unknown";
-  let rl: RateLimiter | undefined, key = "";
-  if (path === "/oauth/register") { rl = env.RL_REGISTER; key = `reg:${ip}`; }
-  else if ((path === "/authorize" || path.startsWith("/enroll/")) && req.method === "POST") { rl = env.RL_APPROVE; key = `approve:${ip}`; }
-  else if (path === "/mcp") { rl = env.RL_MCP; const auth = req.headers.get("authorization") ?? ""; key = `mcp:${auth ? (await sha256Short(auth)) : ip}`; }
-  if (!rl) return false;
-  try { return !(await rl.limit({ key })).success; } catch (e) { log.warn(`rate limiter unavailable: ${(e as any)?.name ?? "error"}`); return false; }
+  const ip = ipKey(req.headers.get("cf-connecting-ip") ?? "unknown");
+  const hit = async (rl: RateLimiter | undefined, key: string) => { if (!rl) return false; try { return !(await rl.limit({ key })).success; } catch (e) { log.warn(`rate limiter unavailable: ${(e as any)?.name ?? "error"}`); return false; } };
+  if (path === "/oauth/register") return hit(env.RL_REGISTER, `reg:${ip}`);
+  if ((path === "/authorize" || path.startsWith("/enroll/")) && req.method === "POST") return hit(env.RL_APPROVE, `approve:${ip}`);
+  // The OAuth library routes /mcp and every /mcp/... path to the MCP handler, so limit them all. Per caller IP first
+  // (a made-up bearer token must not buy a fresh bucket), then per connection.
+  if (path === "/mcp" || path.startsWith("/mcp/")) {
+    if (await hit(env.RL_MCP, `mcpip:${ip}`)) return true;
+    const auth = req.headers.get("authorization") ?? "";
+    return auth ? hit(env.RL_MCP, `mcp:${await sha256Short(auth)}`) : false;
+  }
+  return false;
+}
+/** IPv6 callers usually own a whole /64, so key them by that prefix. IPv4 stays exact. */
+export function ipKey(ip: string) {
+  if (!ip.includes(":")) return ip;
+  let [head, tail] = ip.toLowerCase().split("::") as [string, string | undefined];
+  const h = head ? head.split(":") : [], t = tail ? tail.split(":") : [];
+  const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  if (groups.length < 4 || groups.slice(0, 4).some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return ip.slice(0, 64);
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
 }
 async function sha256Short(s: string) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join(""); }
 

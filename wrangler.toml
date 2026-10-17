@@ -15,7 +15,7 @@ preview_urls = false
 ORIGIN_CHECK = "report"
 # Passkey one-tap connect (src/passkey.ts). "on" shows Allow with Face ID once a device is enrolled. The approval code always stays.
 PASSKEYS = "off"
-REDIRECT_ALLOWLIST = "https://www.cursor.com/agents/mcp/oauth/callback,http://localhost:8787/callback"
+REDIRECT_ALLOWLIST = "https://www.cursor.com/agents/mcp/oauth/callback"
 
 # Secrets are set by `npm run setup` (wrangler secret put, via stdin). Never put them here.
 # ICLOUD_EMAIL, ICLOUD_APP_PASSWORD, CONFIRM_SECRET, GRANT_EPOCH, TIMEZONE, WRITES_ENABLED,
