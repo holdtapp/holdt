@@ -43,6 +43,29 @@ export class Guard extends DurableObject {
       return { ok: false, reason: "wrong", left: maxTries - n - 1 };
     });
   }
+  // ---- passkeys: one record per credential, so a counter update can never be lost to another login's write ----
+  pkList(ns: string): Promise<unknown[]> {
+    return this.serial(async () => [...((await this.ctx.storage.list({ prefix: `pk:${ns}:` })) as Map<string, unknown>).values()]);
+  }
+  /** Adds a credential unless it's already there or the cap is reached, in one atomic step. */
+  pkAdd(ns: string, key: string, cred: { signCount: number }, max: number): Promise<"ok" | "dup" | "full"> {
+    return this.serial(async () => {
+      const all = (await this.ctx.storage.list({ prefix: `pk:${ns}:` })) as Map<string, unknown>;
+      if (all.has(`pk:${ns}:${key}`)) return "dup";
+      if (all.size >= max) return "full";
+      await this.ctx.storage.put(`pk:${ns}:${key}`, cred); return "ok";
+    });
+  }
+  /** Records a sign-in's counter. Refused (false) if the credential is gone or the counter didn't move forward once it had. */
+  pkBump(ns: string, key: string, count: number): Promise<boolean> {
+    return this.serial(async () => {
+      const k = `pk:${ns}:${key}`; const c = (await this.ctx.storage.get(k)) as { signCount: number } | undefined;
+      if (!c) return false;
+      if ((count !== 0 || c.signCount !== 0) && count <= c.signCount) return false;
+      if (count !== c.signCount) await this.ctx.storage.put(k, { ...c, signCount: count });
+      return true;
+    });
+  }
   private async sweep(now: number) {
     const all = (await this.ctx.storage.list({ prefix: "spent:" })) as Map<string, number>;
     const dead = [...all].filter(([, e]) => e <= now).map(([k]) => k);

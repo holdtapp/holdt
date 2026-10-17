@@ -8,6 +8,8 @@ import { providerFor } from "../src/worker.js";
 import { sha256Hex } from "../src/authorize.js";
 import { verifyRegistration, verifyAssertion, derToRaw, cbor } from "../src/webauthn.js";
 import { cliAction } from "../setup/server.js";
+import { loadPasskeys, addPasskey, bumpPasskey, MAX_PASSKEYS } from "../src/passkey.js";
+import { MockGuardNS } from "./guard-mock.js";
 import { setLogSink } from "../src/redact.js";
 import { VirtualAuthenticator } from "./vauth.js";
 
@@ -147,7 +149,7 @@ test("ATTACK P5: a stranger's key claiming the enrolled credential id is refused
 test("ATTACK P6: a leaked enroll link enrolls only once", async () => {
   await freshEnv(); assert.equal((await enroll(await new VirtualAuthenticator(ORIGIN).init())).ok, true);
   const r = await enroll(await new VirtualAuthenticator(ORIGIN).init()); assert.equal(r.ok, false); assert.match(r.message, /already used/);
-  assert.equal(JSON.parse((await kv.get("passkeys:v1:0"))!).length, 1);
+  assert.equal((await loadPasskeys(env)).length, 1);
 });
 test("ATTACK P7: a cloned passkey whose counter steps back is refused", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
@@ -175,4 +177,31 @@ test("setup: --add-device saves only the token's hash and prints a fragment link
   assert.match((await consent()).html, /Face ID/);
   await cliAction("--reset-passkeys", async (n, v) => { saved[n] = v; }, (s) => (out += s));
   env.PASSKEY_EPOCH = saved.PASSKEY_EPOCH; assert.doesNotMatch((await consent()).html, /Face ID/);
+});
+
+const fakeCred = (i: number) => ({ id: `cred-${i}-` + "x".repeat(20), jwk: { kty: "EC" }, alg: -7 as const, signCount: 0, createdAt: Date.now() });
+test("ATTACK P9: a stale counter write can't roll a passkey's counter back (Durable Object and KV stores)", async () => {
+  for (const over of [{ GUARD: new MockGuardNS() }, {}]) {
+    await freshEnv(over);
+    const c = fakeCred(1); assert.equal(await addPasskey(env, c), "ok");
+    assert.equal(await bumpPasskey(env, c, 7), true);
+    assert.equal(await bumpPasskey(env, c, 6), false, "the slower sign-in loses");
+    assert.equal(await bumpPasskey(env, c, 7), false, "the same counter twice is a clone");
+    await Promise.all([bumpPasskey(env, c, 8), bumpPasskey(env, c, 9)]);
+    assert.equal((await loadPasskeys(env))[0]!.signCount, 9);
+  }
+});
+test("ATTACK P10: eleven enrollments at once still leave at most 10 passkeys (Durable Object)", async () => {
+  await freshEnv({ GUARD: new MockGuardNS() });
+  const r = await Promise.all(Array.from({ length: 11 }, (_, i) => addPasskey(env, fakeCred(i))));
+  assert.equal(r.filter((x) => x === "ok").length, MAX_PASSKEYS); assert.equal(r.filter((x) => x === "full").length, 1);
+  assert.equal(await addPasskey(env, fakeCred(3)), "dup");
+});
+test("ATTACK P11: a store holding more than 10 passkeys turns one-tap off instead of trusting them", async () => {
+  await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
+  for (let i = 0; i < MAX_PASSKEYS; i++) await kv.put(`passkey:v1:0:extra${i}`, JSON.stringify(fakeCred(i))); // written around enrollment
+  const c = await consent(); assert.doesNotMatch(c.html, /Face ID/);
+  const s = await a.get("AAAA");
+  const r = await c.submit({ pk_token: "x.y", pk_id: s.id, pk_cdj: s.clientDataJSON, pk_ad: s.authenticatorData, pk_sig: s.signature });
+  assert.equal(r.status, 400); assert.match(await r.text(), /paused on this server/);
 });

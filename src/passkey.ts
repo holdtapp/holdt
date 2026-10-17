@@ -17,11 +17,40 @@ const sha = async (s: string) => new Uint8Array(await crypto.subtle.digest("SHA-
 const safeEq = (a: string, b: string) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
 
 export const passkeysOn = (env: Partial<Env>) => env.PASSKEYS === "on";
-const credsKey = (env: Partial<Env>) => `passkeys:v1:${env.PASSKEY_EPOCH || "0"}`;
+/** One record per credential, keyed by the SHA-256 of its id, under the current PASSKEY_EPOCH.
+ * With the Durable Object bound (production) it holds them: adds respect the cap atomically, and each sign-in's counter
+ * is compared and stored in one step, so two logins can't overwrite each other. KV per-key records are the fallback. */
+const ns = (env: Partial<Env>) => `v1:${env.PASSKEY_EPOCH || "0"}`;
+const kvPrefix = (env: Partial<Env>) => `passkey:${ns(env)}:`;
+const credKey = async (id: string) => hex(await crypto.subtle.digest("SHA-256", enc.encode(id)));
 export async function loadPasskeys(env: Env): Promise<StoredCredential[]> {
-  try { const v = await env.OAUTH_KV.get(credsKey(env)); const a = v ? JSON.parse(v) : []; return Array.isArray(a) ? a : []; } catch { return []; }
+  const g = guardFor(env);
+  if (g) return (await g.pkList(ns(env))) as StoredCredential[];
+  const out: StoredCredential[] = []; let cursor: string | undefined;
+  do {
+    const page: any = await env.OAUTH_KV.list({ prefix: kvPrefix(env), cursor });
+    for (const k of page.keys) { try { const v = await env.OAUTH_KV.get(k.name); if (v) out.push(JSON.parse(v)); } catch { /* skip a damaged record */ } }
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor && out.length <= MAX_PASSKEYS);
+  return out;
 }
-const savePasskeys = (env: Env, a: StoredCredential[]) => env.OAUTH_KV.put(credsKey(env), JSON.stringify(a));
+export async function addPasskey(env: Env, cred: StoredCredential): Promise<"ok" | "dup" | "full"> {
+  const key = await credKey(cred.id), g = guardFor(env);
+  if (g) return g.pkAdd(ns(env), key, cred, MAX_PASSKEYS);
+  const all = await loadPasskeys(env);
+  if (all.some((c) => c.id === cred.id)) return "dup";
+  if (all.length >= MAX_PASSKEYS) return "full";
+  await env.OAUTH_KV.put(kvPrefix(env) + key, JSON.stringify(cred)); return "ok";
+}
+export async function bumpPasskey(env: Env, cred: StoredCredential, count: number): Promise<boolean> {
+  const key = await credKey(cred.id), g = guardFor(env);
+  if (g) return g.pkBump(ns(env), key, count);
+  const v = await env.OAUTH_KV.get(kvPrefix(env) + key); if (!v) return false;
+  const c = JSON.parse(v) as StoredCredential;
+  if ((count !== 0 || c.signCount !== 0) && count <= c.signCount) return false;
+  if (count !== c.signCount) await env.OAUTH_KV.put(kvPrefix(env) + key, JSON.stringify({ ...c, signCount: count }));
+  return true;
+}
 
 /** A separate key for WebAuthn challenges, derived from CONFIRM_SECRET and the grant epoch, so a calendar confirm token never verifies here. */
 async function challengeKey(env: Env) {
@@ -55,6 +84,7 @@ const rp = (url: URL) => ({ rpId: url.hostname, origin: url.origin });
 export async function loginOptions(env: Env, url: URL, handle: string) {
   if (!passkeysOn(env) || !env.CONFIRM_SECRET) return undefined;
   const creds = await loadPasskeys(env); if (!creds.length) return undefined;
+  if (creds.length > MAX_PASSKEYS) { log.warn("passkeys over the cap: one-tap off until --reset-passkeys"); return undefined; }
   const c = await newChallenge(env, "login", await bindHandle(handle));
   return { token: c.token, challenge: c.challenge, rpId: url.hostname, ids: creds.map((x) => x.id) };
 }
@@ -65,11 +95,13 @@ export async function checkPasskeyLogin(env: Env, url: URL, handle: string, f: {
   if (!passkeysOn(env)) return no("off", "One-tap connect is turned off. Use an approval code.");
   try {
     const creds = await loadPasskeys(env);
+    // Fail closed if the store somehow holds more than the cap: something wrote around enrollment.
+    if (creds.length > MAX_PASSKEYS) return no("over cap", "One-tap connect is paused on this server. Use an approval code, then run npm run setup -- --reset-passkeys.");
     const cred = creds.find((c) => safeEq(c.id, String(f.id ?? "")));
     if (!cred) return no("unknown passkey", "That passkey isn't enrolled here. Use an approval code, or run npm run setup -- --add-device.");
     const challenge = await takeChallenge(env, "login", await bindHandle(handle), f.token, now);
     const { signCount } = await verifyAssertion(f, cred, { ...rp(url), challenge });
-    if (signCount !== cred.signCount) { cred.signCount = signCount; await savePasskeys(env, creds); }
+    if (!(await bumpPasskey(env, cred, signCount))) throw new WebAuthnError("signature counter went backwards");
     return { ok: true };
   } catch (e) {
     if (e instanceof WebAuthnError) { log.warn(`passkey refused: ${e.message.slice(0, 80)}`); return no(e.message, /expired|already used/.test(e.message) ? e.message : undefined); }
@@ -118,9 +150,11 @@ export async function enrollApi(req: Request, env: Env, now = Date.now()): Promi
       const challenge = await takeChallenge(env, "enroll", bind, b.challenge_token, now);
       const cred = await verifyRegistration({ clientDataJSON: b.clientDataJSON, attestationObject: b.attestationObject }, { ...rp(url), challenge }, now);
       if (creds.some((c) => c.id === cred.id)) return json({ ok: false, message: "This device is already enrolled." }, 400);
+      if (creds.length >= MAX_PASSKEYS) return json({ ok: false, message: `This server already has ${MAX_PASSKEYS} passkeys. Run npm run setup -- --reset-passkeys to start over.` }, 400);
       if (!(await spendEnrollToken(env, now))) return json({ ok: false, message: "This enroll link was already used. Run npm run setup -- --add-device to add another device." }, 400);
       cred.label = typeof b.label === "string" ? b.label.replace(/[^\w .'-]/g, "").slice(0, 40) : undefined;
-      await savePasskeys(env, [...creds, cred]);
+      const added = await addPasskey(env, cred);
+      if (added !== "ok") return json({ ok: false, message: added === "dup" ? "This device is already enrolled." : `This server already has ${MAX_PASSKEYS} passkeys. Run npm run setup -- --reset-passkeys to start over.` }, 400);
       log.info("passkey enrolled");
       return json({ ok: true, count: creds.length + 1 });
     } catch (e) {
