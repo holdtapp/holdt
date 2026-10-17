@@ -4,7 +4,7 @@
 
 Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. **Calendar only: Apple Reminders is not included (see below).** It is read-only unless you turn changes on. With changes on, it still shows you every change first and waits for your yes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
 
-> Status: private beta. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Changes have only been tested against the mock iCloud server so far. v1.0 (this branch) has 160 automated tests, 54 of them attacks, and 56 rows in `npm run prove`. Not deployed, submitted or published.
+> Status: private beta. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Changes have only been tested against the mock iCloud server so far. v1.0 (this branch) has 178 automated tests, 71 of them attacks, and 74 rows in `npm run prove`. Not deployed, submitted or published.
 
 ## Setup (about 5 minutes, ESTIMATE)
 1. `npm install`
@@ -52,7 +52,7 @@ Anything we built would read the wrong list, so v1 leaves Reminders out. You can
 Times without an offset are in your time zone (set by setup). Plain English works too: "tomorrow at 3pm", "next friday", "end of month", "the last friday of november", "in 2 weeks". "Next friday" means the Friday of next week. A clock time that falls in the spring-forward gap moves to the first valid time. Every preview spells out the date, so check it before saying yes. A date alone means that whole day in your zone, so "from 2026-10-17 to 2026-10-17" is all of Saturday Oct 17. All-day events stay on their date wherever you are. Repeating events are expanded per date, including "2nd Tuesday", "last Friday", "1st and 15th" and yearly rules like Thanksgiving. Rare rules (BYSETPOS, week numbers) show the first date with a note.
 
 ## Develop
-`npm test` (160 tests, 54 of them attacks) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
+`npm test` (178 tests, 71 of them attacks) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
 
 ---
 Holdt is an independent product. It is not made by, affiliated with or endorsed by Apple Inc. iCloud and Apple are trademarks of Apple Inc.
