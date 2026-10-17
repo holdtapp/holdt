@@ -289,6 +289,7 @@ export class Tools {
         this.requireWrites();
         const { jr, ch } = await this.loadUndo(a.revert_token);
         const c = await this.col(ch.cid, "VEVENT");
+        if (!c.writable) throw new UserError(`"${oneLine(c.name, 60)}" is read-only in iCloud now, so Holdt can't take this change back. Nothing was changed.`);
         const r = await this.currentOf(ch);
         if (!r.etag || r.etag !== ch.afterEtag) throw new UserError("This event was edited after Holdt's change, so taking it back could wipe out those edits. Nothing was changed. Fix it in the Calendar app, or ask me for a new change.");
         let lines: string[];
@@ -314,6 +315,8 @@ export class Tools {
         this.assertOwner(v.payload.o, jr.o);
         const ch = await jr.j.get(v.payload.o, v.payload.id); if (!ch) throw new UserError("Holdt has no record of that change.");
         if (ch.undone) throw new UserError("That change was already taken back. Nothing was done twice.");
+        const uc = await this.col(ch.cid, "VEVENT");
+        if (!uc.writable) throw new UserError(`"${oneLine(uc.name, 60)}" is read-only in iCloud now, so Holdt can't take this change back. Nothing was changed.`);
         const r = await this.currentOf(ch);
         if (r.etag !== v.payload.etag) throw new UserError("This event changed after the undo preview. Nothing was changed. Ask for a fresh preview.");
         if (ch.action === "create") { await this.assertOwnCreate(jr.j, ch, r.ics); await this.dav.deleteIfMatch(ch.href, r.etag); }

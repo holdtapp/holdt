@@ -65,6 +65,7 @@ const ROWS = [
   { id: "E4 layer 1", attack: "Another account spends this account's revert token", protection: "Owner check on the token only (log is still per-owner)", layered: true, patches: [M("src/tools.ts", "private assertOwner(tokenOwner: string, me: string) {", "private assertOwner(tokenOwner: string, me: string) { return;")], holds: ["E4"] },
   { id: "E4 layers 1+2", attack: "Another account spends this account's revert token", protection: "Owner check on the token AND per-owner change log", patches: [M("src/tools.ts", "private assertOwner(tokenOwner: string, me: string) {", "private assertOwner(tokenOwner: string, me: string) { return;"), M("src/journal.ts", "if (owner !== this.owner || ", "if (")], breaks: ["E4"] },
   { id: "E5", attack: "Aim undo at an event Holdt didn't add (corrupted or forged log entry)", protection: "Own-create check: Holdt's UID record from the last 24 hours", patches: [M("src/tools.ts", "if (uid !== ch.uid || !(await j.isOwnRecentCreate(ch.uid, this.now()))) throw", "if (false) throw")], breaks: ["E5"] },
+  { id: "E6", attack: "Undo into a calendar that became read-only (shared calendar access removed)", protection: "Writable re-check in prepare_undo and commit_undo", patches: [M("src/tools.ts", "if (!c.writable) throw new UserError(`\"${oneLine(c.name, 60)}\" is read-only in iCloud now", "if (false) throw new UserError(`\"${oneLine(c.name, 60)}\" is read-only in iCloud now"), M("src/tools.ts", "if (!uc.writable) throw", "if (false) throw")], breaks: ["E6"] },
   { id: "G1", attack: "Spend one token 10 times at once (cross-isolate race)", protection: "Durable Object serializes spend()", patches: [M("src/guard.ts", "const r = this.q.then(f); this.q = r.catch(() => undefined); return r;", "return f();")], breaks: ["G1"] },
   { id: "G2", attack: "31 simultaneous approval-code guesses (cross-isolate race)", protection: "Durable Object serializes codeTry()", patches: [M("src/guard.ts", "const r = this.q.then(f); this.q = r.catch(() => undefined); return r;", "return f();")], breaks: ["G2"] },
   { id: "K1", attack: "Burn Worker CPU with PBKDF2 tries against a used or locked code", protection: "Durable Object state checked before hashing", patches: [M("src/authorize.ts", "const state = await g.codeState(hash, MAX_TRIES);", "const state = \"open\";")], breaks: ["K1"] },
@@ -87,7 +88,7 @@ const NOT_TOGGLED = [
 ];
 
 function run(dir, pattern) {
-  const r = spawnSync(process.execPath, ["--import", "./test/register.mjs", "--import", "tsx", "--test", `--test-name-pattern=${pattern}`, "test/attacks.test.ts", "test/redteam.test.ts", "test/redteam2.test.ts", "test/guard.test.ts", "test/passkey.test.ts"], { cwd: dir, encoding: "utf8" });
+  const r = spawnSync(process.execPath, ["--import", "./test/register.mjs", "--import", "tsx", "--test", `--test-name-pattern=${pattern}`, "test/attacks.test.ts", "test/redteam.test.ts", "test/redteam2.test.ts", "test/guard.test.ts", "test/passkey.test.ts", "test/undo.test.ts"], { cwd: dir, encoding: "utf8" });
   const res = {}; for (const m of (r.stdout ?? "").matchAll(/^(not ok|ok) \d+ - (?:ATTACK|REDTEAM) (\w+):/gm)) res[m[2]] = m[1] === "ok";
   return res;
 }

@@ -93,3 +93,15 @@ test("a revert token can't be spent as a commit token, and vice versa", async ()
   const p: any = await T().call("prepare_undo", { revert_token: c.revert_token });
   await assert.rejects(T().call("prepare_undo", { revert_token: p.confirm_token }), /different kind of change/);
 });
+
+test("ATTACK E6: undo re-checks that the calendar is still writable, at preview and at yes", async () => {
+  const c = await addOne();
+  const p: any = await T().call("prepare_undo", { revert_token: c.revert_token });
+  const before = mock.requests.length;
+  mock.cols.home!.readOnly = true;
+  try {
+    await assert.rejects(T().call("prepare_undo", { revert_token: c.revert_token }), /read-only in iCloud now/);
+    await assert.rejects(T().call("commit_undo", { confirm_token: p.confirm_token }), /read-only in iCloud now/);
+    assert.equal(mock.requests.slice(before).filter((r) => r.method === "DELETE" || r.method === "PUT").length, 0, "nothing was sent to iCloud");
+  } finally { mock.cols.home!.readOnly = false; }
+});
