@@ -34,6 +34,19 @@ Ordered by how much you can trust each layer: invariants in code first, then CI 
 ## Client ID Metadata Documents: off by default
 `clientIdMetadataDocumentEnabled` follows `CIMD = "on"` and is off otherwise (attack row M1). Reason: the live Grok Bot connection was made with Dynamic Client Registration (its client record is a DCR registration, Oct 17, 2026), so nothing needs CIMD today. With it on, anyone who opens /authorize makes the Worker fetch a URL they choose before any approval, which is SSRF surface (limited to public hosts by `global_fetch_strictly_public`) and a free way to make the consent page show a publisher name. Turn it on if Grok Bot or another client you use moves to CIMD.
 
+## Red-team round 2 (REDTEAM2-REPORT.md) and their status
+| Item | Status |
+|---|---|
+| S1 to S6, S8 | Fixed (fixes2.patch), each with a test and a prove row. S8 removed the http://localhost callback from the production allowlist. The live grant uses the https callback, so it is unaffected. |
+| S7 shared hosted callback | `CLIENT_ALLOWLIST` exists but stays **off**. On Oct 17, 2026, production KV held 5 client registrations. 4 were named "Cursor", carried identical metadata and were made within 6 minutes (Oct 16, 11:23 to 11:29 PM MDT). The live grant belongs to the last one. So Grok Bot registers a new client_id on every connect, and pinning one would lock the owner out on the next reconnect. The real defense is the human gate: approve only a connect you just started. |
+| (a) enroll root of trust | Fixed: code or existing passkey, logged, visible notice. Rows P12, P13. |
+| (b) passkey store races, cap | Fixed: per-credential records in the Durable Object. Rows P9 to P11. |
+| (c) PBKDF2 on dead codes | Fixed: Durable Object state checked first. Row K1. |
+| (d) undo into a read-only calendar | Fixed at prepare and commit. Row E6. |
+| (e) CIMD | Off unless `CIMD = "on"`. Row M1. |
+| (f) batch amplification | 4 tool calls per request. Row A10. |
+| Lax CBOR and DER details | Accepted. Each still has to pass a signature check under the enrolled key. |
+
 ## Origin check rollout (MCP spec: servers MUST validate Origin)
 The check refuses browser calls from other sites. Grok Bot calls from its servers, which normally send no Origin header, and those always pass. Before enforcing in production:
 1. Deploy with `ORIGIN_CHECK = "report"` (the committed default). Nothing is refused. Every /mcp call that carries an Origin logs `origin seen: same-origin | allowed <origin> | foreign <origin>`.
