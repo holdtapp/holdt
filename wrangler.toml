@@ -1,14 +1,20 @@
 name = "holdt"
 main = "src/worker.ts"
 compatibility_date = "2026-10-01"
+# Lets the OAuth library fetch Client ID Metadata Documents (the MCP 2026-07-28 default) without SSRF into this zone.
+compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
+# Version URLs would keep every uploaded version (including pre-fix ones) callable with production secrets and KV.
+preview_urls = false
 
 # Secrets are set by `npm run setup` (wrangler secret put, via stdin). Never put them here.
-# ICLOUD_EMAIL, ICLOUD_APP_PASSWORD, MCP_TOKEN, CONFIRM_SECRET, TIMEZONE, WRITES_ENABLED
+# ICLOUD_EMAIL, ICLOUD_APP_PASSWORD, CONFIRM_SECRET, GRANT_EPOCH, TIMEZONE, WRITES_ENABLED,
+# APPROVAL_CODE_HASH, APPROVAL_CODE_ISSUED
 # Optional: CALENDAR_ALLOWLIST = "Home,Work"
 
-# Platform request logs record full URLs. If you connect with the ?key= link, keep these off
-# so the key never lands in logs. The connector's own logs are always redacted.
+# Off by default so nothing about your calendar leaves the connector's own redacted log lines.
+# No secret ever appears in a URL (OAuth uses POST bodies and headers), so turning this on is safe.
+# Use `npx wrangler tail` for live logs either way.
 [observability]
 enabled = false
 
@@ -16,4 +22,4 @@ enabled = false
 # Create once with: npx wrangler kv namespace create OAUTH_KV  and paste the id here.
 [[kv_namespaces]]
 binding = "OAUTH_KV"
-id = "REPLACE_WITH_YOUR_KV_ID"
+id = "f9717fcde9ab4d809ead25642d5c0470"
