@@ -29,8 +29,16 @@ export async function verify<T = unknown>(secret: string, token: string, action:
   if (t.a !== action) return { ok: false, reason: "That confirmation was for a different kind of change." };
   if (t.e < now) return { ok: false, reason: expiredMsg };
   if (t.h !== (await digest(canonical(t.p)))) return { ok: false, reason: "The change doesn't match what you approved. Ask for a fresh preview." };
+  // Reserve the nonce synchronously first, so two commits racing in one isolate can't both pass the KV check.
+  // (Across isolates, KV can't do compare-and-set: see REDTEAM-REPORT.md, Durable Object hardening item.)
+  if (used !== NO_SPEND && !reserve(t.n, t.e)) return { ok: false, reason: "That change was already made. Nothing was done twice." };
   if (await used.has(t.n)) return { ok: false, reason: "That change was already made. Nothing was done twice." };
   await used.add(t.n);
   return { ok: true, payload: t.p as T };
+}
+const RESERVED = new Map<string, number>();
+function reserve(n: string, exp: number, now = Date.now()) {
+  if (RESERVED.size > 5000) for (const [k, e] of RESERVED) if (e < now) RESERVED.delete(k);
+  if (RESERVED.has(n)) return false; RESERVED.set(n, exp); return true;
 }
 async function digest(s: string) { return b64u(await crypto.subtle.digest("SHA-256", enc.encode(s))); }

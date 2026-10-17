@@ -6,7 +6,7 @@ export interface XNode { name: string; attrs: Record<string, string>; children: 
 const ENT: Record<string, string> = { lt: "<", gt: ">", amp: "&", quot: '"', apos: "'" };
 export function decodeEntities(s: string): string {
   return s.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|amp|quot|apos);/gi, (_, e: string) => {
-    if (e[0] === "#") return String.fromCodePoint(e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
+    if (e[0] === "#") { const n = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10); return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : "\ufffd"; }
     return ENT[e.toLowerCase()] ?? _;
   });
 }
@@ -17,7 +17,7 @@ export function escapeXml(s: string): string {
 export function parseXml(src: string): XNode {
   const root: XNode = { name: "#root", attrs: {}, children: [], text: "" };
   const stack: XNode[] = [root];
-  const re = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>|<\/([^\s>]+)\s*>|<([^\s/>]+)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>|([^<]+)/gi;
+  const re = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>|<\/([^\s><]+)\s*>|<([^\s/><]+)((?:\s+[^\s=/><]+\s*=\s*(?:"[^"<]*"|'[^'<]*'))*)\s*(\/?)>|([^<]+)/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) {
     const top = stack[stack.length - 1]!;

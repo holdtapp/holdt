@@ -26,8 +26,10 @@ function safeJson(v: unknown) { try { return v instanceof Error ? `${v.name}: ${
 export type Sink = (line: string) => void;
 let sink: Sink = (l) => console.log(l);
 export function setLogSink(s: Sink) { sink = s; }
+/** No caller-controlled text can start a fake log line. */
+const flat = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, " ");
 export const log = {
-  info: (msg: string, meta?: unknown) => sink(redact(`[info] ${msg}${meta === undefined ? "" : " " + redact(meta)}`)),
-  warn: (msg: string, meta?: unknown) => sink(redact(`[warn] ${msg}${meta === undefined ? "" : " " + redact(meta)}`)),
-  error: (msg: string, meta?: unknown) => sink(redact(`[error] ${msg}${meta === undefined ? "" : " " + redact(meta)}`)),
+  info: (msg: string, meta?: unknown) => sink(flat(redact(`[info] ${msg}${meta === undefined ? "" : " " + redact(meta)}`))),
+  warn: (msg: string, meta?: unknown) => sink(flat(redact(`[warn] ${msg}${meta === undefined ? "" : " " + redact(meta)}`))),
+  error: (msg: string, meta?: unknown) => sink(flat(redact(`[error] ${msg}${meta === undefined ? "" : " " + redact(meta)}`))),
 };

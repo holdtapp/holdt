@@ -35,11 +35,11 @@ function page(title: string, body: string, status = 200, headers?: Headers, redi
   h.set("X-Frame-Options", "DENY");
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style><main><div class="card">${body}</div></main></html>`, { status, headers: h });
 }
-function consentBody(d: any, handle: string, error?: string) {
+function consentBody(d: any, handle: string, writes: string, error?: string) {
   const local = d.redirectIsLoopback ? `<p class="warn">This sends access to an app on this computer. Continue only if you just started connecting from it.</p>` : "";
   return `<h1>Connect ${esc(d.clientName || "an app")} to your iCloud Calendar?</h1>
 <p class="muted">${d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : "This app registered itself, so its name isn't verified."} Access goes to <strong>${esc(d.redirectHost || "the app")}</strong>.</p>${local}
-<p class="muted">It can read your calendars. Changes are ${"{{writes}}"}. It can never delete events or send invitations.</p>
+<p class="muted">It can read your calendars. Changes are ${esc(writes)}. It can never delete events or send invitations.</p>
 <form method="post" autocomplete="off">
 <input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="ctx" value="${esc(d.__ctx ?? "")}">
 <label for="code">Approval code from your setup screen</label>
@@ -63,7 +63,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle).replace("{{writes}}", writes), 200, consent.headers, request.redirectUri);
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle, writes), 200, consent.headers, request.redirectUri);
     }
     if (req.method !== "POST") return new Response(null, { status: 405, headers: SEC_HEADERS });
     const form = await req.formData();
@@ -79,12 +79,11 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       const details: any = (await readCtx(env, ctxRaw)) ?? { clientName: "the app", redirectHost: "" };
       details.__ctx = ctxRaw;
       if (verdict.reason === "used") return page("Already approved", `<h1>You're already approved</h1><p class="muted">This code already connected Holdt. Go back to Grok Bot and check the connection. If it still asks to connect, run <code>npm run setup -- --new-code</code> and try once more.</p>`, 400);
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, verdict.message).replace("{{writes}}", writes), 400, undefined, details.redirectUri ?? "");
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message), 400, undefined, details.redirectUri ?? "");
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
     if (!redirectAllowed(approved.request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
     const { redirectTo } = await oauth.completeAuthorization({ request: approved.request, userId: "owner", metadata: { label: "Grok Bot" }, scope: approved.request.scope, props: { epoch: env.GRANT_EPOCH } });
-    await env.OAUTH_KV.put(`approval-used:${verdict.hash}`, "1", { expirationTtl: 86400 });
     log.info("connection approved");
     approved.headers.set("Location", redirectTo);
     return new Response(null, { status: 302, headers: approved.headers });
@@ -97,7 +96,15 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
 }
 
 type Verdict = { ok: true; hash: string } | { ok: false; reason: string; message: string };
-export async function checkCode(env: Env, raw: string, now = Date.now()): Promise<Verdict> {
+// Code checks run one at a time per isolate, and each try is charged and the code is spent inside that turn,
+// so simultaneous guesses can't read a stale counter and one code can't approve two connections.
+let codeQueue: Promise<unknown> = Promise.resolve();
+export function checkCode(env: Env, raw: string, now = Date.now()): Promise<Verdict> {
+  const run = codeQueue.then(() => checkCodeOnce(env, raw, now));
+  codeQueue = run.catch(() => undefined);
+  return run;
+}
+async function checkCodeOnce(env: Env, raw: string, now: number): Promise<Verdict> {
   if (!env.APPROVAL_CODE_HASH || !env.APPROVAL_CODE_ISSUED) return { ok: false, reason: "none", message: "No approval code is set. On your computer, run npm run setup -- --new-code." };
   const hash = env.APPROVAL_CODE_HASH;
   const failKey = `approval-fail:${hash}`;
@@ -108,12 +115,12 @@ export async function checkCode(env: Env, raw: string, now = Date.now()): Promis
   const code = normalizeCode(raw);
   const given = await sha256Hex(`icloud-mcp-approval:${code}`);
   let diff = given.length ^ hash.length; for (let i = 0; i < Math.min(given.length, hash.length); i++) diff |= given.charCodeAt(i) ^ hash.charCodeAt(i);
-  if (code.length !== 8 || diff !== 0) {
+  if (code.length === 8 && diff === 0) { await env.OAUTH_KV.put(`approval-used:${hash}`, "1", { expirationTtl: 86400 }); return { ok: true, hash }; }
+  {
     await env.OAUTH_KV.put(failKey, String(fails + 1), { expirationTtl: 86400 });
     const left = MAX_TRIES - fails - 1;
     return { ok: false, reason: "wrong", message: left > 0 ? `That code doesn't match. Check your setup screen and try again (${left} ${left === 1 ? "try" : "tries"} left).` : "That code doesn't match, and this code is now blocked. On your computer, run npm run setup -- --new-code." };
   }
-  return { ok: true, hash };
 }
 
 // The re-shown page (after a wrong code) needs the client's name. Carry it in an HMAC-signed field

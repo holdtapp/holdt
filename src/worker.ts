@@ -10,6 +10,7 @@ import { authorizeHandler } from "./authorize.js";
 
 export interface Env {
   ICLOUD_EMAIL: string; ICLOUD_APP_PASSWORD: string; CONFIRM_SECRET: string; GRANT_EPOCH: string;
+  /** Optional comma-separated browser origins allowed to call /mcp. Requests without an Origin header (server-side clients) always pass. */ ALLOWED_ORIGINS?: string;
   APPROVAL_CODE_HASH?: string; APPROVAL_CODE_ISSUED?: string;
   TIMEZONE?: string; WRITES_ENABLED?: string; CALENDAR_ALLOWLIST?: string; CALDAV_URL?: string;
   /** Off in v1: Apple's upgraded Reminders aren't reachable over CalDAV. */ REMINDERS_EXPERIMENTAL?: string;
@@ -34,13 +35,17 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
   }
   if (req.method === "GET" || req.method === "DELETE") return new Response(null, { status: 405, headers: { Allow: "POST", ...SEC_HEADERS } });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
-  const len = Number(req.headers.get("content-length") ?? 0); if (len > 256_000) return json({ error: "request too large" }, 413);
+  // MCP Streamable HTTP: servers MUST validate Origin (DNS rebinding). A browser on any other site is refused.
+  const origin = req.headers.get("origin");
+  if (origin && origin !== new URL(req.url).origin && !(env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean).includes(origin)) return json({ error: "origin not allowed" }, 403);
+  const len = Number(req.headers.get("content-length") ?? 0); if (len > MAX_BODY) return json({ error: "request too large" }, 413);
   const headerVersion = req.headers.get("mcp-protocol-version");
   if (headerVersion && !SUPPORTED.includes(headerVersion)) return json({ jsonrpc: "2.0", id: null, error: { code: -32022, message: "Unsupported protocol version", data: { supported: SUPPORTED, requested: headerVersion.slice(0, 40) } } }, 400);
-  let body: any; try { body = await req.json(); } catch { return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400); }
+  const raw = await readCapped(req, MAX_BODY); if (raw === undefined) return json({ error: "request too large" }, 413);
+  let body: any; try { body = JSON.parse(raw); } catch { return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400); }
   const reminders = env.REMINDERS_EXPERIMENTAL === "true";
   const makeTools = () => new Tools(new CalDavClient({ baseUrl: env.CALDAV_URL ?? "https://caldav.icloud.com/", username: env.ICLOUD_EMAIL, password: env.ICLOUD_APP_PASSWORD, fetch: (fetchImpl ?? ((u: any, i: any) => fetch(u, i))) as any }), {
-    timezone: env.TIMEZONE || "UTC", writesEnabled: env.WRITES_ENABLED === "true", confirmSecret: env.CONFIRM_SECRET, remindersExperimental: reminders, usedStore: kvUsedStore(env.OAUTH_KV), journal: env.OAUTH_KV, owner: env.ICLOUD_EMAIL,
+    timezone: env.TIMEZONE || "UTC", writesEnabled: env.WRITES_ENABLED === "true", confirmSecret: confirmKey(env), remindersExperimental: reminders, usedStore: kvUsedStore(env.OAUTH_KV), journal: env.OAUTH_KV, owner: env.ICLOUD_EMAIL,
     calendarAllowlist: env.CALENDAR_ALLOWLIST ? env.CALENDAR_ALLOWLIST.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
   const msgs = Array.isArray(body) ? body : [body];
   if (msgs.length > 20) return json({ error: "batch too large" }, 413);
@@ -53,6 +58,17 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
   return json(Array.isArray(body) ? out : out[0], Array.isArray(body) ? 200 : statusOf(out[0]));
 }
 
+const MAX_BODY = 256_000;
+/** Reads the body but stops at `max` bytes, whatever Content-Length claims (chunked bodies have none). */
+async function readCapped(req: Request, max: number): Promise<string | undefined> {
+  if (!req.body) return "";
+  const r = req.body.getReader(); const parts: Uint8Array[] = []; let n = 0;
+  for (;;) { const { done, value } = await r.read(); if (done) break; n += value.byteLength; if (n > max) { await r.cancel().catch(() => {}); return undefined; } parts.push(value); }
+  const all = new Uint8Array(n); let o = 0; for (const p of parts) { all.set(p, o); o += p.byteLength; }
+  return new TextDecoder().decode(all);
+}
+/** Confirm tokens are bound to the grant epoch, so `--revoke-all` also voids every preview still in flight. */
+export const confirmKey = (env: Pick<Env, "CONFIRM_SECRET" | "GRANT_EPOCH">) => `${env.CONFIRM_SECRET}\n${env.GRANT_EPOCH}`;
 /** Spent confirm-token nonces live in KV for 15 minutes (tokens last 10), so a replay is refused across requests and isolates. */
 export function kvUsedStore(kv: any) {
   if (!kv) return undefined;

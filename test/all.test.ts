@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MockCalDav } from "./mock-caldav.js";
 import { CalDavClient } from "../src/caldav.js";
 import { Tools, TOOLS, REMINDER_TOOLS } from "../src/tools.js";
-import { mcpEndpoint } from "../src/worker.js";
+import { mcpEndpoint, confirmKey } from "../src/worker.js";
 const handle = (req: Request, e: any, f?: typeof fetch) => mcpEndpoint(req, e, e.__props === undefined ? { epoch: e.GRANT_EPOCH } : e.__props, f);
 import { setLogSink, registerSecret, redact } from "../src/redact.js";
 import { expand, parseIcs, getProp, parseDate, foldLine, buildEvent, patchEvent, wallToUtc, unfold } from "../src/ical.js";
@@ -16,7 +16,7 @@ const TZ = "America/Denver";
 const ev = (uid: string, lines: string[]) => ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", `UID:${uid}`, ...lines, "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
 function tools(writes = true, extra: Partial<{ allow: string[]; reminders: boolean }> = { reminders: true }) {
   registerSecret(PASS); registerSecret(USER);
-  return new Tools(new CalDavClient({ baseUrl: mock.base, username: USER, password: PASS, sleep: async () => {} }), { timezone: TZ, writesEnabled: writes, confirmSecret: "c".repeat(32), calendarAllowlist: extra.allow, remindersExperimental: extra.reminders ?? true });
+  return new Tools(new CalDavClient({ baseUrl: mock.base, username: USER, password: PASS, sleep: async () => {} }), { timezone: TZ, writesEnabled: writes, confirmSecret: confirmKey(env(writes)), calendarAllowlist: extra.allow, remindersExperimental: extra.reminders ?? true });
 }
 const puts = () => mock.requests.filter((r) => r.method === "PUT");
 
@@ -100,8 +100,9 @@ test("create: prepare changes nothing, commit writes once, replays and tampering
   assert.match(put.body, /DTSTART;TZID=America\/Denver:20261103T120000/); assert.match(put.body, /BEGIN:VTIMEZONE/); assert.match(put.body, /TRIGGER:-PT15M/);
   await assert.rejects(t.call("commit_create_event", { confirm_token: p.confirm_token }), /already made/);
   // a second process (fresh Tools, no memory) replaying the same token cannot double-create: If-None-Match:* protects it
-  const again: any = await tools().call("commit_create_event", { confirm_token: p.confirm_token });
-  assert.match(again.note, /already added/); assert.equal([...mock.items.keys()].filter((k) => k.includes("home")).length, 3);
+  // (red-team fix: the same isolate now refuses the nonce before iCloud is even asked; another isolate still hits If-None-Match:*)
+  const again: string = await tools().call("commit_create_event", { confirm_token: p.confirm_token }).then((x: any) => x.note, (e: Error) => e.message);
+  assert.match(again, /already added|already made/); assert.equal([...mock.items.keys()].filter((k) => k.includes("home")).length, 3);
   const [body, sig] = p.confirm_token.split(".");
   const forged = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(body, "base64url").toString()), p: { cid: "home", title: "EVIL" } })).toString("base64url");
   await assert.rejects(t.call("commit_create_event", { confirm_token: `${forged}.${sig}` }), /isn't valid/);

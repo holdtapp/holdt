@@ -61,21 +61,26 @@ export async function handleRpc(msg: Rpc, makeTools: () => Tools, opts: RpcOpts 
 
 /** Checks argument names, required fields and basic types against the tool's schema, with a message the model can act on. */
 export function checkArgs(schema: { properties?: Record<string, any>; required?: string[] }, args: Record<string, unknown>) {
+  checkObject(schema, args, "");
+}
+/** Validates the whole argument tree (nested objects and array items included) against the tool's schema.
+ * Invariant: nothing reaches a tool that its inputSchema doesn't allow, at any depth. */
+function checkObject(schema: { properties?: Record<string, any>; required?: string[] }, args: Record<string, unknown>, at: string) {
   const props = schema.properties ?? {};
-  const unknown = Object.keys(args).filter((k) => !(k in props));
-  if (unknown.length) throw new UserError(`Unknown argument${unknown.length > 1 ? "s" : ""}: ${unknown.slice(0, 5).map((k) => k.slice(0, 40)).join(", ")}. Allowed: ${Object.keys(props).join(", ") || "none"}.`);
-  for (const k of schema.required ?? []) if (args[k] === undefined || args[k] === null) throw new UserError(`Missing required argument: ${k}.`);
-  for (const [k, v] of Object.entries(args)) {
-    if (v === undefined || v === null) continue;
-    const t = props[k]?.type; const bad = (want: string) => { throw new UserError(`${k} must be ${want}.`); };
-    if (t === "string" && typeof v !== "string") bad("text");
-    if (t === "integer" && !Number.isInteger(v)) bad("a whole number");
-    if (t === "boolean" && typeof v !== "boolean") bad("true or false");
-    if (t === "array" && !Array.isArray(v)) bad("a list");
-    if (t === "object" && (typeof v !== "object" || Array.isArray(v))) bad("an object");
-    if (t === "integer" && (props[k].minimum !== undefined && (v as number) < props[k].minimum || props[k].maximum !== undefined && (v as number) > props[k].maximum)) bad(`between ${props[k].minimum} and ${props[k].maximum}`);
-    if (props[k]?.enum && !props[k].enum.includes(v)) bad(`one of ${props[k].enum.join(", ")}`);
-  }
+  const unknown = Object.keys(args).filter((k) => !Object.prototype.hasOwnProperty.call(props, k));
+  if (unknown.length) throw new UserError(`Unknown argument${unknown.length > 1 ? "s" : ""}: ${unknown.slice(0, 5).map((k) => at + k.slice(0, 40)).join(", ")}. Allowed: ${Object.keys(props).map((k) => at + k).join(", ") || "none"}.`);
+  for (const k of schema.required ?? []) if (args[k] === undefined || args[k] === null) throw new UserError(`Missing required argument: ${at}${k}.`);
+  for (const [k, v] of Object.entries(args)) { if (v === undefined || v === null) continue; checkValue(props[k] ?? {}, v, at + k); }
+}
+function checkValue(s: any, v: unknown, k: string) {
+  const bad = (want: string): never => { throw new UserError(`${k} must be ${want}.`); };
+  const t = s.type;
+  if (t === "string") { if (typeof v !== "string") bad("text"); if (s.maxLength !== undefined && (v as string).length > s.maxLength) bad(`at most ${s.maxLength} characters`); }
+  if (t === "integer") { if (!Number.isInteger(v)) bad("a whole number"); if ((s.minimum !== undefined && (v as number) < s.minimum) || (s.maximum !== undefined && (v as number) > s.maximum)) bad(`between ${s.minimum} and ${s.maximum}`); }
+  if (t === "boolean" && typeof v !== "boolean") bad("true or false");
+  if (t === "array") { if (!Array.isArray(v)) bad("a list"); const a = v as unknown[]; if (s.maxItems !== undefined && a.length > s.maxItems) bad(`a list of at most ${s.maxItems}`); if (s.items) a.forEach((x, i) => checkValue(s.items, x, `${k}[${i}]`)); }
+  if (t === "object") { if (typeof v !== "object" || Array.isArray(v)) bad("an object"); if (s.properties) checkObject(s, v as Record<string, unknown>, k + "."); }
+  if (s.enum && !s.enum.includes(v)) bad(`one of ${s.enum.join(", ")}`);
 }
 
 export function friendly(e: unknown): string {

@@ -30,7 +30,9 @@ export function parseIcs(text: string): Component {
 }
 export const getProp = (c: Component, n: string) => c.props.find((p) => p.name === n);
 export function unescapeText(v: string) { return v.replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1"); }
-export function escapeText(v: string) { return v.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n"); }
+/** RFC 5545 TEXT. Every line break form (CRLF, CR, LF, U+2028/9) becomes \\n, and other control characters are dropped,
+ * so user text can never start a new property line. */
+export function escapeText(v: string) { return v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r\n|\r|\n|\u2028|\u2029/g, "\\n"); }
 
 // ---------- time ----------
 /** Offset (ms) of zone at a UTC instant. */
@@ -39,6 +41,7 @@ export function zoneOffset(utcMs: number, tz: string): number {
   let f = FMT.get(tz);
   if (!f) { f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }); FMT.set(tz, f); }
   const o: Record<string, number> = {};
+  utcMs = Math.floor(utcMs / 1000) * 1000; // the formatter has whole seconds, so compare whole seconds (else every offset is off by the ms)
   for (const p of f.formatToParts(new Date(utcMs))) if (p.type !== "literal") o[p.type] = Number(p.value);
   return Date.UTC(o.year!, o.month! - 1, o.day!, o.hour! % 24, o.minute!, o.second!) - utcMs;
 }
@@ -190,6 +193,8 @@ export function foldLine(line: string): string {
   out.push(cur); return out.map((l, i) => (i ? " " + l : l)).join("\r\n");
 }
 export function propLine(name: string, value: string, params: Record<string, string> = {}): string {
+  // Invariant: a property is exactly one logical line. Nothing caller-supplied may carry a line break or control character.
+  if ([name, value, ...Object.keys(params), ...Object.values(params)].some((x) => /[\u0000-\u0008\u000a-\u001f\u007f]/.test(String(x)))) throw new Error(`refusing to write a control character into ${String(name).slice(0, 20)}`);
   const ps = Object.entries(params).map(([k, v]) => `;${k}=${/[:;,]/.test(v) ? `"${v}"` : v}`).join("");
   return foldLine(`${name}${ps}:${value}`);
 }
@@ -208,7 +213,7 @@ export function vtimezone(tz: string, year: number): string[] {
   for (let d = 1; d <= days; d++) {
     const t = jan + d * DAY_MS, o = zoneOffset(t, tz);
     if (o === prev) continue;
-    let lo = t - DAY_MS, hi = t; while (hi - lo > 60000) { const mid = Math.floor((lo + hi) / 2); if (zoneOffset(mid, tz) === prev) lo = mid; else hi = mid; }
+    let lo = t - DAY_MS, hi = t; while (hi - lo > 1000) { const mid = Math.floor((lo + hi) / 2); if (zoneOffset(mid, tz) === prev) lo = mid; else hi = mid; }
     shifts.push({ at: hi, from: prev, to: o }); prev = o;
   }
   const L = ["BEGIN:VTIMEZONE", propLine("TZID", tz)];
@@ -235,6 +240,7 @@ export function buildEvent(uid: string, e: EventInput, now = Date.now()): string
   if (e.location) L.push(propLine("LOCATION", escapeText(e.location)));
   if (e.notes) L.push(propLine("DESCRIPTION", escapeText(e.notes)));
   if (e.rrule) L.push(propLine("RRULE", e.rrule));
+  for (const m of e.alertsMinutesBefore ?? []) if (!Number.isInteger(m) || m < 0 || m > 40320) throw new UserError("Alerts must be whole minutes between 0 and 40320.");
   for (const m of e.alertsMinutesBefore ?? []) L.push("BEGIN:VALARM", "ACTION:DISPLAY", propLine("DESCRIPTION", escapeText(e.title)), `TRIGGER:-PT${Math.round(m)}M`, propLine("X-WR-ALARMUID", `${uid}-a${m}`), "END:VALARM");
   L.push("END:VEVENT", "END:VCALENDAR");
   return L.join("\r\n") + "\r\n";
