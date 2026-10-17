@@ -78,7 +78,7 @@ test("search_events works with its default window", async () => {
 test("get_event returns full notes and alerts", async () => {
   const t = tools(); const l: any = await t.call("search_events", { query: "dentist", from: "2026-10-01", to: "2026-12-01" });
   const g: any = await t.call("get_event", { event_id: l.events[0].event_id });
-  assert.equal(g.notes, "Bring insurance card"); assert.deepEqual(g.alerts, ["-PT30M"]);
+  assert.equal(g.notes, "Bring insurance card"); assert.deepEqual(g.alerts, ["30 min before"]);
   await assert.rejects(t.call("get_event", { event_id: "garbage!!" }), /isn't valid/);
 });
 
@@ -97,7 +97,7 @@ test("create: prepare changes nothing, commit writes once, replays and tampering
   const c: any = await t.call("commit_create_event", { confirm_token: p.confirm_token });
   assert.equal(c.done, true); assert.equal(puts().length, 1);
   const put = puts()[0]!; assert.equal(put.headers["if-none-match"], "*");
-  assert.match(put.body, /DTSTART:20261103T190000Z/); assert.match(put.body, /TRIGGER:-PT15M/);
+  assert.match(put.body, /DTSTART;TZID=America\/Denver:20261103T120000/); assert.match(put.body, /BEGIN:VTIMEZONE/); assert.match(put.body, /TRIGGER:-PT15M/);
   await assert.rejects(t.call("commit_create_event", { confirm_token: p.confirm_token }), /already made/);
   // a second process (fresh Tools, no memory) replaying the same token cannot double-create: If-None-Match:* protects it
   const again: any = await tools().call("commit_create_event", { confirm_token: p.confirm_token });

@@ -6,7 +6,7 @@ import { CalDavClient } from "../src/caldav.js";
 import { Tools } from "../src/tools.js";
 import { mcpEndpoint, kvUsedStore } from "../src/worker.js";
 import { handleRpc, SUPPORTED } from "../src/mcp.js";
-import { expand, parseUserTime, dayStartIn } from "../src/ical.js";
+import { expand, parseUserTime, dayStartIn, vtimezone, parseIcs } from "../src/ical.js";
 import { MockKV } from "./kv-mock.js";
 import { setLogSink } from "../src/redact.js";
 
@@ -71,6 +71,23 @@ test("repeat.until with a bare date includes that whole local day (timed) and us
   await t.call("commit_create_event", { confirm_token: q.confirm_token });
   assert.match(mock.requests.filter((r) => r.method === "PUT").at(-1)!.body, /RRULE:FREQ=WEEKLY;UNTIL=20261130\r\n/);
   await assert.rejects(t.call("prepare_create_event", { calendar_id: cal.calendar_id, title: "x", start: "2026-10-19T09:00", repeat: { every: "day", until: "2026-10-01" } }), /after the start/);
+});
+
+test("a new repeating 9 AM event stays 9 AM after DST ends (TZID + VTIMEZONE, not UTC)", async () => {
+  const t = tools(); const cal: any = ((await t.call("list_calendars", {})) as any).calendars[0];
+  const p: any = await t.call("prepare_create_event", { calendar_id: cal.calendar_id, title: "Standup", start: "2026-10-26T09:00", end: "2026-10-26T09:15", repeat: { every: "week", count: 3 } });
+  await t.call("commit_create_event", { confirm_token: p.confirm_token });
+  const body = mock.requests.filter((r) => r.method === "PUT").at(-1)!.body;
+  assert.match(body, /DTSTART;TZID=America\/Denver:20261026T090000/);
+  assert.match(body, /BEGIN:DAYLIGHT[\s\S]*TZOFFSETFROM:-0700[\s\S]*TZOFFSETTO:-0600[\s\S]*RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2SU/);
+  assert.match(body, /BEGIN:STANDARD[\s\S]*TZOFFSETTO:-0700[\s\S]*RRULE:FREQ=YEARLY;BYMONTH=11;BYDAY=1SU/);
+  const r: any = await tools().call("list_events", { from: "2026-10-26", to: "2026-11-10", calendar_ids: [cal.calendar_id] });
+  assert.deepEqual(r.events.filter((e: any) => e.title === "Standup").map((e: any) => e.start), ["2026-10-26T09:00:00-06:00", "2026-11-02T09:00:00-07:00", "2026-11-09T09:00:00-07:00"]);
+  // other zones: EU last-Sunday rules, southern hemisphere, and no-DST zones
+  const eu = vtimezone("Europe/Berlin", 2026).join("\n"); assert.match(eu, /BYMONTH=3;BYDAY=-1SU/); assert.match(eu, /BYMONTH=10;BYDAY=-1SU/);
+  const au = vtimezone("Australia/Sydney", 2026).join("\n"); assert.match(au, /BEGIN:DAYLIGHT[\s\S]*BYMONTH=10;BYDAY=1SU/); assert.match(au, /BEGIN:STANDARD[\s\S]*BYMONTH=4;BYDAY=1SU/);
+  const jp = vtimezone("Asia/Tokyo", 2026).join("\n"); assert.match(jp, /TZOFFSETFROM:\+0900\nTZOFFSETTO:\+0900/); assert.doesNotMatch(jp, /RRULE/);
+  assert.equal(parseIcs(body).children[0]!.children.filter((c) => c.type === "VTIMEZONE").length, 1);
 });
 
 // ---------- (b) no internal fields leak ----------

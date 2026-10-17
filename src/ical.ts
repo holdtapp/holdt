@@ -34,8 +34,10 @@ export function escapeText(v: string) { return v.replace(/\\/g, "\\\\").replace(
 
 // ---------- time ----------
 /** Offset (ms) of zone at a UTC instant. */
-function zoneOffset(utcMs: number, tz: string): number {
-  const f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const FMT = new Map<string, Intl.DateTimeFormat>(); // building a formatter is the slow part, so keep one per zone
+export function zoneOffset(utcMs: number, tz: string): number {
+  let f = FMT.get(tz);
+  if (!f) { f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }); FMT.set(tz, f); }
   const o: Record<string, number> = {};
   for (const p of f.formatToParts(new Date(utcMs))) if (p.type !== "literal") o[p.type] = Number(p.value);
   return Date.UTC(o.year!, o.month! - 1, o.day!, o.hour! % 24, o.minute!, o.second!) - utcMs;
@@ -191,16 +193,45 @@ export function propLine(name: string, value: string, params: Record<string, str
   const ps = Object.entries(params).map(([k, v]) => `;${k}=${/[:;,]/.test(v) ? `"${v}"` : v}`).join("");
   return foldLine(`${name}${ps}:${value}`);
 }
-export function timeProp(name: string, t: ITime): string {
+export function timeProp(name: string, t: ITime, tz?: string): string {
   if (t.allDay) return propLine(name, fmtDate(t.utc), { VALUE: "DATE" });
+  if (tz && tz !== "UTC" && isValidZone(tz)) return propLine(name, fmtUtc(t.utc + zoneOffset(t.utc, tz)).replace(/Z$/, ""), { TZID: tz });
   return propLine(name, fmtUtc(t.utc));
 }
+const fmtOff = (ms: number) => { const m = Math.round(ms / 60000), a = Math.abs(m); return `${m < 0 ? "-" : "+"}${String(Math.floor(a / 60)).padStart(2, "0")}${String(a % 60).padStart(2, "0")}`; };
+/** A VTIMEZONE for tz, derived from the zone's real transitions in `year`, so a repeating 9 AM event stays 9 AM across DST
+ * in every client (an event written in UTC would drift an hour). Yearly rules use the iCalendar nth-weekday form. */
+export function vtimezone(tz: string, year: number): string[] {
+  const jan = Date.UTC(year, 0, 1), days = (Date.UTC(year + 1, 0, 1) - jan) / DAY_MS;
+  const shifts: { at: number; from: number; to: number }[] = [];
+  let prev = zoneOffset(jan, tz);
+  for (let d = 1; d <= days; d++) {
+    const t = jan + d * DAY_MS, o = zoneOffset(t, tz);
+    if (o === prev) continue;
+    let lo = t - DAY_MS, hi = t; while (hi - lo > 60000) { const mid = Math.floor((lo + hi) / 2); if (zoneOffset(mid, tz) === prev) lo = mid; else hi = mid; }
+    shifts.push({ at: hi, from: prev, to: o }); prev = o;
+  }
+  const L = ["BEGIN:VTIMEZONE", propLine("TZID", tz)];
+  if (!shifts.length) L.push("BEGIN:STANDARD", `DTSTART:${year}0101T000000`, `TZOFFSETFROM:${fmtOff(prev)}`, `TZOFFSETTO:${fmtOff(prev)}`, "END:STANDARD");
+  for (const sh of shifts) {
+    const local = new Date(sh.at + sh.from); // wall clock just before the change
+    const y = local.getUTCFullYear(), m = local.getUTCMonth(), d = local.getUTCDate();
+    const dim = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); const nth = d + 7 > dim ? -1 : Math.ceil(d / 7);
+    const kind = sh.to > sh.from ? "DAYLIGHT" : "STANDARD";
+    L.push(`BEGIN:${kind}`, `DTSTART:${fmtUtc(sh.at + sh.from).replace(/Z$/, "")}`, `TZOFFSETFROM:${fmtOff(sh.from)}`, `TZOFFSETTO:${fmtOff(sh.to)}`,
+      shifts.length === 2 ? `RRULE:FREQ=YEARLY;BYMONTH=${m + 1};BYDAY=${nth}${DAYS[local.getUTCDay()]}` : "", `END:${kind}`);
+  }
+  L.push("END:VTIMEZONE");
+  return L.filter(Boolean);
+}
 
-export interface EventInput { title: string; start: ITime; end: ITime; location?: string; notes?: string; alertsMinutesBefore?: number[]; rrule?: string }
+export interface EventInput { title: string; start: ITime; end: ITime; location?: string; notes?: string; alertsMinutesBefore?: number[]; rrule?: string; /** User's zone. Timed events are written with TZID and a VTIMEZONE, as Apple Calendar does. */ tz?: string }
 export function buildEvent(uid: string, e: EventInput, now = Date.now()): string {
-  const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//icloud-mcp//EN", "CALSCALE:GREGORIAN", "BEGIN:VEVENT",
+  const tz = !e.start.allDay && e.tz && e.tz !== "UTC" && isValidZone(e.tz) ? e.tz : undefined;
+  const L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Holdt//Holdt for iCloud Calendar//EN", "CALSCALE:GREGORIAN",
+    ...(tz ? vtimezone(tz, new Date(e.start.utc).getUTCFullYear()) : []), "BEGIN:VEVENT",
     propLine("UID", uid), propLine("DTSTAMP", fmtUtc(now)), propLine("CREATED", fmtUtc(now)), propLine("LAST-MODIFIED", fmtUtc(now)),
-    timeProp("DTSTART", e.start), timeProp("DTEND", e.end), propLine("SUMMARY", escapeText(e.title))];
+    timeProp("DTSTART", e.start, tz), timeProp("DTEND", e.end, tz), propLine("SUMMARY", escapeText(e.title))];
   if (e.location) L.push(propLine("LOCATION", escapeText(e.location)));
   if (e.notes) L.push(propLine("DESCRIPTION", escapeText(e.notes)));
   if (e.rrule) L.push(propLine("RRULE", e.rrule));

@@ -141,7 +141,7 @@ export class Tools {
         const v = await verify<any>(this.cfg.confirmSecret, a.confirm_token, "create_event", this.used); if (!v.ok) throw new UserError(v.reason);
         const p = v.payload; const c = await this.col(p.cid, "VEVENT");
         const href = new URL(`${encodeURIComponent(p.uid.replace(/@.*/, ""))}.ics`, c.href.endsWith("/") ? c.href : c.href + "/").toString();
-        const ics = buildEvent(p.uid, { title: p.title, start: p.start, end: p.end, location: p.location, notes: p.notes, alertsMinutesBefore: p.alerts, rrule: p.rrule });
+        const ics = buildEvent(p.uid, { title: p.title, start: p.start, end: p.end, location: p.location, notes: p.notes, alertsMinutesBefore: p.alerts, rrule: p.rrule, tz: this.cfg.timezone });
         try { await this.dav.put(href, ics, { create: true }); }
         catch (e) { if (e instanceof CalDavError && e.code === "conflict") return { done: true, note: "This event was already added. Nothing was added twice." }; throw e; }
         log.info("event created");
@@ -268,7 +268,7 @@ export class Tools {
     const start = occ?.start ?? s.utc, end = occ?.end ?? e.utc;
     const fmtT = (ms: number) => (s.allDay ? new Date(ms).toISOString().slice(0, 10) : isoInZone(ms, tz));
     const notes = unescapeText(getProp(ev, "DESCRIPTION")?.value ?? "");
-    return { event_id: this.itemId(c, r.href), calendar_id: c.id, calendar: c.name, title: unescapeText(getProp(ev, "SUMMARY")?.value ?? "(no title)"), start: fmtT(start), end: s.allDay ? fmtT(end - DAY) : fmtT(end), all_day: s.allDay, location: unescapeText(getProp(ev, "LOCATION")?.value ?? "") || undefined, notes: (full ? notes : trunc(notes, 280)) || undefined, repeating: !!getProp(ev, "RRULE"), has_invitees: ev.props.some((p) => p.name === "ATTENDEE"), alerts: full ? ev.children.filter((x) => x.type === "VALARM").map((x) => getProp(x, "TRIGGER")?.value).filter((x): x is string => !!x) : undefined };
+    return { event_id: this.itemId(c, r.href), calendar_id: c.id, calendar: c.name, title: unescapeText(getProp(ev, "SUMMARY")?.value ?? "(no title)"), start: fmtT(start), end: s.allDay ? fmtT(end - DAY) : fmtT(end), all_day: s.allDay, location: unescapeText(getProp(ev, "LOCATION")?.value ?? "") || undefined, notes: (full ? notes : trunc(notes, 280)) || undefined, repeating: !!getProp(ev, "RRULE"), has_invitees: ev.props.some((p) => p.name === "ATTENDEE"), alerts: full ? ev.children.filter((x) => x.type === "VALARM").map((x) => alertText(getProp(x, "TRIGGER"), tz)).filter((x): x is string => !!x) : undefined };
   }
 
   private async eventsBetween(from: number, to: number, ids?: string[], cap = 5000, maxDays = 366) {
@@ -329,6 +329,14 @@ function endOf(ev: Component, s: ITime, tz: string): ITime {
   return { ...s, utc: s.utc + (s.allDay ? DAY : 0) };
 }
 export function durMs(d: string) { const m = d.match(/^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/); if (!m) return 0; const v = ((+(m[2] ?? 0) * 7 + +(m[3] ?? 0)) * 86400 + +(m[4] ?? 0) * 3600 + +(m[5] ?? 0) * 60 + +(m[6] ?? 0)) * 1000; return m[1] === "-" ? -v : v; }
+/** "30 min before", "1 day before", "at start", or an absolute time, instead of raw -PT30M. */
+function alertText(p: { value: string; params: Record<string, string> } | undefined, tz: string): string | undefined {
+  if (!p) return undefined;
+  if (p.params.VALUE === "DATE-TIME") { const t = parseDate({ name: "TRIGGER", params: {}, value: p.value }, tz); return t ? `at ${isoInZone(t.utc, tz)}` : p.value; }
+  const ms = durMs(p.value); if (!ms && !/^[+-]?P(T0[HMS]|0[DW])/.test(p.value)) return p.value;
+  const m = Math.round(Math.abs(ms) / 60000); const rel = /END/i.test(p.params.RELATED ?? "") ? "end" : "start";
+  return m === 0 ? `at ${rel}` : `${humanMinutes(m)} ${ms < 0 ? "before" : "after"}${rel === "end" ? " the end" : ""}`;
+}
 const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const prio = (p: number) => (p === 0 ? "none" : p <= 4 ? "high" : p === 5 ? "medium" : "low");
 function humanMinutes(m: number) { return m % 1440 === 0 && m ? `${m / 1440} day${m === 1440 ? "" : "s"}` : m % 60 === 0 && m ? `${m / 60} hour${m === 60 ? "" : "s"}` : `${m} min`; }
