@@ -181,3 +181,14 @@ test("REDTEAM R15: a client name can't hijack the consent page's read-only notic
   assert.match(a.html, /Changes are turned off \(read-only\)/, "the real read-only notice was displaced");
   assert.doesNotMatch(a.html, /Changes are \{\{writes\}\}/);
 });
+
+test("Origin check rollout: report mode logs and lets the call through, default mode refuses", async () => {
+  const { mcpEndpoint } = await import("../src/worker.js"); const { setLogSink } = await import("../src/redact.js");
+  const lines: string[] = []; setLogSink((l) => lines.push(l));
+  const e: any = { ICLOUD_EMAIL: "a@b.c", ICLOUD_APP_PASSWORD: "x", CONFIRM_SECRET: "c".repeat(32), GRANT_EPOCH: "e".repeat(30), TIMEZONE: "UTC" };
+  const req = () => new Request("https://holdt.example/mcp", { method: "POST", headers: { Origin: "https://evil.example", "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) });
+  assert.equal((await mcpEndpoint(req(), e, { epoch: e.GRANT_EPOCH })).status, 403);
+  assert.notEqual((await mcpEndpoint(req(), { ...e, ORIGIN_CHECK: "report" }, { epoch: e.GRANT_EPOCH })).status, 403);
+  assert.ok(lines.some((l) => /origin seen: foreign https:\/\/evil\.example/.test(l)));
+  setLogSink(() => {});
+});

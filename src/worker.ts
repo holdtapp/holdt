@@ -12,7 +12,7 @@ export { Guard } from "./guard.js";
 
 export interface Env {
   ICLOUD_EMAIL: string; ICLOUD_APP_PASSWORD: string; CONFIRM_SECRET: string; GRANT_EPOCH: string;
-  /** Optional comma-separated browser origins allowed to call /mcp. Requests without an Origin header (server-side clients) always pass. */ ALLOWED_ORIGINS?: string;
+  /** Optional comma-separated browser origins allowed to call /mcp. Requests without an Origin header (server-side clients) always pass. */ ALLOWED_ORIGINS?: string; /** "report" logs Origin headers without refusing (for the rollout check). Default: enforce. */ ORIGIN_CHECK?: string;
   APPROVAL_CODE_HASH?: string; APPROVAL_CODE_ISSUED?: string; /** Set only during a key rotation (see docs/key-rotation.md). */ CONFIRM_SECRET_PREVIOUS?: string;
   TIMEZONE?: string; WRITES_ENABLED?: string; CALENDAR_ALLOWLIST?: string; CALDAV_URL?: string;
   /** Off in v1: Apple's upgraded Reminders aren't reachable over CalDAV. */ REMINDERS_EXPERIMENTAL?: string;
@@ -42,7 +42,9 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   // MCP Streamable HTTP: servers MUST validate Origin (DNS rebinding). A browser on any other site is refused.
   const origin = req.headers.get("origin");
-  if (origin && origin !== new URL(req.url).origin && !(env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean).includes(origin)) return json({ error: "origin not allowed" }, 403);
+  // Rollout: ORIGIN_CHECK = "report" only logs what clients send (watch `npm run tail`), anything else enforces.
+  if (env.ORIGIN_CHECK === "report") { if (origin) log.info(`origin seen: ${originLabel(origin, req, env)}`); }
+  else if (origin && origin !== new URL(req.url).origin && !(env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean).includes(origin)) { log.warn(`origin refused: ${originLabel(origin, req, env)}`); return json({ error: "origin not allowed" }, 403); }
   const len = Number(req.headers.get("content-length") ?? 0); if (len > MAX_BODY) return json({ error: "request too large" }, 413);
   const headerVersion = req.headers.get("mcp-protocol-version");
   if (headerVersion && !SUPPORTED.includes(headerVersion)) return json({ jsonrpc: "2.0", id: null, error: { code: -32022, message: "Unsupported protocol version", data: { supported: SUPPORTED, requested: headerVersion.slice(0, 40) } } }, 400);
@@ -75,6 +77,11 @@ async function readCapped(req: Request, max: number): Promise<string | undefined
 /** Confirm tokens are bound to the grant epoch, so `--revoke-all` also voids every preview still in flight. */
 export const confirmKey = (env: Pick<Env, "CONFIRM_SECRET" | "GRANT_EPOCH">) => `${env.CONFIRM_SECRET}\n${env.GRANT_EPOCH}`;
 /** Spent confirm-token nonces live in KV for 15 minutes (tokens last 10), so a replay is refused across requests and isolates. */
+function originLabel(origin: string, req: Request, env: Env) {
+  if (origin === new URL(req.url).origin) return "same-origin";
+  if ((env.ALLOWED_ORIGINS ?? "").split(",").map((s) => s.trim()).includes(origin)) return `allowed ${origin.slice(0, 80)}`;
+  return `foreign ${origin.replace(/[^\w.:/-]/g, "").slice(0, 80)}`;
+}
 /** Spent tokens in the owner's Durable Object: truly single use across every isolate and region. */
 export function guardUsedStore(env: Pick<Env, "GUARD">) {
   const g = guardFor(env); if (!g) return undefined;
@@ -104,7 +111,9 @@ export function providerFor(origin: string, fetchImpl?: typeof fetch): OAuthProv
       // MCP 2026-07-28 prefers Client ID Metadata Documents over DCR. Active only with the global_fetch_strictly_public flag (wrangler.toml).
       clientIdMetadataDocumentEnabled: true,
       accessTokenTTL: 3600,
-      refreshTokenTTL: 30 * 86400,
+      // 90-day sliding window: a connection used at least once every 90 days never needs reconnecting. GRANT_EPOCH still cuts all off at once.
+      refreshTokenTTL: 90 * 86400,
+      refreshTokenIdleTTL: 90 * 86400,
       resourceMetadata: { resource: `${origin}/mcp`, authorization_servers: [origin] },
     } as any);
     providers.set(key, p);
