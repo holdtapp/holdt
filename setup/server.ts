@@ -94,10 +94,12 @@ export async function cliAction(flag: string, save: (n: string, v: string) => Pr
   }
   if (flag === "--add-device") {
     // A one-time enroll link. Only the token's SHA-256 goes to Cloudflare. The token itself is in the link's fragment.
-    const t = newEnrollToken();
-    await save("ENROLL_TOKEN_HASH", t.hash); await save("ENROLL_TOKEN_ISSUED", String(Date.now()));
+    const t = newEnrollToken(), ac = newApprovalCode(), now = String(Date.now());
+    await save("ENROLL_TOKEN_HASH", t.hash); await save("ENROLL_TOKEN_ISSUED", now);
+    // The link alone can't add a device: the page also asks for this code (or a passkey already on the server).
+    await save("APPROVAL_CODE_HASH", ac.hash); await save("APPROVAL_CODE_ISSUED", now);
     const base = (workerUrl ?? "https://<your-worker>.workers.dev").replace(/\/+$/, "");
-    out(`\n  Open this on the device you want to add (works once, for 15 minutes):\n\n    ${base}/enroll#${t.token}\n\n  One-tap connect also needs PASSKEYS = "on" in wrangler.toml [vars].${workerUrl ? "" : " Set WORKER_URL to print the full link."}\n`);
+    out(`\n  Open this on the device you want to add (works once, for 15 minutes):\n\n    ${base}/enroll#${t.token}\n\n  The page asks for this approval code. Type it there, never paste it into a chat:  ${ac.display}\n\n  One-tap connect also needs PASSKEYS = "on" in wrangler.toml [vars].${workerUrl ? "" : " Set WORKER_URL to print the full link."}\n`);
     return true;
   }
   if (flag === "--reset-passkeys") {

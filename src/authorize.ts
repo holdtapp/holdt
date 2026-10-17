@@ -5,7 +5,7 @@ import type { Env } from "./worker.js";
 import { registerEnvSecrets, SEC_HEADERS } from "./worker.js";
 import { log } from "./redact.js";
 import { guardFor } from "./guard.js";
-import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, LOGIN_SCRIPT, ENROLL_SCRIPT } from "./passkey.js";
+import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, loadPasskeys, deviceNotice, LOGIN_SCRIPT, ENROLL_SCRIPT } from "./passkey.js";
 
 const CODE_TTL_MS = 15 * 60_000, MAX_TRIES = 5;
 const esc = (v: string) => String(v).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -55,8 +55,8 @@ function page(title: string, body: string, status = 200, headers?: Headers, redi
   h.set("X-Frame-Options", "DENY");
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style><main><div class="card">${body}</div></main></html>`, { status, headers: h });
 }
-function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }) {
-  const local = d.redirectIsLoopback ? `<p class="warn">This sends access to an app on this computer. Continue only if you just started connecting from it.</p>` : "";
+function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }, notice?: string) {
+  const local = (notice ? `<p class="warn" role="status">${esc(notice)}</p>` : "") + (d.redirectIsLoopback ? `<p class="warn">This sends access to an app on this computer. Continue only if you just started connecting from it.</p>` : "");
   return `<h1>Connect ${esc(d.clientName || "an app")} to your iCloud Calendar?</h1>
 <p class="muted">${d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : "This app registered itself, so its name isn't verified."} Access goes to <strong>${esc(d.redirectHost || "the app")}</strong>.</p>${local}
 <p class="muted">It can read your calendars. Changes are ${esc(writes)}. It never deletes your events. It can only take back its own, on your yes. It never sends invitations.</p>
@@ -90,7 +90,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
       const pk = await loginOptions(env, url, consent.handle);
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle, writes, undefined, pk), 200, consent.headers, request.redirectUri, pk ? LOGIN_SCRIPT : "");
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle, writes, undefined, pk, await noticeFor(env)), 200, consent.headers, request.redirectUri, pk ? LOGIN_SCRIPT : "");
     }
     if (req.method !== "POST") return new Response(null, { status: 405, headers: SEC_HEADERS });
     const form = await req.formData();
@@ -111,7 +111,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       if (!viaPasskey && verdict.reason === "used") return page("Already approved", `<h1>You're already approved</h1><p class="muted">This code already connected Holdt. Go back to Grok Bot and check the connection. If it still asks to connect, run <code>npm run setup -- --new-code</code> and try once more.</p>`, 400);
       // A fresh challenge for the retry: the old one is spent, whether or not it verified.
       const pk = await loginOptions(env, url, handle);
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk, await noticeFor(env)), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
     if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri) || !clientListed(env, approved.request.clientId)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
@@ -127,10 +127,14 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
   }
 }
 
+async function noticeFor(env: Env) { try { return passkeysOn(env) ? deviceNotice(await loadPasskeys(env), env.TIMEZONE || "UTC") : undefined; } catch { return undefined; } }
 function enrollPage(env: Env): Response {
   if (!passkeysOn(env)) return page("Holdt", `<h1>One-tap connect is off</h1><p class="muted">Turn it on in the Worker's settings (PASSKEYS = on), then run <code>npm run setup -- --add-device</code>.</p>`, 404);
   return page("Holdt: Turn on one-tap connect", `<div id="card"><h1>Turn on one-tap connect</h1>
 <p class="muted">Save a passkey for this server on this device. After that, connecting takes Face ID instead of a code. Your other Apple devices get it through iCloud Keychain.</p>
+<label for="code">Approval code from your setup screen</label>
+<input id="code" inputmode="numeric" placeholder="1234-5678" maxlength="12" autocomplete="one-time-code">
+<p class="muted">Already have a Holdt passkey on another device? Leave this empty to confirm with it instead.</p>
 <button type="button" class="allow" id="go" style="width:100%">Save a passkey</button><p class="err" id="msg" role="status"></p></div>`, 200, undefined, "", ENROLL_SCRIPT);
 }
 

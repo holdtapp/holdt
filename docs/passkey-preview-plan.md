@@ -34,7 +34,7 @@ Setup, about 10 minutes (ESTIMATE):
 4. `WORKER_NAME=holdt-preview WORKER_URL=https://holdt-preview.<you>.workers.dev npm run setup`. Choose **read-only**. This writes the preview's own secrets, and a fresh app-specific password is better than reusing production's.
 
 The test, about 15 minutes (ESTIMATE):
-1. On the iPhone, open `npm run setup -- --add-device` (with the same WORKER_NAME and WORKER_URL) in Safari: Save a passkey, then Continue and Face ID. Expect "One-tap connect is on".
+1. Run `npm run setup -- --add-device` (with the same WORKER_NAME and WORKER_URL). Open the link it prints in Safari on the iPhone, type the approval code it prints (typed, never pasted into a chat), tap Save a passkey, then Continue and Face ID. Expect "One-tap connect is on", then a "New device added" line on the next consent page and in connection_status.
 2. In Grok Bot on the iPhone, add the custom connector `https://holdt-preview.<you>.workers.dev/mcp` and tap Connect.
 3. On the consent page, tap **Allow with Face ID** and glance. Expect the sheet to close and Grok Bot to say Connected. Ask "what's on my calendar tomorrow".
 4. Negative checks: tap Allow with Face ID, cancel the Face ID sheet, and expect the code field to open. Then enter a code from `npm run setup -- --new-code` and expect it to connect.

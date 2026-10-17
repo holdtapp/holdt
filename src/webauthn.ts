@@ -35,7 +35,7 @@ export function cbor(buf: Uint8Array): { value: any; end: number } {
   const value = item(); return { value, end: p };
 }
 
-export interface StoredCredential { id: string; jwk: JsonWebKey; alg: -7 | -257; signCount: number; createdAt: number; label?: string }
+export interface StoredCredential { id: string; jwk: JsonWebKey; alg: -7 | -257; signCount: number; createdAt: number; label?: string; via?: string }
 export interface Expect { challenge: Uint8Array; origin: string; rpId: string }
 type Flags = { up: boolean; uv: boolean; at: boolean };
 function parseAuthData(ad: Uint8Array) {

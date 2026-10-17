@@ -9,6 +9,7 @@ import { issue, verify, UsedStore, NO_SPEND } from "./confirm.js";
 import { guardFor } from "./guard.js";
 import { verifyRegistration, verifyAssertion, StoredCredential, WebAuthnError, b64u } from "./webauthn.js";
 import { log } from "./redact.js";
+import { checkCode } from "./authorize.js";
 
 const enc = new TextEncoder();
 export const ENROLL_TTL_MS = 15 * 60_000, CHALLENGE_TTL_MS = 5 * 60_000, MAX_PASSKEYS = 10;
@@ -63,12 +64,12 @@ function usedStore(env: Env): UsedStore {
   if (g) return { has: () => false, add: () => undefined, spend: (n, exp) => g.spend(`webauthn:${n}`, exp) };
   return { has: async (n) => !!(await env.OAUTH_KV.get(`webauthn-used:${n}`)), add: (n) => env.OAUTH_KV.put(`webauthn-used:${n}`, "1", { expirationTtl: 900 }) };
 }
-async function newChallenge(env: Env, purpose: "login" | "enroll", bind: string, now = Date.now()) {
+async function newChallenge(env: Env, purpose: "login" | "enroll" | "enroll_auth", bind: string, now = Date.now()) {
   const token = await issue(await challengeKey(env), `webauthn_${purpose}`, { bind }, CHALLENGE_TTL_MS, now);
   return { token, challenge: b64u(await sha(token)) };
 }
 /** Checks the signed challenge token and spends it. Returns the challenge bytes the browser must have signed. */
-async function takeChallenge(env: Env, purpose: "login" | "enroll", bind: string, token: string, now = Date.now()) {
+async function takeChallenge(env: Env, purpose: "login" | "enroll" | "enroll_auth", bind: string, token: string, now = Date.now()) {
   const key = await challengeKey(env), expired = "The Face ID request expired (5 minutes). Reload the page and try again.";
   // Check the binding before spending, so a challenge pasted into another request can't burn the real one.
   const peek = await verify<{ bind: string }>(key, String(token ?? ""), `webauthn_${purpose}`, NO_SPEND, now, expired);
@@ -125,6 +126,14 @@ async function spendEnrollToken(env: Env, now: number) {
   await env.OAUTH_KV.put(`enroll-used:${h}`, String(now), { expirationTtl: 86400 });
   return true;
 }
+/** "New device added <date>" for the consent page and connection_status, for passkeys added in the last 7 days. */
+export const NOTICE_DAYS = 7;
+export function deviceNotice(creds: StoredCredential[], tz: string, now = Date.now()): string | undefined {
+  const recent = creds.filter((c) => now - c.createdAt < NOTICE_DAYS * 86400_000).sort((a, b) => b.createdAt - a.createdAt);
+  if (!recent.length) return undefined;
+  const fmt = (ms: number) => { let z = tz; try { new Intl.DateTimeFormat("en-US", { timeZone: z }); } catch { z = "UTC"; } return new Intl.DateTimeFormat("en-US", { timeZone: z, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(ms); };
+  return recent.map((c) => `New device added ${fmt(c.createdAt)}${c.label ? ` (${c.label})` : ""}`).join(". ") + ". Not you? Run npm run setup -- --reset-passkeys.";
+}
 const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
 
 export async function enrollApi(req: Request, env: Env, now = Date.now()): Promise<Response> {
@@ -140,7 +149,9 @@ export async function enrollApi(req: Request, env: Env, now = Date.now()): Promi
   if (url.pathname === "/enroll/options") {
     if (creds.length >= MAX_PASSKEYS) return json({ ok: false, message: `This server already has ${MAX_PASSKEYS} passkeys. Run npm run setup -- --reset-passkeys to start over.` }, 400);
     const c = await newChallenge(env, "enroll", bind, now);
-    return json({ ok: true, challenge_token: c.token, publicKey: {
+    // Adding a device needs proof it's the owner: the current approval code, or a sign-in with a passkey already here.
+    const auth = creds.length ? await newChallenge(env, "enroll_auth", bind, now) : undefined;
+    return json({ ok: true, challenge_token: c.token, auth: auth ? { challenge_token: auth.token, challenge: auth.challenge, rpId: url.hostname, ids: creds.map((x) => x.id) } : undefined, publicKey: {
       rp: { id: url.hostname, name: "Holdt" }, user: { id: b64u(await sha(`holdt-owner:${url.hostname}`)), name: "Holdt owner", displayName: "Holdt (iCloud Calendar)" },
       challenge: c.challenge, pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }], timeout: 120000, attestation: "none",
       authenticatorSelection: { residentKey: "preferred", userVerification: "required" }, excludeCredentials: creds.map((x) => ({ type: "public-key", id: x.id })) } });
@@ -151,11 +162,27 @@ export async function enrollApi(req: Request, env: Env, now = Date.now()): Promi
       const cred = await verifyRegistration({ clientDataJSON: b.clientDataJSON, attestationObject: b.attestationObject }, { ...rp(url), challenge }, now);
       if (creds.some((c) => c.id === cred.id)) return json({ ok: false, message: "This device is already enrolled." }, 400);
       if (creds.length >= MAX_PASSKEYS) return json({ ok: false, message: `This server already has ${MAX_PASSKEYS} passkeys. Run npm run setup -- --reset-passkeys to start over.` }, 400);
+      // The link alone is never enough: whoever opens a leaked link still needs the owner's code or passkey.
+      let via: "approval code" | "existing passkey";
+      if (b.auth && typeof b.auth === "object") {
+        const old = creds.find((c) => safeEq(c.id, String(b.auth.id ?? "")));
+        if (!old) return json({ ok: false, message: "That passkey isn't enrolled here. Enter the approval code instead." }, 400);
+        const ac = await takeChallenge(env, "enroll_auth", bind, b.auth.challenge_token, now);
+        const { signCount } = await verifyAssertion(b.auth, old, { ...rp(url), challenge: ac });
+        if (!(await bumpPasskey(env, old, signCount))) throw new WebAuthnError("signature counter went backwards");
+        via = "existing passkey";
+      } else {
+        const v = await checkCode(env, String(b.code ?? ""), now);
+        if (!v.ok) { log.warn(`enroll refused: approval code ${v.reason}`); return json({ ok: false, field: "code", message: v.message }, 400); }
+        via = "approval code";
+      }
+      cred.via = via;
       if (!(await spendEnrollToken(env, now))) return json({ ok: false, message: "This enroll link was already used. Run npm run setup -- --add-device to add another device." }, 400);
       cred.label = typeof b.label === "string" ? b.label.replace(/[^\w .'-]/g, "").slice(0, 40) : undefined;
       const added = await addPasskey(env, cred);
       if (added !== "ok") return json({ ok: false, message: added === "dup" ? "This device is already enrolled." : `This server already has ${MAX_PASSKEYS} passkeys. Run npm run setup -- --reset-passkeys to start over.` }, 400);
-      log.info("passkey enrolled");
+      // Visible in `npm run tail`, on the next consent pages and in connection_status (deviceNotice).
+      log.info(`passkey enrolled: device "${cred.label || "unnamed"}" via ${via}, ${creds.length + 1} on this server`);
       return json({ ok: true, count: creds.length + 1 });
     } catch (e) {
       if (e instanceof WebAuthnError) { log.warn(`enroll refused: ${e.message.slice(0, 80)}`); return json({ ok: false, message: "Couldn't save the passkey. Reload this page and try again." }, 400); }
@@ -182,8 +209,12 @@ if(!t){btn.hidden=true;msg.textContent='Open the full link from npm run setup --
 else if(!window.PublicKeyCredential){btn.hidden=true;msg.textContent="This browser can't save passkeys. Open the link in Safari or Chrome.";}
 btn.addEventListener('click',async()=>{btn.disabled=true;msg.textContent='';try{
 const r=await post('/enroll/options',{token:t});if(!r.ok)throw new Error(r.message);
+const code=document.getElementById('code').value;let auth;
+if(!code.replace(/\D/g,'')){if(!r.auth)throw new Error('Enter the approval code from your setup screen.');
+const a=await navigator.credentials.get({publicKey:{challenge:b(r.auth.challenge),rpId:r.auth.rpId,allowCredentials:r.auth.ids.map(id=>({type:'public-key',id:b(id)})),userVerification:'required',timeout:120000}});
+auth={challenge_token:r.auth.challenge_token,id:a.id,clientDataJSON:u(a.response.clientDataJSON),authenticatorData:u(a.response.authenticatorData),signature:u(a.response.signature)};}
 const p=r.publicKey;p.challenge=b(p.challenge);p.user.id=b(p.user.id);p.excludeCredentials=p.excludeCredentials.map(x=>({type:x.type,id:b(x.id)}));
 const c=await navigator.credentials.create({publicKey:p});
-const d=await post('/enroll/finish',{token:t,challenge_token:r.challenge_token,clientDataJSON:u(c.response.clientDataJSON),attestationObject:u(c.response.attestationObject),label:navigator.platform||''});
+const d=await post('/enroll/finish',{token:t,code,auth,challenge_token:r.challenge_token,clientDataJSON:u(c.response.clientDataJSON),attestationObject:u(c.response.attestationObject),label:navigator.platform||''});
 if(!d.ok)throw new Error(d.message);document.getElementById('card').innerHTML='<h1>One-tap connect is on</h1><p class="muted">Next time you connect, tap Allow with Face ID. Your other Apple devices get this passkey through iCloud Keychain.</p>';
 }catch(e){btn.disabled=false;msg.textContent=e&&e.name==='NotAllowedError'?'Cancelled. Tap the button to try again.':(e&&e.message)||'That didn\\'t work. Try again.';}});`;
