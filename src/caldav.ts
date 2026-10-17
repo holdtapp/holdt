@@ -16,7 +16,7 @@ export class CalDavClient {
   private auth: string; private f: FetchLike; private home?: string; private origin?: string;
   constructor(private o: CalDavOptions) {
     this.auth = "Basic " + btoa(unescape(encodeURIComponent(`${o.username}:${o.password}`)));
-    this.f = o.fetch ?? (globalThis.fetch as unknown as FetchLike);
+    this.f = o.fetch ?? (((u: string, i: any) => globalThis.fetch(u, i)) as unknown as FetchLike);
   }
   private abs(href: string, base: string) { return new URL(href, base).toString(); }
 
@@ -29,6 +29,7 @@ export class CalDavClient {
       try {
         res = await withTimeout(this.f(url, { method, redirect: "manual", headers: { Authorization: this.auth, "Content-Type": "application/xml; charset=utf-8", "User-Agent": "icloud-mcp/0.1", ...headers }, body }), this.o.timeoutMs ?? 25000);
       } catch (e) {
+        log.warn(`caldav ${method} fetch failed: ${(e as any)?.name ?? "error"}: ${String((e as any)?.message ?? "").slice(0, 120)}`);
         if (!safe) throw new CalDavError("outcome_unknown", "The change may or may not have been saved (network problem). Re-check before retrying.");
         lastErr = new CalDavError("network", "Couldn't reach iCloud."); await sleep(backoff(attempt)); continue;
       }

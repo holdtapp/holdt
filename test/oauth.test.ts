@@ -75,7 +75,7 @@ test("approval code: single use, wrong-code countdown, lockout after 5, expiry a
   const a = await connect(); const w = await a.submit("1111-1111"); assert.equal(w.status, 400);
   const wh = await w.text(); assert.match(wh, /doesn&#39;t match|doesn't match/); assert.match(wh, /4 tries left/); assert.match(wh, /Connect Grok Bot/, "re-shown page still names the client (signed ctx)");
   assert.equal((await a.submit(CODE)).status, 302, "right code still works on the same page after a wrong try");
-  const b = await connect(); const used = await b.submit(CODE); assert.equal(used.status, 400); assert.match(await used.text(), /already used/);
+  const b = await connect(); const used = await b.submit(CODE); assert.equal(used.status, 400); assert.match(await used.text(), /already (used|approved)/);
 
   await freshEnv(); const c = await connect();
   for (let i = 0; i < 5; i++) await c.submit("0000-0000");

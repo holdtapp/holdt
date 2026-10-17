@@ -25,10 +25,13 @@ input[aria-invalid=true]{border-color:var(--red)}.err{color:var(--red);font-size
 .row{display:flex;gap:10px;margin-top:16px}button{flex:1;border:0;border-radius:10px;padding:12px;font:inherit;font-weight:600;cursor:pointer}
 .allow{background:var(--blue);color:#fff}.deny{background:transparent;color:var(--ink);border:1px solid var(--line)}button:focus-visible,input:focus-visible{outline:3px solid color-mix(in srgb,var(--blue) 45%,transparent);outline-offset:2px}`;
 
-function page(title: string, body: string, status = 200, headers?: Headers) {
+export function formActionFor(uri: string) {
+  try { const u = new URL(uri); return u.protocol === "https:" || u.protocol === "http:" ? u.origin : u.protocol; } catch { return ""; }
+}
+function page(title: string, body: string, status = 200, headers?: Headers, redirectUri = "") {
   const h = headers ?? new Headers();
   h.set("Content-Type", "text/html; charset=utf-8"); for (const [k, v] of Object.entries(SEC_HEADERS)) h.set(k, v);
-  h.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+  h.set("Content-Security-Policy", `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'${redirectUri && formActionFor(redirectUri) ? " " + formActionFor(redirectUri) : ""}; frame-ancestors 'none'; base-uri 'none'`);
   h.set("X-Frame-Options", "DENY");
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style><main><div class="card">${body}</div></main></html>`, { status, headers: h });
 }
@@ -59,8 +62,8 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       if (!redirectAllowed(request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1><p class="muted">It asked to send access somewhere this connector doesn't allow.</p>`, 400);
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
-      (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback });
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle).replace("{{writes}}", writes), 200, consent.headers);
+      (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle).replace("{{writes}}", writes), 200, consent.headers, request.redirectUri);
     }
     if (req.method !== "POST") return new Response(null, { status: 405, headers: SEC_HEADERS });
     const form = await req.formData();
@@ -75,7 +78,8 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       const ctxRaw = String(form.get("ctx") ?? "");
       const details: any = (await readCtx(env, ctxRaw)) ?? { clientName: "the app", redirectHost: "" };
       details.__ctx = ctxRaw;
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, verdict.message).replace("{{writes}}", writes), 400);
+      if (verdict.reason === "used") return page("Already approved", `<h1>You're already approved</h1><p class="muted">This code already connected Holdt. Go back to Grok Bot and check the connection. If it still asks to connect, run <code>npm run setup -- --new-code</code> and try once more.</p>`, 400);
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, verdict.message).replace("{{writes}}", writes), 400, undefined, details.redirectUri ?? "");
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
     if (!redirectAllowed(approved.request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
