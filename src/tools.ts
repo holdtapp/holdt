@@ -3,6 +3,7 @@ import { parseIcs, getProp, parseDate, expand, unescapeText, buildEvent, patchEv
 import { UserError } from "./errors.js";
 import { issue, verify, UsedStore } from "./confirm.js";
 import { log } from "./redact.js";
+import { Iv, merge, subtract, parseWorkingHours, workWindows } from "./free.js";
 
 export interface Config { timezone: string; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Where used confirm-token nonces are remembered. Defaults to this instance only; the Worker passes a KV-backed store. */ usedStore?: UsedStore; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
 export const REMINDER_TOOLS = new Set(["list_reminder_lists", "list_reminders", "prepare_add_reminder", "commit_add_reminder", "prepare_complete_reminder", "commit_complete_reminder"]);
@@ -40,6 +41,9 @@ export const TOOLS: ToolDef[] = [
   { name: "prepare_complete_reminder", title: "Preview completing a reminder", description: "Step 1 of 2 to mark a reminder done. Changes nothing. Returns a preview and confirm_token.", inputSchema: { type: "object", properties: { reminder_id: str("From list_reminders.") }, required: ["reminder_id"], additionalProperties: false }, annotations: { title: "Preview completing a reminder", ...PREP } },
   { name: "commit_complete_reminder", title: "Complete the previewed reminder", description: "Step 2 of 2. Marks the reminder done, after the user's yes.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_complete_reminder.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Complete the previewed reminder", ...COMMIT_CHANGE } },
 ];
+
+const FREE_TOOL: ToolDef = { name: "find_free_time", title: "Find free time", description: "Find open time across the user's calendars in their time zone. Repeating events count on every date they occur. All-day events and events marked Free in Apple Calendar don't block time unless all_day_blocks is true. Use working_hours to keep results inside the day, e.g. true for Mon to Fri 9:00 to 17:00. Window up to 62 days. Read-only.", inputSchema: { type: "object", properties: { from: str("Start. Same formats as list_events. Default: now."), to: str("End. A date alone includes that whole day. Default: 7 days after from."), calendar_ids: { type: "array", items: { type: "string" }, description: "Only count events in these calendars. Default: all." }, min_minutes: { type: "integer", minimum: 5, maximum: 1440, description: "Shortest gap worth returning. Default 30." }, working_hours: { description: "true for Mon to Fri 9:00 to 17:00, or { start: \"08:30\", end: \"18:00\", days: [\"mon\", \"tue\", ...] }. Default: the whole day.", oneOf: [{ type: "boolean" }, { type: "object", properties: { start: S, end: S, days: { type: "array", items: S } }, additionalProperties: false }] }, all_day_blocks: { type: "boolean", description: "Treat all-day events (trips, offsites) as busy. Default false." }, limit: { type: "integer", minimum: 1, maximum: 100, description: "Default 20." } }, additionalProperties: false }, outputSchema: obj({ timezone: S, from: S, to: S, free: { type: "array", items: obj({ start: S, end: S, minutes: I }, ["start", "end", "minutes"]) }, total_free_minutes: I, busy_blocks: I, truncated: B, note: S }, ["timezone", "from", "to", "free", "total_free_minutes", "busy_blocks", "truncated"]), annotations: { title: "Find free time", ...RO } };
+TOOLS.splice(TOOLS.findIndex((t) => t.name === "get_event") + 1, 0, FREE_TOOL);
 
 export { UserError };
 
@@ -121,6 +125,7 @@ export class Tools {
         const ev = this.master(r.ics); if (!ev) throw new UserError("That item isn't an event.");
         return this.normEvent(c, r, ev, undefined, true);
       }
+      case "find_free_time": return this.findFree(a);
       case "prepare_create_event": {
         this.requireWrites();
         const c = await this.col(a.calendar_id, "VEVENT");
@@ -282,7 +287,29 @@ export class Tools {
     return { event_id: this.itemId(c, r.href), calendar_id: c.id, calendar: c.name, title, start: fmtT(start), end: s.allDay ? fmtT(end - DAY) : fmtT(end), all_day: s.allDay, location, notes: (full ? notes : trunc(notes, 280)) || undefined, repeating: !!getProp(ev, "RRULE"), has_invitees: ev.props.some((p) => p.name === "ATTENDEE"), from_someone_else: fromOther || undefined, text_warning: warn, alerts: full ? ev.children.filter((x) => x.type === "VALARM").map((x) => alertText(getProp(x, "TRIGGER"), tz)).filter((x): x is string => !!x) : undefined };
   }
 
-  private async eventsBetween(from: number, to: number, ids?: string[], cap = 5000, maxDays = 366) {
+  /** Busy blocks (real UTC instants) in [from, to). Cancelled and Free (TRANSP:TRANSPARENT) events never block. All-day events block only when asked. */
+  async busy(from: number, to: number, o: { ids?: string[]; allDayBlocks?: boolean; skipHref?: string; maxDays?: number } = {}): Promise<{ iv: Iv[]; raw: Raw[] }> {
+    const raw: Raw[] = [];
+    await this.eventsBetween(from, to, o.ids, 5000, o.maxDays ?? 62, raw);
+    const keep = raw.filter((r) => r.blocks && (!r.allDay || o.allDayBlocks) && r.href !== o.skipHref);
+    return { iv: merge(keep.map((r) => [Math.max(r.start, from), Math.min(r.end, to)] as Iv)), raw: keep };
+  }
+
+  private async findFree(a: Args) {
+    const tz = this.cfg.timezone; const now = Date.now();
+    const from = this.edge(a.from, Math.ceil(now / 300000) * 300000, "start"), to = this.edge(a.to, from + 7 * DAY, "end");
+    if (to - from > 62 * DAY) throw new UserError("Please ask for 62 days or less at a time.");
+    const minMin = a.min_minutes === undefined ? 30 : Number(a.min_minutes);
+    if (!Number.isInteger(minMin) || minMin < 5 || minMin > 1440) throw new UserError("min_minutes must be a whole number from 5 to 1440.");
+    const wh = parseWorkingHours(a.working_hours);
+    const { iv } = await this.busy(from, to, { ids: a.calendar_ids, allDayBlocks: a.all_day_blocks === true });
+    const windows: Iv[] = wh ? workWindows(from, to, tz, wh) : [[from, to]];
+    const free = subtract(windows, iv).filter(([s, e]) => e - s >= minMin * 60000);
+    const limit = Math.max(1, Math.min(Number(a.limit) || 20, 100));
+    return { timezone: tz, from: isoInZone(from, tz), to: isoInZone(to, tz), free: free.slice(0, limit).map(([s, e]) => ({ start: isoInZone(s, tz), end: isoInZone(e, tz), minutes: Math.round((e - s) / 60000) })), total_free_minutes: Math.round(free.reduce((n, [s, e]) => n + e - s, 0) / 60000), busy_blocks: iv.length, truncated: free.length > limit, note: wh ? `Inside working hours ${wh.start} to ${wh.end}, ${wh.days.map((d) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]).join(" ")}.` : undefined };
+  }
+
+  private async eventsBetween(from: number, to: number, ids?: string[], cap = 5000, maxDays = 366, raw?: Raw[]) {
     if (!(to > from)) throw new UserError("The end must be after the start.");
     if (to - from > maxDays * DAY) throw new UserError(`Please ask for ${maxDays} days or less at a time.`);
     const tz = this.cfg.timezone;
@@ -305,11 +332,15 @@ export class Tools {
         const { occ, supported } = expand(s, e.utc - s.utc, getProp(ev, "RRULE")?.value, [...ex, ...ovIds], s.allDay ? fFrom : from, s.allDay ? fTo : to);
         if (!supported) out.push({ sort: sortKey(s, s.utc), ev: { ...this.normEvent(c, r, ev), repeating: true, note: "Repeats in a pattern this version can't expand. Showing the first date only. Check the Calendar app for the others." } });
         for (const o of occ) out.push({ sort: sortKey(s, o.start), ev: this.normEvent(c, r, ev, o) });
+        if (raw) { const b = blocks(ev); const real = (ms: number) => (s.allDay ? dayStartIn(ms, tz) : ms); for (const o of supported ? occ : [{ start: s.utc, end: e.utc }]) raw.push({ start: real(o.start), end: real(o.end), allDay: s.allDay, blocks: b, href: r.href }); }
       }
       for (const o of overrides) {
         const s = parseDate(getProp(o, "DTSTART"), tz); if (!s) continue; const e = endOf(o, s, tz);
         const [lo, hi] = s.allDay ? [fFrom, fTo] : [from, to];
-        if (s.utc < hi && Math.max(e.utc, s.utc + 1) > lo && !/CANCELLED/i.test(getProp(o, "STATUS")?.value ?? "")) out.push({ sort: sortKey(s, s.utc), ev: { ...this.normEvent(c, r, o), repeating: true } });
+        if (s.utc < hi && Math.max(e.utc, s.utc + 1) > lo && !/CANCELLED/i.test(getProp(o, "STATUS")?.value ?? "")) {
+          out.push({ sort: sortKey(s, s.utc), ev: { ...this.normEvent(c, r, o), repeating: true } });
+          if (raw) raw.push({ start: s.allDay ? dayStartIn(s.utc, tz) : s.utc, end: s.allDay ? dayStartIn(e.utc, tz) : e.utc, allDay: s.allDay, blocks: blocks(o), href: r.href });
+        }
       }
       if (out.length > cap) break;
     }
@@ -334,6 +365,9 @@ export class Tools {
   }
 }
 
+interface Raw { start: number; end: number; allDay: boolean; blocks: boolean; href: string }
+/** Whether an event takes up time: not cancelled and not marked Free (TRANSP:TRANSPARENT). */
+const blocks = (ev: Component) => !/CANCELLED/i.test(getProp(ev, "STATUS")?.value ?? "") && !/TRANSPARENT/i.test(getProp(ev, "TRANSP")?.value ?? "");
 function endOf(ev: Component, s: ITime, tz: string): ITime {
   const e = parseDate(getProp(ev, "DTEND"), tz); if (e) return e;
   const d = getProp(ev, "DURATION")?.value; if (d) return { ...s, utc: s.utc + durMs(d) };

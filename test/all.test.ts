@@ -2,7 +2,7 @@ import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { MockCalDav } from "./mock-caldav.js";
 import { CalDavClient } from "../src/caldav.js";
-import { Tools } from "../src/tools.js";
+import { Tools, TOOLS, REMINDER_TOOLS } from "../src/tools.js";
 import { mcpEndpoint } from "../src/worker.js";
 const handle = (req: Request, e: any, f?: typeof fetch) => mcpEndpoint(req, e, e.__props === undefined ? { epoch: e.GRANT_EPOCH } : e.__props, f);
 import { setLogSink, registerSecret, redact } from "../src/redact.js";
@@ -169,10 +169,10 @@ test("no reminder lists gives an honest explanation", async () => {
 test("v1 default: reminder tools are hidden and refused with a plain reason", async () => {
   const list: any = await (await handle(rpc("tools/list", {}), env(false))).json();
   const names = list.result.tools.map((t: any) => t.name);
-  assert.ok(!names.some((n: string) => /reminder/.test(n))); assert.equal(names.length, 9);
+  assert.ok(!names.some((n: string) => /reminder/.test(n))); assert.equal(names.length, TOOLS.length - REMINDER_TOOLS.size);
   const call: any = await (await handle(rpc("tools/call", { name: "list_reminders", arguments: {} }), env(false))).json(); assert.equal(call.error.code, -32602);
   await assert.rejects(tools(true, { reminders: false }).call("list_reminders", {}), /aren't included in this version/);
-  const on: any = await (await handle(rpc("tools/list", {}), { ...env(false), REMINDERS_EXPERIMENTAL: "true" })).json(); assert.equal(on.result.tools.length, 15);
+  const on: any = await (await handle(rpc("tools/list", {}), { ...env(false), REMINDERS_EXPERIMENTAL: "true" })).json(); assert.equal(on.result.tools.length, TOOLS.length);
 });
 
 test("calendar allowlist hides other calendars", async () => {

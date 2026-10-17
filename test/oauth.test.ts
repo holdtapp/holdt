@@ -6,6 +6,7 @@ import { MockKV } from "./kv-mock.js";
 import { providerFor } from "../src/worker.js";
 import { sha256Hex, redirectAllowed } from "../src/authorize.js";
 import { setLogSink } from "../src/redact.js";
+import { TOOLS, REMINDER_TOOLS } from "../src/tools.js";
 
 const USER = "owner@example.com", PASS = "wxyz-abcd-efgh-ijkl", CODE = "48291376";
 const ORIGIN = "http://localhost:8787", CB = "cursor://anysphere.cursor-mcp/oauth/callback";
@@ -65,7 +66,7 @@ test("full flow: register with the legacy cursor:// callback, approve with the o
   const ok = await c.submit("4829-1376"); assert.equal(ok.status, 302);
   const loc = ok.headers.get("location")!; assert.ok(loc.startsWith(CB + "?"), loc);
   const tok = await exchange(c, loc); assert.ok(tok.access_token && tok.refresh_token); assert.equal(tok.token_type.toLowerCase(), "bearer");
-  const list: any = await (await mcp(tok.access_token)).json(); assert.equal(list.result.tools.length, 9);
+  const list: any = await (await mcp(tok.access_token)).json(); assert.equal(list.result.tools.length, TOOLS.length - REMINDER_TOOLS.size);
   const evs: any = await (await mcp(tok.access_token, "tools/call", { name: "list_calendars", arguments: {} })).json();
   assert.deepEqual(evs.result.structuredContent.calendars.map((x: any) => x.name), ["Home", "Work", "US Holidays"]);
 });
