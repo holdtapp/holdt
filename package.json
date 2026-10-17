@@ -10,12 +10,16 @@
     "typecheck": "tsc --noEmit -p .",
     "prove": "node scripts/prove-attacks.mjs",
     "setup": "tsx setup/server.ts",
-    "probe:reminders": "tsx scripts/reminders-probe.ts"
+    "probe:reminders": "tsx scripts/reminders-probe.ts",
+    "deploy": "wrangler deploy",
+    "cf:login": "wrangler login",
+    "tail": "wrangler tail"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "wrangler": "3.114.17"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.3"

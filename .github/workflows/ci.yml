@@ -5,12 +5,15 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Actions pinned by commit SHA (a tag can be moved). Dependabot proposes updates.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: npm }
-      - run: npm ci
+      - run: npm ci --ignore-scripts
+      - run: npm audit signatures
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run typecheck
       - run: npm test
-      # Every protection must be load-bearing: switching it off must let its attack through.
       - run: npm run prove
       - run: git diff --exit-code -- src test

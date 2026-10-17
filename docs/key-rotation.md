@@ -11,9 +11,9 @@ Holdt has three kinds of secret material. None of them is ever printed, logged o
 
 ## Zero-downtime CONFIRM_SECRET rotation
 1. Copy the current value into `CONFIRM_SECRET_PREVIOUS`. You can't read a Cloudflare secret back, so keep the value from your password manager. If you don't have it, skip to step 4: in-flight previews (10 minutes) and revert tokens (7 days) just stop working, and `list_changes` issues new revert tokens.
-2. Put a new random value (32 bytes, base64url) in `CONFIRM_SECRET`, using `npx wrangler secret put CONFIRM_SECRET` with stdin.
+2. Put a new random value (32 bytes, base64url) in `CONFIRM_SECRET`, using `npx --no-install wrangler secret put CONFIRM_SECRET` with stdin.
 3. Wait 7 days, the longest token lifetime (revert tokens). New tokens are signed only with the new key. Old ones still verify.
-4. Delete `CONFIRM_SECRET_PREVIOUS` with `npx wrangler secret delete CONFIRM_SECRET_PREVIOUS`.
+4. Delete `CONFIRM_SECRET_PREVIOUS` with `npx --no-install wrangler secret delete CONFIRM_SECRET_PREVIOUS`.
 
 Verification tries at most 3 keys, current first. Issuing only ever uses the current key.
 

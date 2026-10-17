@@ -10,6 +10,8 @@ import { CalDavClient, CalDavError } from "../src/caldav.js";
 import { normalizeAppPassword, normalizeEmail, explainFailure } from "./validate.js";
 import { registerSecret, redact } from "../src/redact.js";
 import { createHash, randomInt, pbkdf2Sync } from "node:crypto";
+/** The exact wrangler pinned in package.json (never whatever npx would fetch today), since it runs with your Cloudflare login. */
+const WRANGLER = fileURLToPath(new URL(`../node_modules/.bin/wrangler${process.platform === "win32" ? ".cmd" : ""}`, import.meta.url));
 
 /** 8-digit one-time approval code, shown as 1234-5678. Only its salted hash is stored. */
 /** 8-digit code. Only a salted PBKDF2 hash goes to Cloudflare (20,000 rounds keeps the Worker check near 4 ms of CPU). */
@@ -20,7 +22,7 @@ export interface SetupDeps { caldavUrl: string; saveSecret: (name: string, value
 
 export function wranglerSaver(workerName: string) {
   return (name: string, value: string) => new Promise<void>((resolve, reject) => {
-    const p = spawn("npx", ["wrangler", "secret", "put", name, "--name", workerName], { stdio: ["pipe", "ignore", "pipe"] });
+    const p = spawn(WRANGLER, ["secret", "put", name, "--name", workerName], { stdio: ["pipe", "ignore", "pipe"] });
     let err = ""; p.stderr.on("data", (d) => (err += d));
     p.on("close", (c) => (c === 0 ? resolve() : reject(new Error(`wrangler exited ${c}: ${redact(err).slice(0, 300)}`))));
     p.stdin.end(value);
@@ -70,7 +72,7 @@ export function createSetupServer(deps: SetupDeps) {
         await deps.saveSecret("WRITES_ENABLED", body.allowChanges === true ? "true" : "false");
         await deps.saveSecret("APPROVAL_CODE_HASH", ac.hash);
         await deps.saveSecret("APPROVAL_CODE_ISSUED", String(Date.now()));
-      } catch (err) { console.error(redact(err)); return send(200, { ok: false, message: "Couldn't save to Cloudflare. Make sure you ran `npx wrangler login` and `npx wrangler deploy` first, then press Save again." }); }
+      } catch (err) { console.error(redact(err)); return send(200, { ok: false, message: "Couldn't save to Cloudflare. Make sure you ran `npm run cf:login` and `npm run deploy` first, then press Save again." }); }
       lastGood = null; // forget the password in this process
       const mcpUrl = deps.workerUrl ? `${deps.workerUrl.replace(/\/+$/, "")}/mcp` : undefined;
       return send(200, { ok: true, mcpUrl, approvalCode: ac.display, writesEnabled: body.allowChanges === true });
