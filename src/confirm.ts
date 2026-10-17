@@ -17,7 +17,9 @@ export async function issue(secret: string, action: string, payload: unknown, tt
 }
 /** Remembers which confirm tokens were already spent. A Set works in one process. The Worker passes a KV-backed store. */
 export interface UsedStore { has(nonce: string): boolean | Promise<boolean>; add(nonce: string): unknown }
-export async function verify<T = unknown>(secret: string, token: string, action: string, used: UsedStore, now = Date.now()): Promise<{ ok: true; payload: T } | { ok: false; reason: string }> {
+/** For tokens that may be shown more than once (a revert token is checked at prepare and again at commit). Never use it for a commit. */
+export const NO_SPEND: UsedStore = { has: () => false, add: () => undefined };
+export async function verify<T = unknown>(secret: string, token: string, action: string, used: UsedStore, now = Date.now(), expiredMsg = "That preview expired (10 minutes). Ask for a fresh one."): Promise<{ ok: true; payload: T } | { ok: false; reason: string }> {
   const [body, sig] = (typeof token === "string" ? token : "").split(".");
   if (!body || !sig) return { ok: false, reason: "That confirmation code is missing or damaged. Ask for a fresh preview." };
   let valid = false;
@@ -25,7 +27,7 @@ export async function verify<T = unknown>(secret: string, token: string, action:
   if (!valid) return { ok: false, reason: "That confirmation code isn't valid. Ask for a fresh preview." };
   let t: any; try { t = JSON.parse(new TextDecoder().decode(fromB64u(body))); } catch { return { ok: false, reason: "That confirmation code is damaged. Ask for a fresh preview." }; }
   if (t.a !== action) return { ok: false, reason: "That confirmation was for a different kind of change." };
-  if (t.e < now) return { ok: false, reason: "That preview expired (10 minutes). Ask for a fresh one." };
+  if (t.e < now) return { ok: false, reason: expiredMsg };
   if (t.h !== (await digest(canonical(t.p)))) return { ok: false, reason: "The change doesn't match what you approved. Ask for a fresh preview." };
   if (await used.has(t.n)) return { ok: false, reason: "That change was already made. Nothing was done twice." };
   await used.add(t.n);

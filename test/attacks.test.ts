@@ -12,6 +12,7 @@ import { Tools } from "../src/tools.js";
 import { providerFor, kvUsedStore } from "../src/worker.js";
 import { sha256Hex, redirectAllowed } from "../src/authorize.js";
 import { issue, canonical } from "../src/confirm.js";
+import { ownerKey, newId } from "../src/journal.js";
 import { setLogSink } from "../src/redact.js";
 
 const USER = "victim@example.com", PASS = "mnop-qrst-uvwx-yzab", CODE = "73019264", TZ = "America/Denver";
@@ -224,4 +225,57 @@ test("ATTACK D2: crafted event_id sends the iCloud password to another server", 
   const t = tools(); const home = await calId(t, "Home");
   await assert.rejects(t.call("get_event", { event_id: idFor(home, `${evilBase}123456789/calendars/home/x.ics`) }));
   assert.equal(stolen.length, 0, "the attacker's server saw no request");
+});
+
+// ---------- undo (E) ----------
+// Undo is the only path that can ever remove an event. These attacks try to aim it at the wrong thing.
+const ukv = () => new MockKV();
+const utools = (k: MockKV, o: { owner?: string; now?: () => number } = {}) => new Tools(dav(), { timezone: TZ, writesEnabled: true, confirmSecret: SECRET, usedStore: kvUsedStore(k), journal: k as any, owner: o.owner ?? USER, now: o.now });
+const deletes = () => cal.requests.filter((r) => r.method === "DELETE");
+async function holdtAdds(k: MockKV, owner = USER) {
+  const t = utools(k, { owner }); const p: any = await t.call("prepare_create_event", { calendar_id: await calId(t, "Home"), title: "Holdt-made", start: "2026-11-03T12:00" });
+  return (await t.call("commit_create_event", { confirm_token: p.confirm_token })) as any;
+}
+
+test("ATTACK E1: forge a revert token to undo a change (signed with a guessed key)", async () => {
+  const k = ukv(); await holdtAdds(k);
+  const [key] = (await k.list({ prefix: "chg:" })).keys; const id = key!.name.split(":")[2]!;
+  const forged = await issue("guessed-" + "k".repeat(40), "revert", { o: await ownerKey(USER), id }, 86400_000);
+  await assert.rejects(utools(k).call("prepare_undo", { revert_token: forged }), /isn't valid/);
+  await assert.rejects(utools(k).call("prepare_undo", { revert_token: "not.a-token" }), /isn't valid|damaged/);
+  assert.equal(deletes().length, 0);
+});
+
+test("ATTACK E2: replay a used undo to write twice", async () => {
+  const k = ukv(); const t = utools(k); const r: any = await t.call("list_events", { from: "2026-10-20", to: "2026-10-20" });
+  const p: any = await t.call("prepare_update_event", { event_id: r.events[0].event_id, notes: "changed" });
+  const c: any = await utools(k).call("commit_update_event", { confirm_token: p.confirm_token });
+  const u: any = await utools(k).call("prepare_undo", { revert_token: c.revert_token });
+  await utools(k).call("commit_undo", { confirm_token: u.confirm_token });
+  await assert.rejects(utools(k).call("commit_undo", { confirm_token: u.confirm_token }), /already|changed after/);
+  assert.equal(puts().length, 2, "one edit and one undo, nothing more");
+});
+
+test("ATTACK E3: use a revert token after the 7-day undo window", async () => {
+  const k = ukv(); const id = (await utools(k).call("list_events", { from: "2026-10-20", to: "2026-10-20" }) as any).events[0].event_id;
+  const p: any = await utools(k).call("prepare_update_event", { event_id: id, notes: "x" });
+  const c: any = await utools(k).call("commit_update_event", { confirm_token: p.confirm_token });
+  await assert.rejects(utools(k, { now: () => Date.now() + 8 * 86400_000 }).call("prepare_undo", { revert_token: c.revert_token }), /window has closed/);
+});
+
+test("ATTACK E4: another account spends this account's revert token", async () => {
+  const k = ukv(); const c = await holdtAdds(k, USER);
+  const mallory = utools(k, { owner: "mallory@evil.example" });
+  await assert.rejects(mallory.call("prepare_undo", { revert_token: c.revert_token }), /different account|no record/);
+  assert.equal(deletes().length, 0);
+});
+
+test("ATTACK E5: aim undo at an event Holdt didn't add (a corrupted or forged log entry)", async () => {
+  const k = ukv(); const t = utools(k); const o = await ownerKey(USER), now = Date.now(), id = newId(now);
+  const href = [...cal.items.keys()].find((x) => x.endsWith("mine.ics"))!; const etag = `"${cal.items.get(href)!.etag}"`;
+  await k.put(`chg:${o}:${id}`, JSON.stringify({ id, at: now, action: "create", cid: await calId(t, "Home"), href: cal.base.replace(/\/$/, "") + href, uid: "mine-1", title: "Dentist", afterEtag: etag }));
+  const rt = await issue(SECRET, "revert", { o, id }, 86400_000);
+  let removed = false;
+  try { const p: any = await t.call("prepare_undo", { revert_token: rt }); await t.call("commit_undo", { confirm_token: p.confirm_token }); removed = true; } catch (e) { assert.match(String(e), /only removes events it added itself/); }
+  assert.equal(removed, false); assert.ok(cal.items.has(href), "the user's own event is still there"); assert.equal(deletes().length, 0);
 });

@@ -30,12 +30,19 @@ const ROWS = [
   { id: "D1", attack: "Crafted event_id reads a calendar outside the allowlist", protection: "event_id path must sit inside its calendar", patches: [M("src/tools.ts", "try { ok = new URL(href).pathname.startsWith(new URL(c.href).pathname); }", "try { ok = true; }")], breaks: ["D1"] },
   { id: "D2 layer 1", attack: "Crafted event_id sends the iCloud password to another server", protection: "Path check only (origin pinning still on)", layered: true, patches: [M("src/tools.ts", "try { ok = new URL(href).pathname.startsWith(new URL(c.href).pathname); }", "try { ok = true; }")], holds: ["D2"] },
   { id: "D2 layers 1+2+3", attack: "Crafted event_id sends the iCloud password to another server", protection: "Path check AND origin pinning AND trusted-host check", patches: [M("src/tools.ts", "try { ok = new URL(href).pathname.startsWith(new URL(c.href).pathname); }", "try { ok = true; }"), M("src/caldav.ts", "private assertSameOrigin(href: string) {", "private assertSameOrigin(href: string) { return;"), M("src/caldav.ts", "private assertTrustedHost(url: string) {", "private assertTrustedHost(url: string) { return;")], breaks: ["D2"] },
+  { id: "E1", attack: "Forge a revert token to undo a change", protection: "HMAC signature on revert_token", patches: [M("src/confirm.ts", "if (!valid) return", "if (false) return")], breaks: ["E1"] },
+  { id: "E2 layer 1", attack: "Replay a used undo to write twice", protection: "Nonce store only (undone flag and ETag still on)", layered: true, patches: [M("src/confirm.ts", "if (await used.has(t.n)) return", "if (false) return")], holds: ["E2"] },
+  { id: "E2 layers 1+2+3", attack: "Replay a used undo to write twice", protection: "Nonce store AND undone flag AND ETag precondition", patches: [M("src/confirm.ts", "if (await used.has(t.n)) return", "if (false) return"), M("src/tools.ts", "if (ch.undone) throw new UserError(\"That change was already taken back. Nothing was done twice.\")", "if (false) throw new UserError(\"\")"), M("src/tools.ts", "if (r.etag !== v.payload.etag) throw", "if (false) throw")], breaks: ["E2"] },
+  { id: "E3", attack: "Use a revert token after the 7-day window", protection: "Token expiry", patches: [M("src/confirm.ts", "if (t.e < now) return", "if (false) return")], breaks: ["E3"] },
+  { id: "E4 layer 1", attack: "Another account spends this account's revert token", protection: "Owner check on the token only (log is still per-owner)", layered: true, patches: [M("src/tools.ts", "private assertOwner(tokenOwner: string, me: string) {", "private assertOwner(tokenOwner: string, me: string) { return;")], holds: ["E4"] },
+  { id: "E4 layers 1+2", attack: "Another account spends this account's revert token", protection: "Owner check on the token AND per-owner change log", patches: [M("src/tools.ts", "private assertOwner(tokenOwner: string, me: string) {", "private assertOwner(tokenOwner: string, me: string) { return;"), M("src/journal.ts", "if (owner !== this.owner || ", "if (")], breaks: ["E4"] },
+  { id: "E5", attack: "Aim undo at an event Holdt didn't add (corrupted or forged log entry)", protection: "Own-create check: Holdt's UID record from the last 24 hours", patches: [M("src/tools.ts", "if (uid !== ch.uid || !(await j.isOwnRecentCreate(ch.uid, this.now()))) throw", "if (false) throw")], breaks: ["E5"] },
 ];
 const NOT_TOGGLED = [
   ["A3", "Replay an OAuth authorization code", "@cloudflare/workers-oauth-provider (single-use codes). Third-party code, not patched here. Attack refused."],
   ["A4 swap", "Swap redirect_uri to an unregistered URL", "Library exact-match on registered redirect URIs. Attack refused for 5 variants."],
   ["A6 none", "Call /mcp with no token or a made-up token", "Library bearer validation. 401 every time."],
-  ["C5", "Call a delete or invite tool", "Architecture: no such tool exists, so there is nothing to switch off."],
+  ["C5", "Call a delete or invite tool", "Architecture: no such tool exists, so there is nothing to switch off. The only removal path is commit_undo for an event Holdt added in the last 24 hours (rows E1 to E5)."],
 ];
 
 function run(dir, pattern) {

@@ -62,7 +62,7 @@ export class MockCalDav {
       if (req.headers["if-match"] && (!it || req.headers["if-match"] !== `"${it.etag}"`)) return send(412);
       const n = { ics: body, etag: this.etagSeq++ }; this.items.set(p, n); return send(it ? 204 : 201, "", { ETag: `"${n.etag}"` });
     }
-    if (req.method === "DELETE") return send(403);
+    if (req.method === "DELETE") { if (!it) return send(404); if (!req.headers["if-match"] || req.headers["if-match"] !== `"${it.etag}"`) return send(412); this.items.delete(p); return send(204); }
     return send(405);
   }
 }

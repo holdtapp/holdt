@@ -217,7 +217,7 @@ test("mcp endpoint: revoked grants refused, MCP handshake and tool annotations",
   assert.ok(!names.some((n: string) => /delete|invite/.test(n)), "no delete or invite tools in v1");
   for (const t of list.result.tools) {
     if (t.name.startsWith("commit_")) assert.equal(t.annotations.readOnlyHint, false); else assert.equal(t.annotations.readOnlyHint, true, t.name);
-    assert.equal(t.annotations.destructiveHint, /^commit_(update_event|complete_reminder)$/.test(t.name), t.name);
+    assert.equal(t.annotations.destructiveHint, /^commit_(update_event|complete_reminder|undo)$/.test(t.name), t.name);
     assert.equal(t.title, t.annotations.title, "top-level title for 2025-06-18+ clients");
   }
   const unconfigured = await handle(rpc("tools/list"), { ...env(false), ICLOUD_APP_PASSWORD: "" }); assert.equal(unconfigured.status, 503);

@@ -40,7 +40,7 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
   let body: any; try { body = await req.json(); } catch { return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400); }
   const reminders = env.REMINDERS_EXPERIMENTAL === "true";
   const makeTools = () => new Tools(new CalDavClient({ baseUrl: env.CALDAV_URL ?? "https://caldav.icloud.com/", username: env.ICLOUD_EMAIL, password: env.ICLOUD_APP_PASSWORD, fetch: (fetchImpl ?? ((u: any, i: any) => fetch(u, i))) as any }), {
-    timezone: env.TIMEZONE || "UTC", writesEnabled: env.WRITES_ENABLED === "true", confirmSecret: env.CONFIRM_SECRET, remindersExperimental: reminders, usedStore: kvUsedStore(env.OAUTH_KV),
+    timezone: env.TIMEZONE || "UTC", writesEnabled: env.WRITES_ENABLED === "true", confirmSecret: env.CONFIRM_SECRET, remindersExperimental: reminders, usedStore: kvUsedStore(env.OAUTH_KV), journal: env.OAUTH_KV, owner: env.ICLOUD_EMAIL,
     calendarAllowlist: env.CALENDAR_ALLOWLIST ? env.CALENDAR_ALLOWLIST.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
   const msgs = Array.isArray(body) ? body : [body];
   if (msgs.length > 20) return json({ error: "batch too large" }, 413);

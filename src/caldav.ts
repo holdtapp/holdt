@@ -134,6 +134,13 @@ export class CalDavClient {
     const r = await this.req("PUT", href, ics, h, false);
     return { etag: r.headers.get("etag") ?? "" };
   }
+  /** Remove one resource, only if it is still exactly the version we checked (If-Match). Never retried.
+   * Only Holdt's undo calls this, for an event Holdt itself added in the last 24 hours. No tool exposes a general delete. */
+  async deleteIfMatch(href: string, etag: string): Promise<void> {
+    this.assertSameOrigin(href);
+    if (!etag) throw new CalDavError("conflict", "Can't confirm the event is unchanged, so nothing was removed.");
+    await this.req("DELETE", href, undefined, { "If-Match": etag }, false);
+  }
   /** Credentials only ever go to the configured host or Apple's *.icloud.com partition hosts, over HTTPS (http allowed only for localhost tests). */
   private assertTrustedHost(url: string) {
     const u = new URL(url), b = new URL(this.o.baseUrl);
