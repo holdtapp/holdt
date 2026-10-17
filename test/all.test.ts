@@ -113,7 +113,8 @@ test("create validates input with plain-English errors", async () => {
   const t = tools();
   await assert.rejects(t.call("prepare_create_event", { calendar_id: "nope", title: "x", start: "2026-11-01" }), /list_calendars/);
   await assert.rejects(t.call("prepare_create_event", { calendar_id: "holidays", title: "x", start: "2026-11-01" }), /read-only/);
-  await assert.rejects(t.call("prepare_create_event", { calendar_id: "home", title: "x", start: "next tuesday" }), /Couldn't read the time/);
+  await assert.rejects(t.call("prepare_create_event", { calendar_id: "home", title: "x", start: "whenever suits" }), /Couldn't read the time "whenever suits".*next friday 3pm/);
+  await assert.rejects(t.call("prepare_create_event", { calendar_id: "home", title: "x", start: "next week" }), /several days/);
   await assert.rejects(t.call("prepare_create_event", { calendar_id: "home", title: "x", start: "2026-11-01T10:00", end: "2026-11-01T09:00" }), /after the start/);
   const allDay: any = await t.call("prepare_create_event", { calendar_id: "home", title: "Trip", start: "2026-12-20", end: "2026-12-22", repeat: { every: "year", count: 3 } });
   assert.match(allDay.preview, /Sun, Dec 20, 2026 to Tue, Dec 22, 2026/); assert.match(allDay.preview, /every year, 3 times/);

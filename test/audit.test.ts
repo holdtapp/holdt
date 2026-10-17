@@ -115,7 +115,7 @@ test("default fetch works when the runtime rejects an unbound/rebound fetch (Wor
 // ---------- (d) errors the model can act on ----------
 test("bad input gets a specific, fixable message instead of 'Something went wrong'", async () => {
   const call = async (name: string, args: unknown) => ((await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }, () => tools())) as any).result;
-  const a = await call("list_events", { from: "next tuesday" }); assert.equal(a.isError, true); assert.match(a.content[0].text, /Couldn't read the time "next tuesday"/);
+  const a = await call("list_events", { from: "whenever suits" }); assert.equal(a.isError, true); assert.match(a.content[0].text, /Couldn't read the time "whenever suits"/);
   const b = await call("list_events", { start: "2026-10-17" }); assert.match(b.content[0].text, /Unknown argument: start\. Allowed: from, to/);
   const c = await call("search_events", {}); assert.match(c.content[0].text, /Missing required argument: query/);
   const d = await call("list_events", { limit: 5000 }); assert.match(d.content[0].text, /limit must be between 1 and 200/);

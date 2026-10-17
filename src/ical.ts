@@ -48,9 +48,13 @@ export function zoneOffset(utcMs: number, tz: string): number {
 /** Convert wall-clock time in tz to UTC ms (handles DST gaps by shifting forward). */
 export function wallToUtc(y: number, mo: number, d: number, h: number, mi: number, s: number, tz: string): number {
   const guess = Date.UTC(y, mo - 1, d, h, mi, s);
-  let off = zoneOffset(guess, tz); let t = guess - off;
-  const off2 = zoneOffset(t, tz); if (off2 !== off) t = guess - off2;
-  return t;
+  const t1 = guess - zoneOffset(guess, tz), t2 = guess - zoneOffset(t1, tz);
+  if (t1 === t2) return t1;
+  const fits = (t: number) => t + zoneOffset(t, tz) === guess;
+  // Fall back (a wall time that happens twice): the first one. Spring forward (a wall time that never happens): an hour later.
+  if (fits(t1) && fits(t2)) return Math.min(t1, t2);
+  if (fits(t1)) return t1; if (fits(t2)) return t2;
+  return Math.max(t1, t2);
 }
 export function isValidZone(tz: string) { try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return true; } catch { return false; } }
 

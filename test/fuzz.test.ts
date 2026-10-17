@@ -33,6 +33,7 @@ async function bases(): Promise<Record<string, Record<string, unknown>>> {
     list_events: { from: "2026-10-26", to: "2026-10-27", calendar_ids: ["home"], limit: 5 },
     search_events: { query: "Standup", from: "2026-10-01", to: "2026-11-30", limit: 5 },
     get_event: { event_id: ev.events[0].event_id },
+    resolve_dates: { phrases: ["next friday 3pm"] },
     find_free_time: { from: "2026-10-26", to: "2026-10-27", calendar_ids: ["home"], min_minutes: 30, working_hours: { start: "09:00", end: "17:00", days: ["mon"] } },
     prepare_create_event: { calendar_id: "home", title: "Fuzz", start: "2026-11-03T12:00", end: "2026-11-03T13:00", location: "Here", notes: "Notes", alerts_minutes_before: [10], repeat: { every: "week", interval: 1, count: 3 } },
     prepare_update_event: { event_id: ev.events[0].event_id, title: "Fuzz", location: "There", notes: "N" },
