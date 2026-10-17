@@ -129,6 +129,16 @@ test("ATTACK A7: oversized body, oversized batch, malformed JSON", async () => {
   const bad = await mcp(t, "{not json"); assert.equal(bad.status, 400); assert.equal(((await bad.json()) as any).error.code, -32700);
 });
 
+test("ATTACK A10: one rate-limited request carrying many tool calls (batch amplification)", async () => {
+  await freshEnv(); const a = await connect(); const t = (await token(a, (await a.submit(CODE)).headers.get("location")!)).body.access_token;
+  const calls = (n: number) => JSON.stringify(Array.from({ length: n }, (_, i) => ({ jsonrpc: "2.0", id: i, method: "tools/call", params: { name: "list_calendars", arguments: {} } })));
+  cal.requests = []; const r = await mcp(t, calls(5)); assert.equal(r.status, 413); assert.match(((await r.json()) as any).error, /max 4/);
+  assert.equal(cal.requests.length, 0, "a 5-call batch never reaches iCloud");
+  assert.equal((await mcp(t, calls(4))).status, 200, "4 calls still work");
+  const mixed = JSON.stringify([...Array.from({ length: 10 }, (_, i) => ({ jsonrpc: "2.0", method: "notifications/x" + i })), { jsonrpc: "2.0", id: 1, method: "tools/list" }]);
+  assert.notEqual((await mcp(t, mixed)).status, 413, "non-tool messages don't count");
+});
+
 // ---------- confirm tokens ----------
 test("ATTACK B1: commit without prepare (forged token with an attacker-chosen event)", async () => {
   const t = tools(); const home = await calId(t, "Home");

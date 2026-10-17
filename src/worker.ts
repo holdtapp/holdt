@@ -61,6 +61,8 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
     calendarAllowlist: env.CALENDAR_ALLOWLIST ? env.CALENDAR_ALLOWLIST.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
   const msgs = Array.isArray(body) ? body : [body];
   if (msgs.length > 20) return json({ error: "batch too large" }, 413);
+  // A batch rides on one rate-limit hit, so cap the calls that can reach iCloud: 120 requests/min stays near 120 tool calls/min, not 2,400.
+  if (msgs.filter((m) => m?.method === "tools/call").length > MAX_TOOL_CALLS) return json({ error: `too many tool calls in one request (max ${MAX_TOOL_CALLS})` }, 413);
   const t0 = Date.now();
   const out = (await Promise.all(msgs.map((m) => handleRpc(m, makeTools, { remindersExperimental: reminders, headerVersion })))).filter(Boolean) as object[];
   if (!out.length) return new Response(null, { status: 202, headers: SEC_HEADERS });
@@ -71,6 +73,7 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
 }
 
 const MAX_BODY = 256_000;
+export const MAX_TOOL_CALLS = 4;
 /** Reads the body but stops at `max` bytes, whatever Content-Length claims (chunked bodies have none). */
 async function readCapped(req: Request, max: number): Promise<string | undefined> {
   if (!req.body) return "";
