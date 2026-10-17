@@ -52,7 +52,7 @@ function consentBody(d: any, handle: string, writes: string, error?: string, pk?
   const local = d.redirectIsLoopback ? `<p class="warn">This sends access to an app on this computer. Continue only if you just started connecting from it.</p>` : "";
   return `<h1>Connect ${esc(d.clientName || "an app")} to your iCloud Calendar?</h1>
 <p class="muted">${d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : "This app registered itself, so its name isn't verified."} Access goes to <strong>${esc(d.redirectHost || "the app")}</strong>.</p>${local}
-<p class="muted">It can read your calendars. Changes are ${esc(writes)}. It can never delete events or send invitations.</p>
+<p class="muted">It can read your calendars. Changes are ${esc(writes)}. It never deletes your events. It can only take back its own, on your yes. It never sends invitations.</p>
 <form method="post" autocomplete="off">
 <input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="ctx" value="${esc(d.__ctx ?? "")}">
 ${pk ? `<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">

@@ -112,7 +112,7 @@ test.addEventListener("click", async () => {
     if (!r.ok) { const f = r.field === "email" ? email : r.field === "password" ? pw : null; if (f) { f.setAttribute("aria-invalid", "true"); $(f.id + "-err").textContent = r.message; f.dataset.local = ""; if (f === pw) $("pw-hint").textContent = ""; f.focus(); } else show("bad", esc(r.message)); return; }
     const n = r.calendars.length, names = r.calendars.slice(0, 4).map(esc).join(", ") + (n > 4 ? ` and ${n - 4} more` : "");
     show("good", `<strong class="ok-mark">✓ Found ${n} calendar${n === 1 ? "" : "s"}</strong>${n ? `: ${names}` : ""}.<br><span class="hint">Calendar only. Apple doesn't share the Reminders app with outside connectors, so reminders aren't included.</span>
-      <label class="toggle"><input type="checkbox" id="allow"> <span><strong>Let Grok Bot add and change events</strong><br><span class="hint">Off means read-only. On still shows you every change and waits for your yes. It can never delete or send invitations.</span></span></label>
+      <label class="toggle"><input type="checkbox" id="allow"> <span><strong>Let Grok Bot add and change events</strong><br><span class="hint">Off means read-only. On still shows you every change and waits for your yes. Never deletes your events. It can only take back its own, on your yes.</span></span></label>
       <button class="btn primary" id="save"><span class="spin"></span><span id="save-label">Save and finish</span></button>`);
     $("save").addEventListener("click", save);
   } catch { show("bad", "Lost contact with the setup helper. Check the terminal is still running, then try again."); }
