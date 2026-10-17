@@ -4,7 +4,7 @@
 
 Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. **Calendar only: Apple Reminders is not included (see below).** It is read-only unless you turn changes on. With changes on, it still shows you every change first and waits for your yes. It can never delete anything or send invitations.
 
-> Status: Phase 1 build. It has **not** been deployed, submitted or published. It is tested against a mock iCloud server (41 tests). It has **not yet run against a real Apple account.**
+> Status: private beta. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Changes have only been tested against the mock iCloud server so far. 59 automated tests. Not submitted or published.
 
 ## Setup (about 5 minutes, ESTIMATE)
 1. `npm install`
@@ -13,7 +13,7 @@ Holdt is a small MCP server that runs on **your own Cloudflare account** and let
    - **Open Apple's password page**, make an app-specific password, and paste it.
    - **Test connection** shows "Found N calendars".
    - Choose read-only or "changes with my yes", then **Save**.
-4. Copy the private connector link it shows you. In Grok Bot, open **Connect Apps → Add custom MCP server** and paste it.
+4. Setup shows your connector address (`https://holdt.<you>.workers.dev/mcp`) and an 8-digit approval code. In Grok Bot, open **Connect Apps → Add custom MCP server**, paste the address, and enter the code on the approval page that opens. The code works once, for 15 minutes. Lost it? `npm run setup -- --new-code`.
 
 Your password only goes to Apple and to your own Cloudflare secrets (via `wrangler secret put` on stdin). It is never written to disk, logged, or put on a command line. To disconnect, remove the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
 
@@ -39,10 +39,14 @@ Anything we built would read the wrong list, so v1 leaves Reminders out. You can
 - **Writes are attempted exactly once.** An ambiguous failure returns "re-check before retrying". Reads retry 429/5xx with backoff.
 - **Credentials only go to trusted hosts:** the configured host or `*.icloud.com`, over HTTPS. Redirects elsewhere are refused (tested).
 - **Logs are redacted:** passwords, tokens, Basic auth, emails, principal paths and iCal bodies. A test checks every log line from the whole suite.
-- **OAuth 2.1 on `/mcp`** (DCR, PKCE, refresh rotation, revoke) via @cloudflare/workers-oauth-provider. Connecting needs a one-time 8-digit code from setup, so no key ever goes in chat. `npm run setup -- --revoke-all` cuts off every connection.
+- **OAuth 2.1 on `/mcp`** via @cloudflare/workers-oauth-provider: PKCE S256, RFC 9728 protected resource metadata, RFC 8707 audience-bound tokens, RFC 9207 `iss` on the redirect, refresh rotation and RFC 7009 revocation. Client ID Metadata Documents are on (the MCP 2026-07-28 default), with Dynamic Client Registration kept for older clients. Connecting needs a one-time 8-digit code from setup, so no key ever goes in chat. `npm run setup -- --revoke-all` cuts off every connection.
+- **MCP 2026-07-28 and earlier.** Stateless requests (`server/discover`, per-request `_meta` version, `resultType`, cacheable `tools/list`) and the older `initialize` handshake (2025-11-25 back to 2024-11-05). Every tool has accurate `readOnlyHint` / `destructiveHint` / `idempotentHint` annotations, and every read tool has an `outputSchema`.
+
+## Time rules
+Times without an offset are in your time zone (set by setup). A date alone means that whole day in your zone, so "from 2026-10-17 to 2026-10-17" is all of Saturday Oct 17. All-day events stay on their date wherever you are. Repeating events are expanded per date, including "2nd Tuesday", "last Friday", "1st and 15th" and yearly rules like Thanksgiving. Rare rules (BYSETPOS, week numbers) show the first date with a note.
 
 ## Develop
-`npm test` · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
+`npm test` (59 tests) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
 
 ---
 Holdt is an independent product. It is not made by, affiliated with or endorsed by Apple Inc. iCloud and Apple are trademarks of Apple Inc.

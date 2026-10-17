@@ -39,7 +39,7 @@ async function connect(code = CODE, redirect = CB) {
   const ctxField = html.match(/name="ctx" value="([^"]*)"/)![1]!.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
   const cookie = cookiesOf(page);
   const submit = (c: string, decision = "approve") => call("/authorize", { ...form({ handle, ctx: ctxField, code: c, decision }), headers: { "Content-Type": "application/x-www-form-urlencoded", Cookie: cookie, Origin: ORIGIN } });
-  return { client, verifier, state, html, submit, redirect };
+  return { client, verifier, state, html, submit, redirect, page };
 }
 async function exchange(c: any, location: string) {
   const u = new URL(location); assert.equal(u.searchParams.get("state"), c.state);
@@ -132,6 +132,36 @@ test("redirect policy: only https, loopback http, or cursor: may receive a code"
   assert.ok(!redirectAllowed("myapp://cb")); assert.ok(!redirectAllowed("http://evil.example/cb")); assert.ok(!redirectAllowed("javascript:alert(1)"));
   await freshEnv(); const c: any = await connect(CODE, "evilapp://steal");
   assert.equal(c.page?.status ?? 200, 400); assert.match(c.html, /can&#39;t connect|can't connect/);
+});
+
+test("consent page CSP lets the form's final redirect reach the client (cursor: scheme and https origin)", async () => {
+  await freshEnv();
+  const a = await connect();
+  const csp = a.page.headers.get("content-security-policy") ?? "";
+  assert.match(csp, /form-action 'self' cursor:;/, csp);
+  assert.match(csp, /frame-ancestors 'none'/); assert.match(csp, /default-src 'none'/);
+  const b = await connect(CODE, "https://app.example/oauth/cb");
+  const csp2 = b.page.headers.get("content-security-policy") ?? "";
+  assert.match(csp2, /form-action 'self' https:\/\/app\.example;/, csp2);
+  assert.doesNotMatch(csp2, /\/oauth\/cb/, "only the origin is allowed, not a path");
+  // a wrong code re-renders the form, and the re-rendered page keeps the redirect origin in CSP
+  const w = await b.submit("1111-1111"); assert.equal(w.status, 400);
+  assert.match(w.headers.get("content-security-policy") ?? "", /form-action 'self' https:\/\/app\.example;/);
+  const ok = await b.submit(CODE); assert.equal(ok.status, 302); assert.ok(ok.headers.get("location")!.startsWith("https://app.example/oauth/cb?"));
+  assert.equal(new URL(ok.headers.get("location")!).searchParams.get("iss"), ORIGIN, "RFC 9207 iss is on the redirect");
+});
+
+test("reused code shows 'already approved', not an error to retry", async () => {
+  await freshEnv(); const a = await connect(); assert.equal((await a.submit(CODE)).status, 302);
+  const b = await connect(); const r = await b.submit(CODE); assert.equal(r.status, 400);
+  const h = await r.text(); assert.match(h, /already approved/); assert.doesNotMatch(h, /<form/);
+});
+
+test("a revoked grant's 401 points the client back at the resource metadata", async () => {
+  await freshEnv(); const d = await connect(); const t = await exchange(d, (await d.submit(CODE)).headers.get("location")!);
+  env.GRANT_EPOCH = "epoch-3-" + "g".repeat(30);
+  const cut = await mcp(t.access_token); assert.equal(cut.status, 401);
+  assert.match(cut.headers.get("www-authenticate") ?? "", new RegExp(`resource_metadata="${ORIGIN}/\\.well-known/oauth-protected-resource/mcp"`));
 });
 
 test("SECRET SAFETY (OAuth): no password, approval code, tokens or email in any log line", async () => {

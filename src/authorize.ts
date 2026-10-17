@@ -116,8 +116,12 @@ export async function checkCode(env: Env, raw: string, now = Date.now()): Promis
   return { ok: true, hash };
 }
 
-// The re-shown page (after a wrong code) needs the client's name; carry it in an HMAC-signed field
+// The re-shown page (after a wrong code) needs the client's name. Carry it in an HMAC-signed field
 // so a forged form can't make the page lie about who is asking.
-async function mac(env: Env, data: string) { return sha256Hex(`${env.CONFIRM_SECRET}:consent-ctx:${data}`); }
+async function mac(env: Env, data: string) {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(`consent-ctx:${env.CONFIRM_SECRET}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return [...new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(data)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+const safeEq = (a: string, b: string) => { let d = a.length ^ b.length; for (let i = 0; i < Math.min(a.length, b.length); i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
 async function signCtx(env: Env, o: object) { const d = btoa(unescape(encodeURIComponent(JSON.stringify(o)))); return `${d}.${await mac(env, d)}`; }
-async function readCtx(env: Env, s: string) { const [d, m] = s.split("."); if (!d || !m || m !== (await mac(env, d))) return undefined; try { return JSON.parse(decodeURIComponent(escape(atob(d)))); } catch { return undefined; } }
+async function readCtx(env: Env, s: string) { const [d, m] = s.split("."); if (!d || !m || !safeEq(m, await mac(env, d))) return undefined; try { return JSON.parse(decodeURIComponent(escape(atob(d)))); } catch { return undefined; } }

@@ -1,46 +1,54 @@
 import { CalDavClient, CalDavError, Collection, Resource } from "./caldav.js";
-import { parseIcs, getProp, parseDate, expand, unescapeText, buildEvent, patchEvent, parseUserTime, isoInZone, ITime, Component, propLine, escapeText, fmtUtc, fmtDate, foldLine, isValidZone } from "./ical.js";
-import { issue, verify } from "./confirm.js";
+import { parseIcs, getProp, parseDate, expand, unescapeText, buildEvent, patchEvent, parseUserTime, isoInZone, ITime, Component, propLine, escapeText, fmtUtc, fmtDate, foldLine, isValidZone, dayStartIn, toFloating } from "./ical.js";
+import { UserError } from "./errors.js";
+import { issue, verify, UsedStore } from "./confirm.js";
 import { log } from "./redact.js";
 
-export interface Config { timezone: string; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
+export interface Config { timezone: string; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Where used confirm-token nonces are remembered. Defaults to this instance only; the Worker passes a KV-backed store. */ usedStore?: UsedStore; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
 export const REMINDER_TOOLS = new Set(["list_reminder_lists", "list_reminders", "prepare_add_reminder", "commit_add_reminder", "prepare_complete_reminder", "commit_complete_reminder"]);
 export const toolsFor = (cfg: { remindersExperimental?: boolean }) => TOOLS.filter((t) => cfg.remindersExperimental || !REMINDER_TOOLS.has(t.name));
-export interface ToolDef { name: string; description: string; inputSchema: Record<string, unknown>; annotations: Record<string, boolean | string> }
+export interface ToolDef { name: string; title: string; description: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations: Record<string, boolean | string> }
 type Args = Record<string, any>;
 
 const DAY = 86400000;
 const str = (d: string) => ({ type: "string", description: d });
 const RO = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true };
 const PREP = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
-const COMMIT = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
+// Commits are idempotent in effect: a replayed token is refused, a create is guarded by If-None-Match:*, an update by If-Match.
+const COMMIT_ADD = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true };
+// An update overwrites fields the user already had, so it is flagged destructive even though nothing is deleted.
+const COMMIT_CHANGE = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true };
+const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required });
+const S = { type: "string" }, B = { type: "boolean" }, I = { type: "integer" };
+const EVENT_OUT = obj({ event_id: S, calendar_id: S, calendar: S, title: S, start: { type: "string", description: "ISO 8601 with offset, or YYYY-MM-DD for all-day" }, end: { type: "string", description: "Exclusive for timed events. For all-day events, the last day (inclusive)." }, all_day: B, location: S, notes: S, repeating: B, has_invitees: B, alerts: { type: "array", items: S }, note: S }, ["event_id", "calendar_id", "calendar", "title", "start", "end", "all_day", "repeating", "has_invitees"]);
+const PREVIEW_OUT = obj({ preview: S, confirm_token: S, expires_in_minutes: I, next_step: S }, ["preview", "confirm_token", "expires_in_minutes", "next_step"]);
 
 export const TOOLS: ToolDef[] = [
-  { name: "connection_status", description: "Check the iCloud connection: whether sign-in works, how many calendars and reminder lists were found, the time zone, and whether changes are allowed. Read-only.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { title: "Connection status", ...RO } },
-  { name: "list_calendars", description: "List the user's iCloud calendars (events only; reminder lists are in list_reminder_lists). Returns calendar_id, name, color, and whether it can be changed. Read-only.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { title: "List calendars", ...RO } },
-  { name: "list_events", description: "List events between two times, with repeating events expanded into each occurrence, sorted by start. Times are in the user's time zone unless they include an offset. Window up to 366 days. Read-only.", inputSchema: { type: "object", properties: { from: str("Start, e.g. 2026-10-20 or 2026-10-20T09:00. Default: now."), to: str("End (exclusive). Default: 7 days after from."), calendar_ids: { type: "array", items: { type: "string" }, description: "Only these calendars. Default: all." }, limit: { type: "integer", minimum: 1, maximum: 200, description: "Default 50." }, cursor: str("next_cursor from a previous call, with the same filters.") }, additionalProperties: false }, annotations: { title: "List events", ...RO } },
-  { name: "search_events", description: "Find events whose title, location or notes contain the text (case-insensitive). Default window: 30 days ago to 365 days ahead (up to 400 days). Read-only.", inputSchema: { type: "object", properties: { query: str("Text to look for."), from: str("Optional start."), to: str("Optional end."), limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["query"], additionalProperties: false }, annotations: { title: "Search events", ...RO } },
-  { name: "get_event", description: "Read one event by event_id, including notes and alerts. Read-only.", inputSchema: { type: "object", properties: { event_id: str("From list_events or search_events.") }, required: ["event_id"], additionalProperties: false }, annotations: { title: "Get event", ...RO } },
-  { name: "prepare_create_event", description: "Step 1 of 2 to add an event. Changes nothing. Returns a plain-English preview and a confirm_token. Show the preview to the user and call commit_create_event only after they say yes.", inputSchema: { type: "object", properties: { calendar_id: str("Where to add it (from list_calendars)."), title: str("Event title."), start: str("2026-10-20T09:00 (timed) or 2026-10-20 (all-day)."), end: str("Same format as start. All-day end is the last day, inclusive. Default: 1 hour after start, or the same day for all-day."), location: str("Optional."), notes: str("Optional."), alerts_minutes_before: { type: "array", items: { type: "integer", minimum: 0, maximum: 40320 }, maxItems: 3, description: "Optional alerts, e.g. [10, 60]." }, repeat: { type: "object", properties: { every: { type: "string", enum: ["day", "week", "month", "year"] }, interval: { type: "integer", minimum: 1, maximum: 99 }, count: { type: "integer", minimum: 1, maximum: 730 }, until: str("Last date, e.g. 2026-12-31.") }, required: ["every"], additionalProperties: false } }, required: ["calendar_id", "title", "start"], additionalProperties: false }, annotations: { title: "Preview a new event", ...PREP } },
-  { name: "commit_create_event", description: "Step 2 of 2. Adds the event exactly as previewed. Only call after the user explicitly said yes to that preview.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_create_event.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Add the previewed event", ...COMMIT } },
-  { name: "prepare_update_event", description: "Step 1 of 2 to change an event's title, time, location or notes. Changes nothing. Returns a before/after preview and a confirm_token. Events with invitees, and the time of repeating events, can't be changed in this version.", inputSchema: { type: "object", properties: { event_id: str("From list_events."), title: str("New title."), start: str("New start."), end: str("New end."), location: str("New location, or empty to remove."), notes: str("New notes, or empty to remove.") }, required: ["event_id"], additionalProperties: false }, annotations: { title: "Preview an event change", ...PREP } },
-  { name: "commit_update_event", description: "Step 2 of 2. Applies the change exactly as previewed. Only call after the user explicitly said yes. Fails safely if the event changed in iCloud meanwhile.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_update_event.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Apply the previewed change", ...COMMIT } },
-  { name: "list_reminder_lists", description: "List reminder (to-do) lists that iCloud shares over CalDAV. Important: lists in Apple's upgraded Reminders app (iOS 13 and later) are usually NOT shared this way, so this may be empty or show only older lists. Read-only.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { title: "List reminder lists", ...RO } },
-  { name: "list_reminders", description: "List reminders in one list or all CalDAV reminder lists. Open reminders only unless include_completed is true. Read-only.", inputSchema: { type: "object", properties: { list_id: str("Optional, from list_reminder_lists."), include_completed: { type: "boolean" }, limit: { type: "integer", minimum: 1, maximum: 200 } }, additionalProperties: false }, annotations: { title: "List reminders", ...RO } },
-  { name: "prepare_add_reminder", description: "Step 1 of 2 to add a reminder to a CalDAV reminder list. Changes nothing. Returns a preview and confirm_token.", inputSchema: { type: "object", properties: { list_id: str("From list_reminder_lists."), title: str("Reminder text."), due: str("Optional, 2026-10-20 or 2026-10-20T17:00."), notes: str("Optional."), priority: { type: "string", enum: ["none", "low", "medium", "high"] } }, required: ["list_id", "title"], additionalProperties: false }, annotations: { title: "Preview a new reminder", ...PREP } },
-  { name: "commit_add_reminder", description: "Step 2 of 2. Adds the reminder exactly as previewed, after the user's yes.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_add_reminder.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Add the previewed reminder", ...COMMIT } },
-  { name: "prepare_complete_reminder", description: "Step 1 of 2 to mark a reminder done. Changes nothing. Returns a preview and confirm_token.", inputSchema: { type: "object", properties: { reminder_id: str("From list_reminders.") }, required: ["reminder_id"], additionalProperties: false }, annotations: { title: "Preview completing a reminder", ...PREP } },
-  { name: "commit_complete_reminder", description: "Step 2 of 2. Marks the reminder done, after the user's yes.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_complete_reminder.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Complete the previewed reminder", ...COMMIT } },
+  { name: "connection_status", title: "Connection status", description: "Check the iCloud connection: whether sign-in works, how many calendars were found, the user's time zone, and whether changes are allowed. Call this first if another tool reports a sign-in problem. Read-only.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, outputSchema: obj({ connected: B, calendars: I, reminders: S, timezone: S, changes_allowed: B, note: S }, ["connected", "calendars", "timezone", "changes_allowed"]), annotations: { title: "Connection status", ...RO } },
+  { name: "list_calendars", title: "List calendars", description: "List the user's iCloud calendars (events only; reminder lists are in list_reminder_lists). Returns calendar_id, name, color, and whether it can be changed. Read-only.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, outputSchema: obj({ calendars: { type: "array", items: obj({ calendar_id: S, name: S, color: S, can_change: B, read_only_reason: S }, ["calendar_id", "name", "can_change"]) } }, ["calendars"]), annotations: { title: "List calendars", ...RO } },
+  { name: "list_events", title: "List events", description: "List events in a time window, with repeating events expanded into each occurrence, sorted by start. Times are in the user's time zone unless they include an offset. A date alone means that whole day, so from=2026-10-20 and to=2026-10-20 returns everything on Oct 20. Window up to 366 days. Read-only.", inputSchema: { type: "object", properties: { from: str("Start, e.g. 2026-10-20 (start of that day) or 2026-10-20T09:00. Default: now."), to: str("End. A date alone includes that whole day. A time is exclusive. Default: 7 days after from."), calendar_ids: { type: "array", items: { type: "string" }, description: "Only these calendars. Default: all." }, limit: { type: "integer", minimum: 1, maximum: 200, description: "Default 50." }, cursor: str("next_cursor from a previous call, with the same filters.") }, additionalProperties: false }, outputSchema: obj({ timezone: S, from: S, to: S, events: { type: "array", items: EVENT_OUT }, next_cursor: S, total: I }, ["timezone", "from", "to", "events", "total"]), annotations: { title: "List events", ...RO } },
+  { name: "search_events", title: "Search events", description: "Find events whose title, location or notes contain the text (case-insensitive), with repeating events listed per occurrence. Default window: 30 days ago to 365 days ahead (up to 400 days). Read-only.", inputSchema: { type: "object", properties: { query: str("Text to look for."), from: str("Optional start. Same formats as list_events."), to: str("Optional end. A date alone includes that whole day."), limit: { type: "integer", minimum: 1, maximum: 100, description: "Default 25." } }, required: ["query"], additionalProperties: false }, outputSchema: obj({ events: { type: "array", items: EVENT_OUT }, total_matches: I, truncated: B }, ["events", "total_matches", "truncated"]), annotations: { title: "Search events", ...RO } },
+  { name: "get_event", title: "Get event", description: "Read one event by event_id, including notes and alerts. Read-only.", inputSchema: { type: "object", properties: { event_id: str("From list_events or search_events.") }, required: ["event_id"], additionalProperties: false }, outputSchema: EVENT_OUT, annotations: { title: "Get event", ...RO } },
+  { name: "prepare_create_event", title: "Preview a new event", description: "Step 1 of 2 to add an event. Changes nothing. Returns a plain-English preview and a confirm_token. Show the preview to the user and call commit_create_event only after they say yes.", inputSchema: { type: "object", properties: { calendar_id: str("Where to add it (from list_calendars)."), title: str("Event title."), start: str("2026-10-20T09:00 (timed) or 2026-10-20 (all-day)."), end: str("Same format as start. All-day end is the last day, inclusive. Default: 1 hour after start, or the same day for all-day."), location: str("Optional."), notes: str("Optional."), alerts_minutes_before: { type: "array", items: { type: "integer", minimum: 0, maximum: 40320 }, maxItems: 3, description: "Optional alerts, e.g. [10, 60]." }, repeat: { type: "object", properties: { every: { type: "string", enum: ["day", "week", "month", "year"] }, interval: { type: "integer", minimum: 1, maximum: 99 }, count: { type: "integer", minimum: 1, maximum: 730 }, until: str("Last date, e.g. 2026-12-31.") }, required: ["every"], additionalProperties: false } }, required: ["calendar_id", "title", "start"], additionalProperties: false }, outputSchema: PREVIEW_OUT, annotations: { title: "Preview a new event", ...PREP } },
+  { name: "commit_create_event", title: "Add the previewed event", description: "Step 2 of 2. Adds the event exactly as previewed. Only call after the user explicitly said yes to that preview.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_create_event.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Add the previewed event", ...COMMIT_ADD } },
+  { name: "prepare_update_event", title: "Preview an event change", description: "Step 1 of 2 to change an event's title, time, location or notes. Changes nothing. Returns a before/after preview and a confirm_token. Events with invitees, and the time of repeating events, can't be changed in this version.", inputSchema: { type: "object", properties: { event_id: str("From list_events."), title: str("New title."), start: str("New start."), end: str("New end."), location: str("New location, or empty to remove."), notes: str("New notes, or empty to remove.") }, required: ["event_id"], additionalProperties: false }, outputSchema: PREVIEW_OUT, annotations: { title: "Preview an event change", ...PREP } },
+  { name: "commit_update_event", title: "Apply the previewed change", description: "Step 2 of 2. Applies the change exactly as previewed. Only call after the user explicitly said yes. Fails safely if the event changed in iCloud meanwhile.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_update_event.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Apply the previewed change", ...COMMIT_CHANGE } },
+  { name: "list_reminder_lists", title: "List reminder lists", description: "List reminder (to-do) lists that iCloud shares over CalDAV. Important: lists in Apple's upgraded Reminders app (iOS 13 and later) are usually NOT shared this way, so this may be empty or show only older lists. Read-only.", inputSchema: { type: "object", properties: {}, additionalProperties: false }, annotations: { title: "List reminder lists", ...RO } },
+  { name: "list_reminders", title: "List reminders", description: "List reminders in one list or all CalDAV reminder lists. Open reminders only unless include_completed is true. Read-only.", inputSchema: { type: "object", properties: { list_id: str("Optional, from list_reminder_lists."), include_completed: { type: "boolean" }, limit: { type: "integer", minimum: 1, maximum: 200 } }, additionalProperties: false }, annotations: { title: "List reminders", ...RO } },
+  { name: "prepare_add_reminder", title: "Preview a new reminder", description: "Step 1 of 2 to add a reminder to a CalDAV reminder list. Changes nothing. Returns a preview and confirm_token.", inputSchema: { type: "object", properties: { list_id: str("From list_reminder_lists."), title: str("Reminder text."), due: str("Optional, 2026-10-20 or 2026-10-20T17:00."), notes: str("Optional."), priority: { type: "string", enum: ["none", "low", "medium", "high"] } }, required: ["list_id", "title"], additionalProperties: false }, annotations: { title: "Preview a new reminder", ...PREP } },
+  { name: "commit_add_reminder", title: "Add the previewed reminder", description: "Step 2 of 2. Adds the reminder exactly as previewed, after the user's yes.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_add_reminder.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Add the previewed reminder", ...COMMIT_ADD } },
+  { name: "prepare_complete_reminder", title: "Preview completing a reminder", description: "Step 1 of 2 to mark a reminder done. Changes nothing. Returns a preview and confirm_token.", inputSchema: { type: "object", properties: { reminder_id: str("From list_reminders.") }, required: ["reminder_id"], additionalProperties: false }, annotations: { title: "Preview completing a reminder", ...PREP } },
+  { name: "commit_complete_reminder", title: "Complete the previewed reminder", description: "Step 2 of 2. Marks the reminder done, after the user's yes.", inputSchema: { type: "object", properties: { confirm_token: str("From prepare_complete_reminder.") }, required: ["confirm_token"], additionalProperties: false }, annotations: { title: "Complete the previewed reminder", ...COMMIT_CHANGE } },
 ];
 
-export class UserError extends Error {}
+export { UserError };
 const enc64 = (s: string) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const dec64 = (s: string) => { try { return decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/")))); } catch { throw new UserError("That id isn't valid. List the items again and use an id from the result."); } };
 
 export class Tools {
-  private used = new Set<string>();
+  private used: UsedStore;
   private cols?: Collection[];
-  constructor(private dav: CalDavClient, private cfg: Config) { if (!isValidZone(cfg.timezone)) throw new Error("TIMEZONE is not a valid IANA zone, e.g. America/Denver"); }
+  constructor(private dav: CalDavClient, private cfg: Config) { if (!isValidZone(cfg.timezone)) throw new Error("TIMEZONE is not a valid IANA zone, e.g. America/Denver"); this.used = cfg.usedStore ?? new Set<string>(); }
 
   private async collections(): Promise<Collection[]> {
     if (!this.cols) {
@@ -59,15 +67,22 @@ export class Tools {
   }
   private itemId(c: Collection, href: string) { return enc64(`${c.id}\n${href}`); }
   private async fromItemId(id: string, kind: "VEVENT" | "VTODO") {
-    const [cid, href] = dec64(id).split("\n"); if (!cid || !href) throw new UserError("That id isn't valid.");
+    if (typeof id !== "string" || !id) throw new UserError(kind === "VEVENT" ? "Give an event_id from list_events or search_events." : "Give a reminder_id from list_reminders.");
+    const [cid, href] = dec64(id).split("\n"); if (!cid || !href) throw new UserError("That id isn't valid. List the items again and use an id from the result.");
     const c = await this.col(cid, kind);
-    if (!new URL(href).pathname.startsWith(new URL(c.href).pathname)) throw new UserError("That id isn't valid.");
+    let ok = false; try { ok = new URL(href).pathname.startsWith(new URL(c.href).pathname); } catch { ok = false; }
+    if (!ok) throw new UserError("That id isn't valid. List the items again and use an id from the result.");
     return { c, href };
   }
   private requireWrites() {
     if (!this.cfg.writesEnabled) throw new UserError("Changes are turned off for this connection, so I can only read. To allow changes (each one still needs your yes), set WRITES_ENABLED=true in your Worker settings and redeploy.");
   }
-  private t(s: string | undefined, def: number) { return s ? parseUserTime(s, this.cfg.timezone) : { utc: def, allDay: false }; }
+  /** A window edge. A bare date means the start of that day in the user's zone, or for an end edge, the start of the next day. */
+  private edge(s: string | undefined, def: number, kind: "start" | "end"): number {
+    if (s === undefined || s === null || s === "") return def;
+    const t = parseUserTime(s, this.cfg.timezone);
+    return t.allDay ? dayStartIn(t.utc + (kind === "end" ? DAY : 0), this.cfg.timezone) : t.utc;
+  }
   private show(t: ITime) {
     if (t.allDay) return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" }).format(t.utc);
     return new Intl.DateTimeFormat("en-US", { timeZone: this.cfg.timezone, weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(t.utc);
@@ -83,13 +98,13 @@ export class Tools {
       case "list_calendars": return { calendars: (await this.calendars()).map((c) => ({ calendar_id: c.id, name: c.name, color: c.color, can_change: c.writable && this.cfg.writesEnabled, read_only_reason: !c.writable ? "iCloud marks this calendar read-only (e.g. subscribed or shared view-only)" : !this.cfg.writesEnabled ? "changes are turned off for this connection" : undefined })) };
       case "list_events": return this.listEvents(a);
       case "search_events": {
-        if (!a.query || typeof a.query !== "string") throw new UserError("Give some text to search for.");
+        if (typeof a.query !== "string" || !a.query.trim()) throw new UserError("Give some text to search for.");
         const now = Date.now();
-        const from = this.t(a.from, now - 30 * DAY).utc, to = this.t(a.to, now + 365 * DAY).utc;
+        const from = this.edge(a.from, now - 30 * DAY, "start"), to = this.edge(a.to, a.from ? from + 365 * DAY : now + 365 * DAY, "end");
         const all = await this.eventsBetween(from, to, undefined, 2000, 400);
-        const q = a.query.toLowerCase();
+        const q = a.query.trim().toLowerCase();
         const hits = all.filter((e) => [e.title, e.location, e.notes].some((x) => x?.toLowerCase().includes(q)));
-        const limit = Math.min(a.limit ?? 25, 100);
+        const limit = Math.max(1, Math.min(Number(a.limit) || 25, 100));
         return { events: hits.slice(0, limit), total_matches: hits.length, truncated: hits.length > limit };
       }
       case "get_event": {
@@ -102,14 +117,16 @@ export class Tools {
         this.requireWrites();
         const c = await this.col(a.calendar_id, "VEVENT");
         if (!c.writable) throw new UserError(`"${c.name}" is read-only in iCloud. Pick another calendar.`);
-        if (!a.title?.trim()) throw new UserError("The event needs a title.");
+        if (typeof a.title !== "string" || !a.title.trim()) throw new UserError("The event needs a title.");
+        if (typeof a.start !== "string") throw new UserError("Give a start, like 2026-10-20T09:00 or 2026-10-20 for all day.");
+        for (const k of ["location", "notes"] as const) if (a[k] !== undefined && typeof a[k] !== "string") throw new UserError(`${k} must be text.`);
         const start = parseUserTime(a.start, this.cfg.timezone);
         let end = a.end ? parseUserTime(a.end, this.cfg.timezone) : start.allDay ? { ...start } : { ...start, utc: start.utc + 3600000 };
         if (start.allDay !== end.allDay) throw new UserError("Start and end must both be dates (all-day) or both be times.");
         if (start.allDay) end = { ...end, utc: end.utc + DAY }; // inclusive -> exclusive
         if (end.utc <= start.utc) throw new UserError("The end must be after the start.");
         if (end.utc - start.utc > 366 * DAY) throw new UserError("Events longer than a year aren't supported.");
-        const rrule = a.repeat ? this.rrule(a.repeat) : undefined;
+        const rrule = a.repeat ? this.rrule(a.repeat, start) : undefined;
         const uid = `${crypto.randomUUID()}@icloud-mcp`;
         const payload = { cid: c.id, uid, title: a.title.trim(), start, end, location: a.location?.trim() || undefined, notes: a.notes?.trim() || undefined, alerts: a.alerts_minutes_before, rrule };
         const lines = [`Add to "${c.name}": ${payload.title}`, `When: ${this.show(start)}${start.allDay ? (end.utc - start.utc > DAY ? ` to ${this.show({ ...end, utc: end.utc - DAY })}` : " (all day)") : ` to ${this.show(end)}`}`];
@@ -140,6 +157,7 @@ export class Tools {
         const recurring = !!getProp(ev, "RRULE");
         if (recurring && (a.start || a.end)) throw new UserError("Changing the time of a repeating event isn't supported yet. You can change its title, location or notes.");
         const patch: any = {}; const diff: string[] = [];
+        for (const k of ["title", "start", "end", "location", "notes"] as const) if (a[k] !== undefined && typeof a[k] !== "string") throw new UserError(`${k} must be text.`);
         if (a.title !== undefined) { if (!a.title.trim()) throw new UserError("The title can't be empty."); patch.title = a.title.trim(); diff.push(`Title: "${cur.title}" → "${patch.title}"`); }
         const oldStart = parseDate(getProp(ev, "DTSTART"), this.cfg.timezone)!; const oldEnd = endOf(ev, oldStart, this.cfg.timezone);
         if (a.start || a.end) {
@@ -226,12 +244,18 @@ export class Tools {
     }
   }
 
-  private rrule(rp: Args) {
+  private rrule(rp: Args, start: ITime) {
     const f = { day: "DAILY", week: "WEEKLY", month: "MONTHLY", year: "YEARLY" }[rp.every as string]; if (!f) throw new UserError("repeat.every must be day, week, month or year.");
     let r = `FREQ=${f}`; if (rp.interval && rp.interval > 1) r += `;INTERVAL=${rp.interval}`;
     if (rp.count && rp.until) throw new UserError("Use either repeat.count or repeat.until, not both.");
     if (rp.count) r += `;COUNT=${rp.count}`;
-    if (rp.until) { const u = parseUserTime(rp.until, this.cfg.timezone); r += `;UNTIL=${fmtUtc(u.utc + (u.allDay ? DAY - 1000 : 0))}`; }
+    if (rp.until) {
+      const u = parseUserTime(rp.until, this.cfg.timezone);
+      // RFC 5545: UNTIL has DTSTART's value type. All-day events get a DATE. Timed events get the end of that day in the user's zone, in UTC.
+      if (start.allDay) r += `;UNTIL=${fmtDate(u.utc)}`;
+      else r += `;UNTIL=${fmtUtc(u.allDay ? dayStartIn(u.utc + DAY, this.cfg.timezone) - 1000 : u.utc)}`;
+      if ((u.allDay ? u.utc + DAY : u.utc) <= start.utc) throw new UserError("repeat.until must be after the start.");
+    }
     return r;
   }
   private describeRepeat(rp: Args) { const n = rp.interval > 1 ? `every ${rp.interval} ${rp.every}s` : `every ${rp.every}`; return n + (rp.count ? `, ${rp.count} times` : rp.until ? `, until ${rp.until}` : ""); }
@@ -244,39 +268,54 @@ export class Tools {
     const start = occ?.start ?? s.utc, end = occ?.end ?? e.utc;
     const fmtT = (ms: number) => (s.allDay ? new Date(ms).toISOString().slice(0, 10) : isoInZone(ms, tz));
     const notes = unescapeText(getProp(ev, "DESCRIPTION")?.value ?? "");
-    return { event_id: this.itemId(c, r.href), calendar_id: c.id, calendar: c.name, title: unescapeText(getProp(ev, "SUMMARY")?.value ?? "(no title)"), start: fmtT(start), end: s.allDay ? fmtT(end - DAY) : fmtT(end), all_day: s.allDay, location: unescapeText(getProp(ev, "LOCATION")?.value ?? "") || undefined, notes: (full ? notes : trunc(notes, 280)) || undefined, repeating: !!getProp(ev, "RRULE"), has_invitees: ev.props.some((p) => p.name === "ATTENDEE"), alerts: full ? ev.children.filter((x) => x.type === "VALARM").map((x) => getProp(x, "TRIGGER")?.value) : undefined, _sort: start };
+    return { event_id: this.itemId(c, r.href), calendar_id: c.id, calendar: c.name, title: unescapeText(getProp(ev, "SUMMARY")?.value ?? "(no title)"), start: fmtT(start), end: s.allDay ? fmtT(end - DAY) : fmtT(end), all_day: s.allDay, location: unescapeText(getProp(ev, "LOCATION")?.value ?? "") || undefined, notes: (full ? notes : trunc(notes, 280)) || undefined, repeating: !!getProp(ev, "RRULE"), has_invitees: ev.props.some((p) => p.name === "ATTENDEE"), alerts: full ? ev.children.filter((x) => x.type === "VALARM").map((x) => getProp(x, "TRIGGER")?.value).filter((x): x is string => !!x) : undefined };
   }
 
   private async eventsBetween(from: number, to: number, ids?: string[], cap = 5000, maxDays = 366) {
     if (!(to > from)) throw new UserError("The end must be after the start.");
     if (to - from > maxDays * DAY) throw new UserError(`Please ask for ${maxDays} days or less at a time.`);
+    const tz = this.cfg.timezone;
     let cals = await this.calendars(); if (ids?.length) { cals = cals.filter((c) => ids.includes(c.id)); if (!cals.length) throw new UserError("None of those calendar ids exist. Call list_calendars."); }
-    const out: ReturnType<Tools["normEvent"]>[] = []; const unexpandable: string[] = [];
-    for (const c of cals) for (const r of await this.dav.query(c.href, "VEVENT", { from, to })) {
+    type Ev = ReturnType<Tools["normEvent"]> & { note?: string };
+    const out: { sort: number; ev: Ev }[] = [];
+    // All-day dates float: Oct 17 is Oct 17 in the user's zone. Compare them on the floating clock, timed events on the real one.
+    const fFrom = toFloating(from, tz), fTo = toFloating(to, tz);
+    const sortKey = (t: ITime, ms: number) => (t.allDay ? dayStartIn(ms, tz) : ms);
+    // Query every calendar at once. The REPORT window is padded a day each side so floating all-day events are never cut off by the server.
+    const results = await Promise.all(cals.map(async (c) => ({ c, rs: await this.dav.query(c.href, "VEVENT", { from: from - DAY, to: to + DAY }) })));
+    for (const { c, rs } of results) for (const r of rs) {
       const comps = parseIcs(r.ics).children.flatMap((x) => x.children).filter((x) => x.type === "VEVENT");
       const ev = comps.find((x) => !getProp(x, "RECURRENCE-ID")); const overrides = comps.filter((x) => getProp(x, "RECURRENCE-ID"));
       if (ev) {
-        const s = parseDate(getProp(ev, "DTSTART"), this.cfg.timezone); if (!s) continue;
-        const e = endOf(ev, s, this.cfg.timezone);
-        const ex = ev.props.filter((p) => p.name === "EXDATE").flatMap((p) => p.value.split(",").map((v) => parseDate({ ...p, value: v }, this.cfg.timezone)?.utc)).filter((x): x is number => x !== undefined);
-        const ovIds = overrides.map((o) => parseDate(getProp(o, "RECURRENCE-ID"), this.cfg.timezone)?.utc).filter((x): x is number => x !== undefined);
-        const { occ, supported } = expand(s, e.utc - s.utc, getProp(ev, "RRULE")?.value, [...ex, ...ovIds], from, to);
-        if (!supported) { unexpandable.push(unescapeText(getProp(ev, "SUMMARY")?.value ?? "")); out.push({ ...this.normEvent(c, r, ev), repeating: true, note: "Repeats in a pattern this version can't expand; showing the first occurrence." } as any); }
-        for (const o of occ) out.push(this.normEvent(c, r, ev, o));
+        const s = parseDate(getProp(ev, "DTSTART"), tz); if (!s) continue;
+        const e = endOf(ev, s, tz);
+        const ex = ev.props.filter((p) => p.name === "EXDATE").flatMap((p) => p.value.split(",").map((v) => parseDate({ ...p, value: v }, tz)?.utc)).filter((x): x is number => x !== undefined);
+        const ovIds = overrides.map((o) => parseDate(getProp(o, "RECURRENCE-ID"), tz)?.utc).filter((x): x is number => x !== undefined);
+        const { occ, supported } = expand(s, e.utc - s.utc, getProp(ev, "RRULE")?.value, [...ex, ...ovIds], s.allDay ? fFrom : from, s.allDay ? fTo : to);
+        if (!supported) out.push({ sort: sortKey(s, s.utc), ev: { ...this.normEvent(c, r, ev), repeating: true, note: "Repeats in a pattern this version can't expand. Showing the first date only. Check the Calendar app for the others." } });
+        for (const o of occ) out.push({ sort: sortKey(s, o.start), ev: this.normEvent(c, r, ev, o) });
       }
-      for (const o of overrides) { const s = parseDate(getProp(o, "DTSTART"), this.cfg.timezone); if (!s) continue; const e = endOf(o, s, this.cfg.timezone); if (s.utc < to && e.utc > from && !/CANCELLED/i.test(getProp(o, "STATUS")?.value ?? "")) out.push({ ...this.normEvent(c, r, o), repeating: true }); }
+      for (const o of overrides) {
+        const s = parseDate(getProp(o, "DTSTART"), tz); if (!s) continue; const e = endOf(o, s, tz);
+        const [lo, hi] = s.allDay ? [fFrom, fTo] : [from, to];
+        if (s.utc < hi && Math.max(e.utc, s.utc + 1) > lo && !/CANCELLED/i.test(getProp(o, "STATUS")?.value ?? "")) out.push({ sort: sortKey(s, s.utc), ev: { ...this.normEvent(c, r, o), repeating: true } });
+      }
       if (out.length > cap) break;
     }
-    out.sort((x, y) => x._sort - y._sort || x.title.localeCompare(y.title));
-    return out.map(({ _sort, ...rest }) => rest);
+    out.sort((x, y) => x.sort - y.sort || x.ev.title.localeCompare(y.ev.title));
+    return out.map((x) => x.ev);
   }
 
   private async listEvents(a: Args) {
     const now = Date.now();
-    let from = this.t(a.from, now).utc; const to = a.to ? this.t(a.to, 0).utc : from + 7 * DAY;
-    const limit = Math.min(a.limit ?? 50, 200);
+    // A cursor carries its own window, so paging works even when from was "now" on the first call.
+    const cur = a.cursor ? dec64(String(a.cursor)).split("|") : undefined;
+    const [cf, ct] = cur ? (cur[0] ?? "").split(":").map(Number) : [];
+    const from = a.from === undefined && cur ? cf! : this.edge(a.from, now, "start");
+    const to = a.to === undefined && cur ? ct! : this.edge(a.to, from + 7 * DAY, "end");
+    const limit = Math.max(1, Math.min(Number(a.limit) || 50, 200));
     let offset = 0;
-    if (a.cursor) { const c = dec64(a.cursor).split("|"); offset = Number(c[1]); if (c[0] !== `${from}:${to}:${(a.calendar_ids ?? []).join(",")}` || !(offset >= 0)) throw new UserError("That cursor belongs to a different query. Start again without a cursor."); }
+    if (cur) { offset = Number(cur[1]); if (cur[0] !== `${from}:${to}:${(a.calendar_ids ?? []).join(",")}` || !(offset >= 0) || !Number.isFinite(from) || !Number.isFinite(to)) throw new UserError("That cursor belongs to a different query. Start again without a cursor."); }
     const all = await this.eventsBetween(from, to, a.calendar_ids);
     const page = all.slice(offset, offset + limit);
     const next = offset + limit < all.length ? enc64(`${from}:${to}:${(a.calendar_ids ?? []).join(",")}|${offset + limit}`) : undefined;

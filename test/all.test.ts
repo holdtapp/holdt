@@ -217,7 +217,8 @@ test("mcp endpoint: revoked grants refused, MCP handshake and tool annotations",
   assert.ok(!names.some((n: string) => /delete|invite/.test(n)), "no delete or invite tools in v1");
   for (const t of list.result.tools) {
     if (t.name.startsWith("commit_")) assert.equal(t.annotations.readOnlyHint, false); else assert.equal(t.annotations.readOnlyHint, true, t.name);
-    assert.equal(t.annotations.destructiveHint, false);
+    assert.equal(t.annotations.destructiveHint, /^commit_(update_event|complete_reminder)$/.test(t.name), t.name);
+    assert.equal(t.title, t.annotations.title, "top-level title for 2025-06-18+ clients");
   }
   const unconfigured = await handle(rpc("tools/list"), { ...env(false), ICLOUD_APP_PASSWORD: "" }); assert.equal(unconfigured.status, 503);
   assert.equal((await handle(new Request("http://w/mcp", { headers: { Authorization: `Bearer ${TOKEN}` } }), env(false))).status, 405);
@@ -239,7 +240,7 @@ test("ical: monthly on the 31st skips short months; Feb 29 yearly only on leap y
   const s = { utc: Date.UTC(2026, 0, 31), allDay: true };
   const r = expand(s, 86400000, "FREQ=MONTHLY;COUNT=4", [], 0, Date.UTC(2028, 0, 1));
   assert.deepEqual(r.occ.map((o) => new Date(o.start).toISOString().slice(0, 10)), ["2026-01-31", "2026-03-31", "2026-05-31", "2026-07-31"]);
-  const unsupported = expand(s, 0, "FREQ=MONTHLY;BYDAY=2TU", [], 0, Date.UTC(2027, 0, 1)); assert.equal(unsupported.supported, false);
+  const unsupported = expand(s, 0, "FREQ=MONTHLY;BYDAY=TU;BYSETPOS=2", [], 0, Date.UTC(2027, 0, 1)); assert.equal(unsupported.supported, false);
 });
 test("ical: DST gap time shifts forward instead of failing", () => {
   const t = wallToUtc(2027, 3, 14, 2, 30, 0, "America/Denver"); // 2:30 doesn't exist

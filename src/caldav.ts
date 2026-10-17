@@ -12,7 +12,13 @@ export interface Resource { href: string; etag: string; ics: string }
 
 export interface CalDavOptions { baseUrl: string; username: string; password: string; fetch?: FetchLike; maxRetries?: number; sleep?: (ms: number) => Promise<void>; timeoutMs?: number }
 
+/** Discovered calendar homes, per isolate. Saves two PROPFIND round trips on every tool call. Holds URLs only, never credentials. */
+const HOMES = new Map<string, { home: string; exp: number }>();
+const HOME_TTL_MS = 30 * 60_000;
+export const USER_AGENT = "Holdt/0.1.0";
+
 export class CalDavClient {
+  static clearDiscoveryCache() { HOMES.clear(); }
   private auth: string; private f: FetchLike; private home?: string; private origin?: string;
   constructor(private o: CalDavOptions) {
     this.auth = "Basic " + btoa(unescape(encodeURIComponent(`${o.username}:${o.password}`)));
@@ -27,7 +33,7 @@ export class CalDavClient {
     for (let attempt = 0; attempt < max; attempt++) {
       let res;
       try {
-        res = await withTimeout(this.f(url, { method, redirect: "manual", headers: { Authorization: this.auth, "Content-Type": "application/xml; charset=utf-8", "User-Agent": "icloud-mcp/0.1", ...headers }, body }), this.o.timeoutMs ?? 25000);
+        res = await withTimeout(this.f(url, { method, redirect: "manual", headers: { Authorization: this.auth, "Content-Type": "application/xml; charset=utf-8", "User-Agent": USER_AGENT, ...headers }, body }), this.o.timeoutMs ?? 25000);
       } catch (e) {
         log.warn(`caldav ${method} fetch failed: ${(e as any)?.name ?? "error"}: ${String((e as any)?.message ?? "").slice(0, 120)}`);
         if (!safe) throw new CalDavError("outcome_unknown", "The change may or may not have been saved (network problem). Re-check before retrying.");
@@ -55,8 +61,11 @@ export class CalDavClient {
   }
 
   /** RFC 6764 discovery: well-known -> current-user-principal -> calendar-home-set (follows partition redirects). */
+  private get cacheKey() { return `${this.o.baseUrl}\n${this.o.username}`; }
   async discover(): Promise<string> {
     if (this.home) return this.home;
+    const hit = HOMES.get(this.cacheKey);
+    if (hit && hit.exp > Date.now()) { this.home = hit.home; this.origin = new URL(hit.home).origin; return this.home; }
     const pf = `<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:current-user-principal/></d:prop></d:propfind>`;
     let start = this.abs("/.well-known/caldav", this.o.baseUrl);
     let r = await this.req("PROPFIND", start, pf, { Depth: "0" });
@@ -68,11 +77,21 @@ export class CalDavClient {
     const homeHref = textOf(first(first(parseXml(r.text), "calendar-home-set") ?? ({} as XNode), "href") as XNode);
     if (!homeHref) throw new CalDavError("bad_response", "iCloud didn't return a calendar home.");
     this.home = this.abs(homeHref, r.url); this.origin = new URL(this.home).origin;
+    HOMES.set(this.cacheKey, { home: this.home, exp: Date.now() + HOME_TTL_MS });
     return this.home;
   }
 
   async listCollections(): Promise<Collection[]> {
-    const home = await this.discover();
+    const cached = !this.home && HOMES.has(this.cacheKey);
+    try { return await this.listAt(await this.discover()); }
+    catch (e) {
+      // A cached home can go stale (Apple moved the account to another partition). Rediscover once.
+      if (!cached || !(e instanceof CalDavError) || e.code === "authentication") throw e;
+      HOMES.delete(this.cacheKey); this.home = undefined; this.origin = undefined;
+      return this.listAt(await this.discover());
+    }
+  }
+  private async listAt(home: string): Promise<Collection[]> {
     const body = `<?xml version="1.0"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:cs="http://calendarserver.org/ns/" xmlns:ic="http://apple.com/ns/ical/"><d:prop><d:resourcetype/><d:displayname/><ic:calendar-color/><c:supported-calendar-component-set/><cs:getctag/><d:current-user-privilege-set/></d:prop></d:propfind>`;
     const r = await this.req("PROPFIND", home, body, { Depth: "1" });
     const out: Collection[] = [];

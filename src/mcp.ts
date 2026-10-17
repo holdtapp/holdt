@@ -3,37 +3,78 @@ import { CalDavError } from "./caldav.js";
 import { log } from "./redact.js";
 
 export const SERVER_INFO = { name: "holdt", title: "Holdt for iCloud Calendar", version: "0.1.0" };
-const SUPPORTED = ["2025-06-18", "2025-03-26", "2024-11-05"];
-const INSTRUCTIONS = "Reads the user's iCloud calendars (Calendar only: Apple Reminders is not available through this connector). Every change is two steps: call prepare_* to get a preview, show it to the user, and call commit_* only after they clearly say yes to that exact preview. Never commit on your own initiative. This server cannot delete anything or send invitations.";
+/** Newest first. 2026-07-28 is stateless (no initialize, version in every request's _meta). The rest use the initialize handshake. */
+export const SUPPORTED = ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+const STATELESS = new Set(["2026-07-28"]);
+const LEGACY = SUPPORTED.filter((v) => !STATELESS.has(v));
+export const ERR = { HEADER_MISMATCH: -32020, UNSUPPORTED_PROTOCOL_VERSION: -32022 } as const;
+const META_VERSION = "io.modelcontextprotocol/protocolVersion";
+const INSTRUCTIONS = "Reads the user's iCloud calendars (Calendar only: Apple Reminders is not available through this connector). Every change is two steps: call prepare_* to get a preview, show it to the user, and call commit_* only after they clearly say yes to that exact preview. Never commit on your own initiative. This server cannot delete anything or send invitations. Times without an offset are in the user's time zone, and a date alone means that whole day.";
+const LIST_TTL_MS = 60 * 60_000;
 
 type Rpc = { jsonrpc: "2.0"; id?: string | number | null; method: string; params?: any };
+export interface RpcOpts { remindersExperimental?: boolean; /** The MCP-Protocol-Version HTTP header, if the client sent one. */ headerVersion?: string | null }
+/** A JSON-RPC response plus the HTTP status the transport should use (non-enumerable, so it never reaches the wire). */
+const withStatus = <T extends object>(o: T, status: number): T => Object.defineProperty(o, "httpStatus", { value: status, enumerable: false });
+export const statusOf = (o: unknown) => (o && typeof o === "object" && (o as any).httpStatus) || 200;
 
-export async function handleRpc(msg: Rpc, makeTools: () => Tools, opts: { remindersExperimental?: boolean } = {}): Promise<object | null> {
+export async function handleRpc(msg: Rpc, makeTools: () => Tools, opts: RpcOpts = {}): Promise<object | null> {
   const TOOLS = toolsFor(opts);
+  if (!msg || typeof msg !== "object" || msg.jsonrpc !== "2.0" || typeof msg.method !== "string") return withStatus({ jsonrpc: "2.0", id: (msg as any)?.id ?? null, error: { code: -32600, message: "Invalid request" } }, 400);
   const id = msg.id ?? null; const isNote = msg.id === undefined;
-  const ok = (result: unknown) => ({ jsonrpc: "2.0", id, result });
-  const err = (code: number, message: string) => ({ jsonrpc: "2.0", id, error: { code, message } });
-  if (msg?.jsonrpc !== "2.0" || typeof msg.method !== "string") return err(-32600, "Invalid request");
+  const metaVersion = msg.params?._meta?.[META_VERSION];
+  const stateless = typeof metaVersion === "string";
+  const err = (code: number, message: string, data?: unknown, status?: number) => { const o = { jsonrpc: "2.0", id, error: data === undefined ? { code, message } : { code, message, data } }; return status ? withStatus(o, status) : o; };
+  if (stateless) {
+    if (!SUPPORTED.includes(metaVersion)) return err(ERR.UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version", { supported: SUPPORTED, requested: metaVersion }, 400);
+    if (opts.headerVersion && opts.headerVersion !== metaVersion) return err(ERR.HEADER_MISMATCH, "MCP-Protocol-Version header doesn't match _meta protocolVersion", undefined, 400);
+  }
+  // 2026-07-28 results carry resultType and name the server in _meta. Older clients get the shape they expect.
+  const ok = (result: Record<string, unknown>, forceModern = false) => ({ jsonrpc: "2.0", id, result: stateless || forceModern ? { ...result, resultType: "complete", _meta: { ...(result._meta as object), "io.modelcontextprotocol/serverInfo": SERVER_INFO } } : result });
   switch (msg.method) {
+    case "server/discover":
+      return ok({ supportedVersions: SUPPORTED, capabilities: { tools: { listChanged: false } }, instructions: INSTRUCTIONS, ttlMs: LIST_TTL_MS, cacheScope: "public" }, true);
     case "initialize": {
-      const v = SUPPORTED.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : SUPPORTED[0];
+      const asked = msg.params?.protocolVersion;
+      const v = LEGACY.includes(asked) ? asked : LEGACY[0];
       return ok({ protocolVersion: v, capabilities: { tools: { listChanged: false } }, serverInfo: SERVER_INFO, instructions: INSTRUCTIONS });
     }
     case "notifications/initialized": case "notifications/cancelled": return null;
     case "ping": return ok({});
-    case "tools/list": return ok({ tools: TOOLS });
+    case "tools/list": return ok(stateless ? { tools: TOOLS, ttlMs: LIST_TTL_MS, cacheScope: "public" } : { tools: TOOLS });
     case "tools/call": {
       const name = msg.params?.name; const args = msg.params?.arguments ?? {};
-      if (!TOOLS.some((t) => t.name === name)) return err(-32602, `Unknown tool: ${String(name).slice(0, 60)}`);
-      if (typeof args !== "object" || Array.isArray(args)) return err(-32602, "arguments must be an object");
+      const tool = TOOLS.find((t) => t.name === name);
+      if (!tool) return err(-32602, `Unknown tool: ${String(name).slice(0, 60)}`);
+      if (typeof args !== "object" || args === null || Array.isArray(args)) return err(-32602, "arguments must be an object");
       try {
-        const res = await makeTools().call(name, args);
+        checkArgs(tool.inputSchema as any, args);
+        const res = (await makeTools().call(name, args)) as Record<string, unknown>;
         return ok({ content: [{ type: "text", text: JSON.stringify(res, null, 1) }], structuredContent: res, isError: false });
       } catch (e) {
         return ok({ content: [{ type: "text", text: friendly(e) }], isError: true });
       }
     }
     default: return isNote ? null : err(-32601, `Method not found: ${msg.method.slice(0, 60)}`);
+  }
+}
+
+/** Checks argument names, required fields and basic types against the tool's schema, with a message the model can act on. */
+export function checkArgs(schema: { properties?: Record<string, any>; required?: string[] }, args: Record<string, unknown>) {
+  const props = schema.properties ?? {};
+  const unknown = Object.keys(args).filter((k) => !(k in props));
+  if (unknown.length) throw new UserError(`Unknown argument${unknown.length > 1 ? "s" : ""}: ${unknown.slice(0, 5).map((k) => k.slice(0, 40)).join(", ")}. Allowed: ${Object.keys(props).join(", ") || "none"}.`);
+  for (const k of schema.required ?? []) if (args[k] === undefined || args[k] === null) throw new UserError(`Missing required argument: ${k}.`);
+  for (const [k, v] of Object.entries(args)) {
+    if (v === undefined || v === null) continue;
+    const t = props[k]?.type; const bad = (want: string) => { throw new UserError(`${k} must be ${want}.`); };
+    if (t === "string" && typeof v !== "string") bad("text");
+    if (t === "integer" && !Number.isInteger(v)) bad("a whole number");
+    if (t === "boolean" && typeof v !== "boolean") bad("true or false");
+    if (t === "array" && !Array.isArray(v)) bad("a list");
+    if (t === "object" && (typeof v !== "object" || Array.isArray(v))) bad("an object");
+    if (t === "integer" && (props[k].minimum !== undefined && (v as number) < props[k].minimum || props[k].maximum !== undefined && (v as number) > props[k].maximum)) bad(`between ${props[k].minimum} and ${props[k].maximum}`);
+    if (props[k]?.enum && !props[k].enum.includes(v)) bad(`one of ${props[k].enum.join(", ")}`);
   }
 }
 
