@@ -8,7 +8,12 @@ export class CalDavError extends Error {
 }
 
 export interface Collection { id: string; href: string; name: string; color?: string; components: string[]; writable: boolean; ctag?: string }
-export interface Resource { href: string; etag: string; ics: string }
+export interface Resource { href: string; etag: string; ics: string; /** Where the ETag came from: the multiget body (consistent with ics, untouched by proxies) or a GET header. */ etagSource?: "report" | "get" }
+/** Shape of an ETag for logs, never its value: weak or strong, quoted or bare, length. */
+export function etagForm(e: string | null | undefined): string { if (!e) return "none"; return `${/^W\//i.test(e) ? "weak" : "strong"},${/"$/.test(e) ? "quoted" : "bare"},len=${e.length}`; }
+/** If-Match needs a strong, quoted entity tag (RFC 9110 uses strong comparison). A W/ prefix a proxy added never
+ * matches, so it is dropped; a bare value is quoted. The opaque part is passed byte for byte. */
+export function ifMatchValue(e: string): string { const t = e.trim().replace(/^W\//i, ""); return /^".*"$/.test(t) ? t : `"${t}"`; }
 
 export interface CalDavOptions { baseUrl: string; username: string; password: string; fetch?: FetchLike; maxRetries?: number; sleep?: (ms: number) => Promise<void>; timeoutMs?: number }
 
@@ -121,25 +126,50 @@ export class CalDavClient {
     return out;
   }
 
+  /** One event with an ETag that belongs to exactly that content: calendar-multiget returns getetag and calendar-data
+   * in the same XML body, which no proxy rewrites. A GET's ETag header can be weakened (W/) on the way through
+   * Cloudflare, and then no If-Match ever succeeds. Falls back to GET if the REPORT isn't usable. */
   async get(href: string): Promise<Resource> {
     this.assertSameOrigin(href);
+    const viaReport = await this.multiget(href).catch((e) => { if (e instanceof CalDavError && e.code === "authentication") throw e; return undefined; });
+    if (viaReport) return viaReport;
     const r = await this.req("GET", href, undefined, { Accept: "text/calendar" });
-    return { href, etag: r.headers.get("etag") ?? "", ics: r.text };
+    return { href, etag: r.headers.get("etag") ?? "", ics: r.text, etagSource: "get" };
+  }
+  /** The ETag header a plain GET reports, for diagnostics only (its form is logged, never its value). */
+  async headerEtag(href: string): Promise<string> {
+    this.assertSameOrigin(href);
+    return (await this.req("GET", href, undefined, { Accept: "text/calendar" })).headers.get("etag") ?? "";
+  }
+  private async multiget(href: string): Promise<Resource | undefined> {
+    const u = new URL(href); const col = new URL(u.pathname.replace(/[^/]*$/, ""), u).toString();
+    const body = `<?xml version="1.0"?><c:calendar-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><c:calendar-data/></d:prop><d:href>${escapeXml(u.pathname)}</d:href></c:calendar-multiget>`;
+    const r = await this.req("REPORT", col, body, { Depth: "1" });
+    for (const resp of all(parseXml(r.text), "response")) {
+      const h = textOf(first(resp, "href")); if (!h) continue;
+      let same = false; try { same = decodeURIComponent(new URL(this.abs(h, col)).pathname) === decodeURIComponent(u.pathname); } catch { same = false; }
+      if (!same) continue;
+      const ok = okProps(resp); if (!ok) return undefined;
+      const ics = textOf(first(ok, "calendar-data")), etag = textOf(first(ok, "getetag"));
+      // XML parsing turns CRLF into LF; iCalendar lines end in CRLF, and an edit-undo writes this text back verbatim.
+      return ics && etag ? { href, etag, ics: ics.replace(/\r?\n/g, "\r\n").replace(/(\r\n)?$/, "\r\n"), etagSource: "report" } : undefined;
+    }
+    return undefined;
   }
   /** Create (If-None-Match:*) or update (If-Match). Never retried: a write is attempted exactly once. */
-  async put(href: string, ics: string, mode: { create: true } | { etag: string }): Promise<{ etag: string }> {
+  async put(href: string, ics: string, mode: { create: true } | { etag: string }): Promise<{ etag: string; status: number }> {
     this.assertSameOrigin(href);
     const h: Record<string, string> = { "Content-Type": "text/calendar; charset=utf-8" };
-    if ("create" in mode) h["If-None-Match"] = "*"; else h["If-Match"] = mode.etag;
+    if ("create" in mode) h["If-None-Match"] = "*"; else h["If-Match"] = ifMatchValue(mode.etag);
     const r = await this.req("PUT", href, ics, h, false);
-    return { etag: r.headers.get("etag") ?? "" };
+    return { etag: r.headers.get("etag") ?? "", status: r.status };
   }
   /** Remove one resource, only if it is still exactly the version we checked (If-Match). Never retried.
    * Only Holdt's undo calls this, for an event Holdt itself added in the last 24 hours. No tool exposes a general delete. */
-  async deleteIfMatch(href: string, etag: string): Promise<void> {
+  async deleteIfMatch(href: string, etag: string): Promise<number> {
     this.assertSameOrigin(href);
     if (!etag) throw new CalDavError("conflict", "Can't confirm the event is unchanged, so nothing was removed.");
-    await this.req("DELETE", href, undefined, { "If-Match": etag }, false);
+    return (await this.req("DELETE", href, undefined, { "If-Match": ifMatchValue(etag) }, false)).status;
   }
   /** Credentials only ever go to the configured host or Apple's *.icloud.com partition hosts, over HTTPS (http allowed only for localhost tests). */
   private assertTrustedHost(url: string) {

@@ -11,6 +11,16 @@ export class MockCalDav {
   items = new Map<string, Item>(); etagSeq = 1;
   /** Simulates iCloud: what it stores is a rewrite of what was PUT, under a newer ETag than the PUT response named. */
   onPut: ((ics: string) => string) | null = null;
+  /** How a plain GET's ETag header looks on arrival (e.g. weakened by a proxy, or a different value). */
+  getEtag: ((stored: string) => string) | null = null;
+  /** How getetag looks in REPORT bodies (e.g. bare, unquoted). If-Match is always checked against the stored value. */
+  reportEtag: ((stored: string) => string) | null = null;
+  /** Answer the next N If-Match writes with 412 regardless (iCloud's occasional spurious precondition failure). */
+  spurious412 = 0;
+  /** Runs right after a spurious 412 is sent (e.g. the user edits the event in that gap). */
+  after412: (() => void) | null = null;
+  /** Turn off calendar-multiget (a server that doesn't support it): it then answers 501. */
+  noMultiget = false;
   cols: Record<string, { name: string; comps: string[]; readOnly?: boolean; color?: string }> = {
     "home": { name: "Home", comps: ["VEVENT"], color: "#34AADC" },
     "work": { name: "Work", comps: ["VEVENT"], color: "#FF2968" },
@@ -49,15 +59,27 @@ export class MockCalDav {
       return ms(out);
     }
     const colM = p.match(/^\/123456789\/calendars\/([^/]+)\/$/);
+    const rTag = (e: number) => (this.reportEtag ? this.reportEtag(`"${e}"`) : `"${e}"`);
+    if (req.method === "REPORT" && colM && body.includes("calendar-multiget")) {
+      if (this.noMultiget) return send(501);
+      let out = "";
+      for (const m of body.matchAll(/<d:href>([^<]+)<\/d:href>/g)) {
+        const k = decodeURIComponent(m[1]!.replace(/&amp;/g, "&")); const v = this.items.get(k);
+        out += v ? `<response><href>${m[1]}</href><propstat><prop><getetag>${rTag(v.etag)}</getetag><C:calendar-data>${v.ics.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response>`
+          : `<response><href>${m[1]}</href><status>HTTP/1.1 404 Not Found</status></response>`;
+      }
+      return ms(out);
+    }
     if (req.method === "REPORT" && colM) {
       const comp = /comp-filter name="(VEVENT|VTODO)"/.exec(body)?.[1];
       // iCloud quirk: the collection itself comes back with a 404 calendar-data propstat
       let out = `<response><href>${p}</href><propstat><prop><C:calendar-data/></prop><status>HTTP/1.1 404 Not Found</status></propstat></response>`;
-      for (const [k, v] of this.items) if (k.startsWith(p) && v.ics.includes(`BEGIN:${comp}`)) out += `<response><href>${k}</href><propstat><prop><getetag>"${v.etag}"</getetag><C:calendar-data>${v.ics.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response>`;
+      for (const [k, v] of this.items) if (k.startsWith(p) && v.ics.includes(`BEGIN:${comp}`)) out += `<response><href>${k}</href><propstat><prop><getetag>${rTag(v.etag)}</getetag><C:calendar-data>${v.ics.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</C:calendar-data></prop><status>HTTP/1.1 200 OK</status></propstat></response>`;
       return ms(out);
     }
     const it = this.items.get(p);
-    if (req.method === "GET") return it ? send(200, it.ics, { ETag: `"${it.etag}"`, "Content-Type": "text/calendar" }) : send(404);
+    if (req.method === "GET") return it ? send(200, it.ics, { ETag: this.getEtag ? this.getEtag(`"${it.etag}"`) : `"${it.etag}"`, "Content-Type": "text/calendar" }) : send(404);
+    if ((req.method === "PUT" || req.method === "DELETE") && req.headers["if-match"] && this.spurious412 > 0) { this.spurious412--; send(412); this.after412?.(); return; }
     if (req.method === "PUT") {
       const col = p.split("/")[3]!; if (!this.cols[col]) return send(404); if (this.cols[col]!.readOnly) return send(403);
       if (req.headers["if-none-match"] === "*" && it) return send(412);

@@ -1,4 +1,4 @@
-import { CalDavClient, CalDavError, Collection, Resource } from "./caldav.js";
+import { CalDavClient, CalDavError, Collection, Resource, etagForm } from "./caldav.js";
 import { parseIcs, getProp, parseDate, expand, unescapeText, buildEvent, patchEvent, parseUserTime, isoInZone, ITime, Component, propLine, escapeText, fmtUtc, fmtDate, foldLine, isValidZone, dayStartIn, toFloating } from "./ical.js";
 import { UserError } from "./errors.js";
 import { resolvePhrase, Resolved } from "./phrases.js";
@@ -320,6 +320,8 @@ export class Tools {
         const r = await this.currentOf(ch);
         const fp = await eventFingerprint(r.ics);
         log.info(`undo check: etag ${r.etag && r.etag === ch.afterEtag ? "same" : "differs"}, content ${!ch.afterFp ? "not recorded" : fp === ch.afterFp ? "same" : "differs"}`);
+        // Diagnostics only: the form (never the value) of the multiget ETag versus a plain GET's header.
+        try { const hdr = await this.dav.headerEtag(ch.href); log.info(`undo etag forms: ${r.etagSource ?? "?"}=${etagForm(r.etag)}, get-header=${etagForm(hdr)}, same-value=${hdr.replace(/^W\//i, "") === r.etag.replace(/^W\//i, "")}, same-bytes=${hdr === r.etag}`); } catch { /* diagnostics never block */ }
         // Changes logged before 1.0.2 have no fingerprint: they keep the old exact-ETag rule (fail closed, never looser).
         if (ch.afterFp ? fp !== ch.afterFp : !r.etag || r.etag !== ch.afterEtag) throw new UserError("This event was edited after Holdt's change, so taking it back could wipe out those edits. Nothing was changed. Fix it in the Calendar app, or ask me for a new change.");
         let lines: string[];
@@ -347,11 +349,24 @@ export class Tools {
         if (ch.undone) throw new UserError("That change was already taken back. Nothing was done twice.");
         const uc = await this.col(ch.cid, "VEVENT");
         if (!uc.writable) throw new UserError(`"${oneLine(uc.name, 60)}" is read-only in iCloud now, so Holdt can't take this change back. Nothing was changed.`);
-        const r = await this.currentOf(ch);
-        // Same content as at the preview; the remove or restore itself is pinned to this exact read with If-Match.
-        if (!v.payload.fp || (await eventFingerprint(r.ics)) !== v.payload.fp || !r.etag) throw new UserError("This event changed after the undo preview. Nothing was changed. Ask for a fresh preview.");
-        if (ch.action === "create") { await this.assertOwnCreate(jr.j, ch, r.ics); await this.dav.deleteIfMatch(ch.href, r.etag); }
-        else await this.dav.put(ch.href, ch.before!, { etag: r.etag });
+        // Read, check the content is what the user saw at the preview (the real safety check), then write pinned to that
+        // exact read with If-Match. If iCloud answers 412 anyway, read and check again, and try once more.
+        const what = ch.action === "create" ? "delete" : "restore";
+        for (let attempt = 1; ; attempt++) {
+          const r = await this.currentOf(ch);
+          if (!v.payload.fp || (await eventFingerprint(r.ics)) !== v.payload.fp || !r.etag) throw new UserError("This event changed after the undo preview. Nothing was changed. Ask for a fresh preview.");
+          if (ch.action === "create") await this.assertOwnCreate(jr.j, ch, r.ics);
+          try {
+            const status = ch.action === "create" ? await this.dav.deleteIfMatch(ch.href, r.etag) : (await this.dav.put(ch.href, ch.before!, { etag: r.etag })).status;
+            log.info(`undo ${what}: status ${status}, etag ${etagForm(r.etag)} from ${r.etagSource ?? "?"}, attempt ${attempt}`);
+            break;
+          } catch (e) {
+            const conflict = e instanceof CalDavError && e.code === "conflict";
+            log.warn(`undo ${what}: ${conflict ? "status 412" : `failed (${(e as any)?.code ?? "error"})`}, etag ${etagForm(r.etag)} from ${r.etagSource ?? "?"}, attempt ${attempt}`);
+            if (conflict && attempt < 2) continue;
+            throw e;
+          }
+        }
         const now = this.now(); await jr.j.markUndone(ch, now);
         await jr.j.record({ id: newId(now), at: now, action: "undo", of: ch.id, cid: ch.cid, href: ch.href, uid: ch.uid, title: ch.title, afterEtag: "" }).catch(() => undefined);
         log.info(`undo ${ch.action}`);
