@@ -19,6 +19,7 @@ export interface Env {
   /** Comma-separated exact OAuth callback URIs allowed to receive a code. Unset: any https or loopback callback. */ REDIRECT_ALLOWLIST?: string;
   /** Comma-separated exact OAuth client_ids allowed to connect. Unset: any registered client. */ CLIENT_ALLOWLIST?: string;
   /** Workers Rate Limiting bindings (wrangler.toml). Absent: no limit. */ RL_REGISTER?: RateLimiter; RL_APPROVE?: RateLimiter; RL_MCP?: RateLimiter;
+  /** "on" lets clients identify with a Client ID Metadata Document URL. Off by default (see providerFor). */ CIMD?: string;
   /** "on" turns on passkey one-tap connect (src/passkey.ts). The approval code always stays as the fallback. */ PASSKEYS?: string;
   /** SHA-256 of the one-time enroll token from `npm run setup -- --add-device`, and when it was issued. */ ENROLL_TOKEN_HASH?: string; ENROLL_TOKEN_ISSUED?: string;
   /** Rotated by `--reset-passkeys`: passkeys enrolled under an older value stop working. */ PASSKEY_EPOCH?: string;
@@ -97,8 +98,8 @@ export function kvUsedStore(kv: any) {
 }
 
 const providers = new Map<string, OAuthProvider<Env>>();
-export function providerFor(origin: string, fetchImpl?: typeof fetch): OAuthProvider<Env> {
-  const key = origin + (fetchImpl ? ":test" : "");
+export function providerFor(origin: string, fetchImpl?: typeof fetch, opts: { cimd?: boolean } = {}): OAuthProvider<Env> {
+  const key = origin + (fetchImpl ? ":test" : "") + (opts.cimd ? ":cimd" : "");
   let p = providers.get(key);
   if (!p) {
     p = new OAuthProvider<Env>({
@@ -112,8 +113,11 @@ export function providerFor(origin: string, fetchImpl?: typeof fetch): OAuthProv
       requiredScopes: ["calendar"],
       // Grok Bot registers cursor://anysphere.cursor-mcp/oauth/callback; authorize.ts limits private-use schemes to cursor: only.
       allowPrivateUseRedirectUris: true,
-      // MCP 2026-07-28 prefers Client ID Metadata Documents over DCR. Active only with the global_fetch_strictly_public flag (wrangler.toml).
-      clientIdMetadataDocumentEnabled: true,
+      // Client ID Metadata Documents (MCP 2026-07-28) are OFF unless CIMD = "on". Grok Bot connects with DCR today (the
+      // live grant's client was DCR-registered), and CIMD makes this Worker fetch a URL the caller picks, before anyone
+      // has approved anything. Turn it on only when a client needs it. global_fetch_strictly_public (wrangler.toml)
+      // still keeps those fetches off private hosts.
+      clientIdMetadataDocumentEnabled: opts.cimd === true,
       accessTokenTTL: 3600,
       // 90-day sliding window: a connection used at least once every 90 days never needs reconnecting. GRANT_EPOCH still cuts all off at once.
       refreshTokenTTL: 90 * 86400,
@@ -158,6 +162,6 @@ export default {
     const url = new URL(req.url);
     if (url.pathname === "/" || url.pathname === "/health") return json({ ok: true, name: "holdt", mcp: "/mcp" });
     if (await rateLimited(req, env, url.pathname)) { log.warn(`rate limited ${url.pathname.slice(0, 40)}`); return json({ error: "rate_limited", error_description: "Too many requests. Wait a minute and try again." }, 429, { "Retry-After": "60" }); }
-    return providerFor(url.origin).fetch(req, env, ctx);
+    return providerFor(url.origin, undefined, { cimd: env.CIMD === "on" }).fetch(req, env, ctx);
   },
 };

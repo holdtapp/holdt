@@ -1,7 +1,7 @@
 name = "holdt"
 main = "src/worker.ts"
 compatibility_date = "2026-10-01"
-# Lets the OAuth library fetch Client ID Metadata Documents (the MCP 2026-07-28 default) without SSRF into this zone.
+# Keeps any outbound fetch the OAuth library makes (Client ID Metadata Documents, only if CIMD = "on") off private hosts.
 compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
 # Version URLs would keep every uploaded version (including pre-fix ones) callable with production secrets and KV.

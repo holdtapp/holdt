@@ -31,6 +31,9 @@ Ordered by how much you can trust each layer: invariants in code first, then CI 
 | T10 response size | Open. iCloud is a trusted, pinned host. |
 | T11 to T13 | T11 fixed. T12 is a label, never claimed as a protection. T13 open (shared calendars sync edits to members). |
 
+## Client ID Metadata Documents: off by default
+`clientIdMetadataDocumentEnabled` follows `CIMD = "on"` and is off otherwise (attack row M1). Reason: the live Grok Bot connection was made with Dynamic Client Registration (its client record is a DCR registration, Oct 17, 2026), so nothing needs CIMD today. With it on, anyone who opens /authorize makes the Worker fetch a URL they choose before any approval, which is SSRF surface (limited to public hosts by `global_fetch_strictly_public`) and a free way to make the consent page show a publisher name. Turn it on if Grok Bot or another client you use moves to CIMD.
+
 ## Origin check rollout (MCP spec: servers MUST validate Origin)
 The check refuses browser calls from other sites. Grok Bot calls from its servers, which normally send no Origin header, and those always pass. Before enforcing in production:
 1. Deploy with `ORIGIN_CHECK = "report"` (the committed default). Nothing is refused. Every /mcp call that carries an Origin logs `origin seen: same-origin | allowed <origin> | foreign <origin>`.

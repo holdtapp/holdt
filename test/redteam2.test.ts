@@ -100,3 +100,19 @@ test("REDTEAM S8: production config still lets a plain-http loopback callback re
   assert.ok(list, "allowlist is set");
   for (const u of list.split(",").map((x) => x.trim())) assert.match(u, /^https:\/\//, `${u} in the production allowlist`);
 });
+
+test("ATTACK M1: with CIMD off (the default) a URL client_id makes the Worker fetch nothing and gets no consent page", async () => {
+  const urls: string[] = []; const real = globalThis.fetch, g = globalThis as any, hadCf = "Cloudflare" in g, cf = g.Cloudflare;
+  globalThis.fetch = (async (u: any) => { urls.push(String(u?.url ?? u)); return new Response("{}", { status: 404 }); }) as any;
+  // As in production: wrangler.toml sets global_fetch_strictly_public, which the library requires before it would fetch.
+  g.Cloudflare = { ...(cf ?? {}), compatibilityFlags: { ...(cf?.compatibilityFlags ?? {}), global_fetch_strictly_public: true } };
+  try {
+    const env: any = { OAUTH_KV: new MockKV(), CONFIRM_SECRET: "k".repeat(43), GRANT_EPOCH: "e".repeat(30), REDIRECT_ALLOWLIST: CB };
+    const q = new URLSearchParams({ response_type: "code", client_id: "https://attacker.example/client.json", redirect_uri: CB, code_challenge: "x".repeat(43), code_challenge_method: "S256", state: "s", scope: "calendar" });
+    const r = await (await import("../src/worker.js")).default.fetch(new Request(`${ORIGIN}/authorize?${q}`), env, { waitUntil() {}, passThroughOnException() {} });
+    assert.notEqual(r.status, 200);
+    assert.ok(!urls.some((u) => u.includes("attacker.example")), `fetched ${urls.join(", ")}`);
+    const meta: any = await (await (await import("../src/worker.js")).default.fetch(new Request(`${ORIGIN}/.well-known/oauth-authorization-server`), env, {})).json();
+    assert.notEqual(meta.client_id_metadata_document_supported, true);
+  } finally { globalThis.fetch = real; if (hadCf) g.Cloudflare = cf; else delete g.Cloudflare; }
+});
