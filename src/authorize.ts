@@ -10,9 +10,9 @@ const esc = (v: string) => String(v).replace(/[&<>"']/g, (c) => `&#${c.charCodeA
 export async function sha256Hex(s: string) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join(""); }
 export const normalizeCode = (s: string) => String(s ?? "").replace(/\D/g, "");
 
-/** Only https, loopback http, or the cursor: scheme Grok Bot uses may receive a code. */
+/** Only https, loopback http, or the cursor: scheme Grok Bot uses may receive a code. Never userinfo (grok@evil) or a fragment. */
 export function redirectAllowed(uri: string) {
-  try { const u = new URL(uri); return u.protocol === "https:" || u.protocol === "cursor:" || (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)); } catch { return false; }
+  try { const u = new URL(uri); if (u.username || u.password || u.hash) return false; return u.protocol === "https:" || u.protocol === "cursor:" || (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)); } catch { return false; }
 }
 
 const STYLE = `:root{--bg:#f6f7f9;--card:#fff;--ink:#111827;--muted:#5b6472;--line:#e5e7eb;--blue:#0a66ff;--red:#c62828;--amber:#8a5a00;color-scheme:light dark}
@@ -26,7 +26,7 @@ input[aria-invalid=true]{border-color:var(--red)}.err{color:var(--red);font-size
 .allow{background:var(--blue);color:#fff}.deny{background:transparent;color:var(--ink);border:1px solid var(--line)}button:focus-visible,input:focus-visible{outline:3px solid color-mix(in srgb,var(--blue) 45%,transparent);outline-offset:2px}`;
 
 export function formActionFor(uri: string) {
-  try { const u = new URL(uri); return u.protocol === "https:" || u.protocol === "http:" ? u.origin : u.protocol; } catch { return ""; }
+  try { const u = new URL(uri); if (u.username || u.password || u.hash) return false; return u.protocol === "https:" || u.protocol === "http:" ? u.origin : u.protocol; } catch { return ""; }
 }
 function page(title: string, body: string, status = 200, headers?: Headers, redirectUri = "") {
   const h = headers ?? new Headers();

@@ -8,6 +8,7 @@
   "scripts": {
     "test": "node --import ./test/register.mjs --import tsx --test --test-concurrency=1 test/*.test.ts",
     "typecheck": "tsc --noEmit -p .",
+    "prove": "node scripts/prove-attacks.mjs",
     "setup": "tsx setup/server.ts",
     "probe:reminders": "tsx scripts/reminders-probe.ts"
   },

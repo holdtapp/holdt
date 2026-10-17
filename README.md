@@ -4,7 +4,7 @@
 
 Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. **Calendar only: Apple Reminders is not included (see below).** It is read-only unless you turn changes on. With changes on, it still shows you every change first and waits for your yes. It can never delete anything or send invitations.
 
-> Status: private beta. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Changes have only been tested against the mock iCloud server so far. 60 automated tests. Not submitted or published.
+> Status: private beta. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Changes have only been tested against the mock iCloud server so far. 80 automated tests, including a 20-attack adversarial suite. Not submitted or published.
 
 ## Setup (about 5 minutes, ESTIMATE)
 1. `npm install`
@@ -38,6 +38,7 @@ Anything we built would read the wrong list, so v1 leaves Reminders out. You can
 - **No double writes.** Replays are blocked by token nonces, `If-None-Match: *` on creates and `If-Match` ETags on updates, so a change can't land twice and a stale preview can't overwrite newer edits.
 - **Writes are attempted exactly once.** An ambiguous failure returns "re-check before retrying". Reads retry 429/5xx with backoff.
 - **Credentials only go to trusted hosts:** the configured host or `*.icloud.com`, over HTTPS. Redirects elsewhere are refused (tested).
+- **Prompt injection is contained.** Anyone can put an event on your calendar by inviting you, so event text is treated as untrusted. Every result labels it as data, text that reads like orders to an AI is flagged, events from other people's invitations can't be edited, and preview lines can't be forged by a hostile title. See docs/attack-proof.md.
 - **Logs are redacted:** passwords, tokens, Basic auth, emails, principal paths and iCal bodies. A test checks every log line from the whole suite.
 - **OAuth 2.1 on `/mcp`** via @cloudflare/workers-oauth-provider: PKCE S256, RFC 9728 protected resource metadata, RFC 8707 audience-bound tokens, RFC 9207 `iss` on the redirect, refresh rotation and RFC 7009 revocation. Client ID Metadata Documents are on (the MCP 2026-07-28 default), with Dynamic Client Registration kept for older clients. Connecting needs a one-time 8-digit code from setup, so no key ever goes in chat. `npm run setup -- --revoke-all` cuts off every connection.
 - **MCP 2026-07-28 and earlier.** Stateless requests (`server/discover`, per-request `_meta` version, `resultType`, cacheable `tools/list`) and the older `initialize` handshake (2025-11-25 back to 2024-11-05). Every tool has accurate `readOnlyHint` / `destructiveHint` / `idempotentHint` annotations, and every read tool has an `outputSchema`.
@@ -46,7 +47,7 @@ Anything we built would read the wrong list, so v1 leaves Reminders out. You can
 Times without an offset are in your time zone (set by setup). A date alone means that whole day in your zone, so "from 2026-10-17 to 2026-10-17" is all of Saturday Oct 17. All-day events stay on their date wherever you are. Repeating events are expanded per date, including "2nd Tuesday", "last Friday", "1st and 15th" and yearly rules like Thanksgiving. Rare rules (BYSETPOS, week numbers) show the first date with a note.
 
 ## Develop
-`npm test` (60 tests) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
+`npm test` (80 tests, 20 of them attacks) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
 
 ---
 Holdt is an independent product. It is not made by, affiliated with or endorsed by Apple Inc. iCloud and Apple are trademarks of Apple Inc.
