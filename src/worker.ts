@@ -7,6 +7,8 @@ import { Tools } from "./tools.js";
 import { handleRpc, statusOf, SUPPORTED } from "./mcp.js";
 import { registerSecret, log } from "./redact.js";
 import { authorizeHandler } from "./authorize.js";
+import { guardFor } from "./guard.js";
+export { Guard } from "./guard.js";
 
 export interface Env {
   ICLOUD_EMAIL: string; ICLOUD_APP_PASSWORD: string; CONFIRM_SECRET: string; GRANT_EPOCH: string;
@@ -15,6 +17,7 @@ export interface Env {
   TIMEZONE?: string; WRITES_ENABLED?: string; CALENDAR_ALLOWLIST?: string; CALDAV_URL?: string;
   /** Off in v1: Apple's upgraded Reminders aren't reachable over CalDAV. */ REMINDERS_EXPERIMENTAL?: string;
   OAUTH_KV: any;
+  /** Durable Object for atomic single use (confirm tokens, approval code). Optional: without it, KV plus in-isolate locks are used. */ GUARD?: any;
 }
 export interface GrantProps { epoch: string }
 
@@ -45,7 +48,7 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
   let body: any; try { body = JSON.parse(raw); } catch { return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400); }
   const reminders = env.REMINDERS_EXPERIMENTAL === "true";
   const makeTools = () => new Tools(new CalDavClient({ baseUrl: env.CALDAV_URL ?? "https://caldav.icloud.com/", username: env.ICLOUD_EMAIL, password: env.ICLOUD_APP_PASSWORD, fetch: (fetchImpl ?? ((u: any, i: any) => fetch(u, i))) as any }), {
-    timezone: env.TIMEZONE || "UTC", writesEnabled: env.WRITES_ENABLED === "true", confirmSecret: confirmKey(env), remindersExperimental: reminders, usedStore: kvUsedStore(env.OAUTH_KV), journal: env.OAUTH_KV, owner: env.ICLOUD_EMAIL,
+    timezone: env.TIMEZONE || "UTC", writesEnabled: env.WRITES_ENABLED === "true", confirmSecret: confirmKey(env), remindersExperimental: reminders, usedStore: guardUsedStore(env) ?? kvUsedStore(env.OAUTH_KV), journal: env.OAUTH_KV, owner: env.ICLOUD_EMAIL,
     calendarAllowlist: env.CALENDAR_ALLOWLIST ? env.CALENDAR_ALLOWLIST.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
   const msgs = Array.isArray(body) ? body : [body];
   if (msgs.length > 20) return json({ error: "batch too large" }, 413);
@@ -70,6 +73,11 @@ async function readCapped(req: Request, max: number): Promise<string | undefined
 /** Confirm tokens are bound to the grant epoch, so `--revoke-all` also voids every preview still in flight. */
 export const confirmKey = (env: Pick<Env, "CONFIRM_SECRET" | "GRANT_EPOCH">) => `${env.CONFIRM_SECRET}\n${env.GRANT_EPOCH}`;
 /** Spent confirm-token nonces live in KV for 15 minutes (tokens last 10), so a replay is refused across requests and isolates. */
+/** Spent tokens in the owner's Durable Object: truly single use across every isolate and region. */
+export function guardUsedStore(env: Pick<Env, "GUARD">) {
+  const g = guardFor(env); if (!g) return undefined;
+  return { has: () => false, add: () => undefined, spend: (n: string, exp: number) => g.spend(`confirm:${n}`, exp) };
+}
 export function kvUsedStore(kv: any) {
   if (!kv) return undefined;
   return { has: async (n: string) => !!(await kv.get(`confirm-used:${n}`)), add: (n: string) => kv.put(`confirm-used:${n}`, "1", { expirationTtl: 900 }) };

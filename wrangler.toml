@@ -23,3 +23,13 @@ enabled = false
 [[kv_namespaces]]
 binding = "OAUTH_KV"
 id = "f9717fcde9ab4d809ead25642d5c0470"
+
+# One Durable Object per owner makes "only once" truly atomic: spent confirm and undo tokens, approval-code tries,
+# and the used-code marker (KV can't compare-and-set). SQLite-backed, so it works on the free plan.
+[[durable_objects.bindings]]
+name = "GUARD"
+class_name = "Guard"
+
+[[migrations]]
+tag = "v1-guard"
+new_sqlite_classes = ["Guard"]

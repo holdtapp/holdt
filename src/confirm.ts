@@ -16,7 +16,7 @@ export async function issue(secret: string, action: string, payload: unknown, tt
   return `${body}.${sig}`;
 }
 /** Remembers which confirm tokens were already spent. A Set works in one process. The Worker passes a KV-backed store. */
-export interface UsedStore { has(nonce: string): boolean | Promise<boolean>; add(nonce: string): unknown }
+export interface UsedStore { has(nonce: string): boolean | Promise<boolean>; add(nonce: string): unknown; /** Atomic check-and-mark (the Durable Object). When present, has/add aren't used. */ spend?(nonce: string, expiresAt: number): Promise<boolean> }
 /** For tokens that may be shown more than once (a revert token is checked at prepare and again at commit). Never use it for a commit. */
 export const NO_SPEND: UsedStore = { has: () => false, add: () => undefined };
 export async function verify<T = unknown>(secret: string, token: string, action: string, used: UsedStore, now = Date.now(), expiredMsg = "That preview expired (10 minutes). Ask for a fresh one."): Promise<{ ok: true; payload: T } | { ok: false; reason: string }> {
@@ -32,8 +32,11 @@ export async function verify<T = unknown>(secret: string, token: string, action:
   // Reserve the nonce synchronously first, so two commits racing in one isolate can't both pass the KV check.
   // (Across isolates, KV can't do compare-and-set: see REDTEAM-REPORT.md, Durable Object hardening item.)
   if (used !== NO_SPEND && !reserve(t.n, t.e)) return { ok: false, reason: "That change was already made. Nothing was done twice." };
-  if (await used.has(t.n)) return { ok: false, reason: "That change was already made. Nothing was done twice." };
-  await used.add(t.n);
+  if (used.spend) { if (!(await used.spend(t.n, t.e))) return { ok: false, reason: "That change was already made. Nothing was done twice." }; }
+  else {
+    if (await used.has(t.n)) return { ok: false, reason: "That change was already made. Nothing was done twice." };
+    await used.add(t.n);
+  }
   return { ok: true, payload: t.p as T };
 }
 const RESERVED = new Map<string, number>();

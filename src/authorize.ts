@@ -4,6 +4,7 @@ import { AuthorizationError } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "./worker.js";
 import { registerEnvSecrets, SEC_HEADERS } from "./worker.js";
 import { log } from "./redact.js";
+import { guardFor } from "./guard.js";
 
 const CODE_TTL_MS = 15 * 60_000, MAX_TRIES = 5;
 const esc = (v: string) => String(v).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -104,7 +105,21 @@ export function checkCode(env: Env, raw: string, now = Date.now()): Promise<Verd
   codeQueue = run.catch(() => undefined);
   return run;
 }
+export const CODE_SALT = "icloud-mcp-approval:";
 async function checkCodeOnce(env: Env, raw: string, now: number): Promise<Verdict> {
+  const g = guardFor(env);
+  if (g && env.APPROVAL_CODE_HASH && env.APPROVAL_CODE_ISSUED) {
+    // Atomic across isolates: the Durable Object decides used / locked / spent / charged in one step.
+    const hash = env.APPROVAL_CODE_HASH;
+    if (now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return { ok: false, reason: "expired", message: "That code expired (codes last 15 minutes). On your computer, run npm run setup -- --new-code." };
+    const code = normalizeCode(raw); const given = await sha256Hex(`${CODE_SALT}${code}`);
+    let diff = given.length ^ hash.length; for (let i = 0; i < Math.min(given.length, hash.length); i++) diff |= given.charCodeAt(i) ^ hash.charCodeAt(i);
+    const v = await g.codeTry(hash, code.length === 8 && diff === 0, MAX_TRIES);
+    if (v.ok) { await env.OAUTH_KV.put(`approval-used:${hash}`, "1", { expirationTtl: 86400 }); return { ok: true, hash }; }
+    if (v.reason === "locked") return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. On your computer, run npm run setup -- --new-code." };
+    if (v.reason === "used") return { ok: false, reason: "used", message: "That code was already used. On your computer, run npm run setup -- --new-code for a fresh one." };
+    return { ok: false, reason: "wrong", message: v.left > 0 ? `That code doesn't match. Check your setup screen and try again (${v.left} ${v.left === 1 ? "try" : "tries"} left).` : "That code doesn't match, and this code is now blocked. On your computer, run npm run setup -- --new-code." };
+  }
   if (!env.APPROVAL_CODE_HASH || !env.APPROVAL_CODE_ISSUED) return { ok: false, reason: "none", message: "No approval code is set. On your computer, run npm run setup -- --new-code." };
   const hash = env.APPROVAL_CODE_HASH;
   const failKey = `approval-fail:${hash}`;
