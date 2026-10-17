@@ -27,7 +27,7 @@ test("tools/list returns all v1 tools for every supported protocol version, read
 
 test("serverInfo.version is the release version (clients may cache tool lists per server version)", () => {
   assert.equal(SERVER_INFO.version, JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
-  assert.equal(SERVER_INFO.version, "1.0.0");
+  assert.equal(SERVER_INFO.version, "1.0.1");
 });
 
 test("the request log names the protocol version and the tool count, and nothing else new", async () => {

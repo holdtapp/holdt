@@ -4,7 +4,7 @@ import { log } from "./redact.js";
 
 // Bump on every release that changes the tool list: clients with listChanged: false may keep a tool list cached per
 // server name and version, so an unchanged version can hide new tools after a deploy.
-export const SERVER_INFO = { name: "holdt", title: "Holdt for iCloud Calendar", version: "1.0.0" };
+export const SERVER_INFO = { name: "holdt", title: "Holdt for iCloud Calendar", version: "1.0.1" };
 /** Newest first. 2026-07-28 is stateless (no initialize, version in every request's _meta). The rest use the initialize handshake. */
 export const SUPPORTED = ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const STATELESS = new Set(["2026-07-28"]);
