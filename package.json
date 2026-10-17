@@ -1,0 +1,22 @@
+{
+  "name": "holdt",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Holdt for iCloud Calendar. Reads your calendar. Changes nothing until you say yes. Self-hosted MCP server for Grok Bot on Cloudflare Workers.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --import ./test/register.mjs --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "setup": "tsx setup/server.ts",
+    "probe:reminders": "tsx scripts/reminders-probe.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.3"
+  }
+}

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Holdt: Connect iCloud Calendar</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#111827; --muted:#5b6472; --line:#e5e7eb; --blue:#0a66ff; --green:#0f9d58; --red:#c62828; --r:14px; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --card:#161b22; --ink:#e6edf3; --muted:#9aa4b2; --line:#2a313c; --blue:#4c8dff; --green:#3fb950; --red:#ff6b6b; } }
+  * { box-sizing:border-box } body { margin:0; font:16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:520px; margin:6vh auto; padding:0 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:28px; box-shadow:0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.05); }
+  h1 { font-size:22px; margin:0 0 6px; letter-spacing:-.01em } .lede { color:var(--muted); margin:0 0 22px }
+  ol.steps { list-style:none; padding:0; margin:0 0 22px; display:grid; gap:14px; counter-reset:s }
+  ol.steps li { display:grid; grid-template-columns:28px 1fr; gap:12px; align-items:start; counter-increment:s }
+  ol.steps li::before { content:counter(s); width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-weight:600; font-size:14px; background:color-mix(in srgb, var(--blue) 12%, transparent); color:var(--blue) }
+  .btn { display:inline-flex; align-items:center; gap:8px; border:0; border-radius:10px; padding:11px 16px; font:inherit; font-weight:600; cursor:pointer; text-decoration:none; transition:transform .12s ease-out, background .2s }
+  .btn:active { transform:scale(.97) } .btn:focus-visible, input:focus-visible { outline:3px solid color-mix(in srgb, var(--blue) 45%, transparent); outline-offset:2px }
+  .primary { background:var(--blue); color:#fff } .primary[disabled] { opacity:.5; cursor:not-allowed }
+  .ghost { background:transparent; color:var(--blue); border:1px solid var(--line) }
+  label { display:block; font-weight:600; font-size:14px; margin:0 0 6px } .hint { color:var(--muted); font-size:13px; margin-top:6px }
+  input { width:100%; font:inherit; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:transparent; color:inherit }
+  input.pw { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.06em; font-size:18px }
+  .field { margin-bottom:14px } .err { color:var(--red); font-size:14px; margin-top:6px; min-height:0 } input[aria-invalid="true"] { border-color:var(--red) }
+  .ok-mark { color:var(--green); font-weight:600 }
+  /* demo: three clicks on Apple's page, staged one at a time (anticipation -> action -> settle) */
+  .demo { border:1px dashed var(--line); border-radius:12px; padding:12px 14px; font-size:13px; color:var(--muted); margin-top:10px; display:grid; gap:6px }
+  .demo span { opacity:.35; transform:translateX(-4px); animation:stage 6s cubic-bezier(.2,.8,.2,1) infinite }
+  .demo span:nth-child(2) { animation-delay:1.2s } .demo span:nth-child(3) { animation-delay:2.4s }
+  @keyframes stage { 0%,8% { opacity:.35; transform:translateX(-4px) } 14% { opacity:1; transform:translateX(2px) } 18%,70% { opacity:1; transform:none; color:var(--ink) } 85%,100% { opacity:.35; transform:none } }
+  @media (prefers-reduced-motion: reduce) { .demo span, .result.show, .spin { animation:none; opacity:1 } }
+  .result { margin-top:16px; padding:14px; border-radius:12px; display:none } .result.show { display:block; animation:rise .35s cubic-bezier(.2,.8,.2,1) }
+  @keyframes rise { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
+  .result.good { background:color-mix(in srgb, var(--green) 10%, transparent) } .result.bad { background:color-mix(in srgb, var(--red) 9%, transparent) }
+  .toggle { display:flex; gap:10px; align-items:flex-start; margin:14px 0 } .toggle input { width:auto; margin-top:4px }
+  .spin { width:16px; height:16px; border:2px solid rgba(255,255,255,.5); border-top-color:#fff; border-radius:50%; animation:sp .8s linear infinite; display:none } .busy .spin { display:inline-block }
+  @keyframes sp { to { transform:rotate(360deg) } }
+  code.tok { display:block; word-break:break-all; padding:10px; border-radius:8px; background:var(--bg); border:1px solid var(--line); margin:8px 0 }
+  @media (max-width:480px) { main { margin:3vh auto; padding:0 12px } .card { padding:20px } .btn.ghost { width:100%; justify-content:center } }
+  .code { font:600 30px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.14em; margin:8px 0 4px }
+  .foot { color:var(--muted); font-size:13px; margin-top:18px }
+</style>
+</head>
+<body>
+<main>
+ <div class="card" id="card">
+  <h1>Connect iCloud Calendar</h1>
+  <p class="lede">One password from Apple, then you're done. It's made just for this connection, never touches your main password, and you can turn it off anytime.</p>
+
+  <ol class="steps">
+   <li><div>
+     <a class="btn ghost" href="https://account.apple.com/" target="_blank" rel="noopener noreferrer" id="open">Open Apple's password page ↗</a>
+     <div class="demo" aria-label="What to click on Apple's page">
+      <span>1 · Sign-In and Security</span><span>2 · App-Specific Passwords</span><span>3 · Name it "Grok Bot Calendar", then copy</span>
+     </div>
+   </div></li>
+   <li><div>
+     <div class="field">
+      <label for="pw">Paste it here</label>
+      <input id="pw" class="pw" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="text" placeholder="abcd-efgh-ijkl-mnop" aria-describedby="pw-err pw-hint">
+      <div class="hint" id="pw-hint">16 letters. Dashes are added for you.</div>
+      <div class="err" id="pw-err" role="alert"></div>
+     </div>
+     <div class="field">
+      <label for="email">Your Apple Account email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@icloud.com" aria-describedby="email-err">
+      <div class="err" id="email-err" role="alert"></div>
+     </div>
+   </div></li>
+   <li><div>
+     <button class="btn primary" id="test" disabled><span class="spin"></span><span id="test-label">Test connection</span></button>
+     <div class="result" id="result" aria-live="polite"></div>
+   </div></li>
+  </ol>
+  <p class="foot">Needs two-factor authentication on your Apple Account (most accounts have it). Your password goes only to Apple and your own Cloudflare account. It is never saved on this computer.</p>
+ </div>
+</main>
+<script>
+const K = new URLSearchParams(location.search).get("k");
+const $ = (id) => document.getElementById(id);
+const pw = $("pw"), email = $("email"), test = $("test"), result = $("result");
+const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+function fmtPw(v) { const l = v.replace(/[^a-z]/gi, "").toLowerCase().slice(0, 16); return l.match(/.{1,4}/g)?.join("-") ?? ""; }
+function localCheck() {
+  const raw = pw.value, letters = raw.replace(/[\s-]/g, "");
+  let msg = "";
+  if (letters && /[0-9!@#$%^&*()_+=.,?]/.test(letters) && letters.length >= 6) msg = "That looks like your regular Apple Account password. Use the 16-letter one Apple just made for you.";
+  if (msg || pw.dataset.local === "1") { pw.setAttribute("aria-invalid", msg ? "true" : "false"); $("pw-err").textContent = msg; pw.dataset.local = msg ? "1" : ""; }
+  const pOk = /^[a-z]{4}-[a-z]{4}-[a-z]{4}-[a-z]{4}$/.test(pw.value), eOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim());
+  const n = letters.replace(/[^a-z]/gi, "").length;
+  $("pw-hint").innerHTML = pOk ? '<span class="ok-mark">✓ Looks right</span>' : msg ? "" : n ? `${n} of 16 letters` : "16 letters. Dashes are added for you.";
+  test.disabled = !(pOk && eOk);
+}
+pw.addEventListener("input", () => {
+  $("pw-err").textContent = ""; pw.setAttribute("aria-invalid", "false"); pw.dataset.local = "";
+  // Only reshape what looks like an app password, and only once all 16 letters are there,
+  // so typing never jumps the cursor or mangles what the person sees.
+  const letters = pw.value.replace(/[\s-]/g, "");
+  if (/^[a-z]{16}$/i.test(letters)) pw.value = fmtPw(letters);
+  localCheck();
+});
+pw.addEventListener("blur", () => { if (/^[a-z\s-]+$/i.test(pw.value)) pw.value = fmtPw(pw.value); localCheck(); });
+pw.addEventListener("paste", () => setTimeout(() => { localCheck(); if (!email.value) email.focus(); }, 0));
+email.addEventListener("input", () => { $("email-err").textContent = ""; email.setAttribute("aria-invalid", "false"); localCheck(); });
+async function post(path, body) { const r = await fetch(path + "?k=" + encodeURIComponent(K), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); return r.json(); }
+function show(kind, html) { result.className = "result show " + kind; result.innerHTML = html; }
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" })[c]);
+test.addEventListener("click", async () => {
+  test.classList.add("busy"); test.disabled = true; $("test-label").textContent = "Checking with iCloud…"; result.className = "result";
+  try {
+    const r = await post("/api/test", { email: email.value, password: pw.value, timezone: tz });
+    if (!r.ok) { const f = r.field === "email" ? email : r.field === "password" ? pw : null; if (f) { f.setAttribute("aria-invalid", "true"); $(f.id + "-err").textContent = r.message; f.dataset.local = ""; if (f === pw) $("pw-hint").textContent = ""; f.focus(); } else show("bad", esc(r.message)); return; }
+    const n = r.calendars.length, names = r.calendars.slice(0, 4).map(esc).join(", ") + (n > 4 ? ` and ${n - 4} more` : "");
+    show("good", `<strong class="ok-mark">✓ Found ${n} calendar${n === 1 ? "" : "s"}</strong>${n ? `: ${names}` : ""}.<br><span class="hint">Calendar only. Apple doesn't share the Reminders app with outside connectors, so reminders aren't included.</span>
+      <label class="toggle"><input type="checkbox" id="allow"> <span><strong>Let Grok Bot add and change events</strong><br><span class="hint">Off means read-only. On still shows you every change and waits for your yes. It can never delete or send invitations.</span></span></label>
+      <button class="btn primary" id="save"><span class="spin"></span><span id="save-label">Save and finish</span></button>`);
+    $("save").addEventListener("click", save);
+  } catch { show("bad", "Lost contact with the setup helper. Check the terminal is still running, then try again."); }
+  finally { test.classList.remove("busy"); $("test-label").textContent = "Test connection"; localCheck(); }
+});
+async function save() {
+  const b = $("save"); b.classList.add("busy"); b.disabled = true; $("save-label").textContent = "Saving to your Cloudflare…";
+  const r = await post("/api/save", { allowChanges: $("allow").checked }).catch(() => ({ ok: false, message: "Lost contact with the setup helper." }));
+  if (!r.ok) { b.classList.remove("busy"); b.disabled = false; $("save-label").textContent = "Save and finish"; show("bad", esc(r.message)); return; }
+  pw.value = ""; email.value = "";
+  const url = r.mcpUrl || "https://<your-worker>.workers.dev/mcp";
+  $("card").innerHTML = `<h1>You're connected ✓</h1><p class="lede">Now connect it in Grok Bot. Nothing here is a password, so it's safe to paste in chat.</p>
+   <ol class="steps">
+    <li><div>In Grok Bot, say:<code class="tok" id="tok">Add the MCP server at ${esc(url)}</code><button class="btn primary" id="copy">Copy</button></div></li>
+    <li><div>An approval page opens. Enter this code:<div class="code" aria-label="Approval code">${esc(r.approvalCode)}</div><span class="hint">Works once, for 15 minutes. Need another? Run <code>npm run setup -- --new-code</code>.</span></div></li>
+    <li><div>Then ask: <em>"What's on my calendar this week?"</em></div></li></ol>
+   <p class="foot">${r.writesEnabled ? "Changes are on. Every change shows you a preview first and waits for your yes." : "Read-only for now. Run setup again anytime to allow changes."} To disconnect everything: run <code>npm run setup -- --revoke-all</code>, or remove the password at account.apple.com (Sign-In and Security, App-Specific Passwords).</p>`;
+  $("copy").addEventListener("click", async () => { await navigator.clipboard.writeText($("tok").textContent); $("copy").textContent = "Copied ✓"; });
+}
+email.value = ""; localCheck(); pw.focus();
+</script>
+</body>
+</html>

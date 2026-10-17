@@ -1,0 +1,19 @@
+name = "holdt"
+main = "src/worker.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# Secrets are set by `npm run setup` (wrangler secret put, via stdin). Never put them here.
+# ICLOUD_EMAIL, ICLOUD_APP_PASSWORD, MCP_TOKEN, CONFIRM_SECRET, TIMEZONE, WRITES_ENABLED
+# Optional: CALENDAR_ALLOWLIST = "Home,Work"
+
+# Platform request logs record full URLs. If you connect with the ?key= link, keep these off
+# so the key never lands in logs. The connector's own logs are always redacted.
+[observability]
+enabled = false
+
+# OAuth grants and tokens (stored hashed by @cloudflare/workers-oauth-provider).
+# Create once with: npx wrangler kv namespace create OAUTH_KV  and paste the id here.
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "REPLACE_WITH_YOUR_KV_ID"
