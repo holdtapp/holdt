@@ -23,6 +23,14 @@ export class Guard extends DurableObject {
       return true;
     });
   }
+  /** A cheap look before the expensive hash: a used or locked code is refused without running PBKDF2. codeTry still decides. */
+  codeState(codeHash: string, maxTries: number): Promise<"open" | "used" | "locked"> {
+    return this.serial(async () => {
+      const n = ((await this.ctx.storage.get(`code-fails:${codeHash}`)) as number | undefined) ?? 0;
+      if (n >= maxTries) return "locked";
+      return (await this.ctx.storage.get(`code-used:${codeHash}`)) ? "used" : "open";
+    });
+  }
   /** One approval-code try, decided atomically: refused if used or locked, else spent on a match, else charged. */
   codeTry(codeHash: string, matches: boolean, maxTries: number): Promise<CodeVerdict> {
     return this.serial(async () => {

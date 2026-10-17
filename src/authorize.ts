@@ -146,10 +146,13 @@ export function checkCode(env: Env, raw: string, now = Date.now()): Promise<Verd
 export const CODE_SALT = "icloud-mcp-approval:";
 /** APPROVAL_CODE_HASH is "pbkdf2$<iterations>$<salt>$<hex>" (setup writes this: a random salt per code and PBKDF2-SHA256,
  * so a leaked hash can't be reversed with a lookup table) or, from older setups, a bare SHA-256 hex. Constant-time compare. */
+/** Counts PBKDF2 runs, for the test that a dead code costs none. */
+export const codeStats = { pbkdf2: 0 };
 export async function codeMatches(stored: string, code: string): Promise<boolean> {
   let given: string, want: string;
   const m = stored.match(/^pbkdf2\$(\d{4,6})\$([A-Za-z0-9_-]{16,64})\$([0-9a-f]{64})$/);
   if (m) {
+    codeStats.pbkdf2++;
     const it = Math.min(Number(m[1]), 100_000); const salt = Uint8Array.from(atob(m[2]!.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
     const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(code), "PBKDF2", false, ["deriveBits"]);
     given = [...new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: it }, k, 256))].map((b) => b.toString(16).padStart(2, "0")).join(""); want = m[3]!;
@@ -163,6 +166,10 @@ async function checkCodeOnce(env: Env, raw: string, now: number): Promise<Verdic
     // Atomic across isolates: the Durable Object decides used / locked / spent / charged in one step.
     const hash = env.APPROVAL_CODE_HASH;
     if (now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return { ok: false, reason: "expired", message: "That code expired (codes last 15 minutes). On your computer, run npm run setup -- --new-code." };
+    // Refuse a used or locked code before PBKDF2, so a flood of tries against a dead code costs no hashing CPU.
+    const state = await g.codeState(hash, MAX_TRIES);
+    if (state === "locked") return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. On your computer, run npm run setup -- --new-code." };
+    if (state === "used") return { ok: false, reason: "used", message: "That code was already used. On your computer, run npm run setup -- --new-code for a fresh one." };
     const code = normalizeCode(raw);
     const v = await g.codeTry(hash, code.length === 8 && (await codeMatches(hash, code)), MAX_TRIES);
     if (v.ok) { await env.OAUTH_KV.put(`approval-used:${hash}`, "1", { expirationTtl: 86400 }); return { ok: true, hash }; }

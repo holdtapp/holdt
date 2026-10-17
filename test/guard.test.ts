@@ -2,7 +2,8 @@ import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { MockGuardNS } from "./guard-mock.js";
 import { guardUsedStore } from "../src/worker.js";
-import { checkCode, sha256Hex } from "../src/authorize.js";
+import { checkCode, sha256Hex, codeStats } from "../src/authorize.js";
+import { newApprovalCode } from "../setup/server.js";
 import { MockKV } from "./kv-mock.js";
 import { makeMock, seed, makeTools } from "./helpers.js";
 
@@ -59,4 +60,18 @@ test("T8: a confirm token from the previous CONFIRM_SECRET verifies during rotat
   const tok = await issue("old-key", "create_event", { x: 1 });
   assert.equal((await verify(["new-key", "old-key"], tok, "create_event", new Set())).ok, true);
   assert.equal((await verify(["new-key"], await issue("old-key", "create_event", { x: 1 }), "create_event", new Set())).ok, false);
+});
+
+test("ATTACK K1: tries against a used or locked code are refused without running PBKDF2", async () => {
+  const ac = newApprovalCode(); const ns = new MockGuardNS();
+  const env: any = { GUARD: ns, OAUTH_KV: new MockKV(), APPROVAL_CODE_HASH: ac.hash, APPROVAL_CODE_ISSUED: String(Date.now()) };
+  assert.equal((await checkCode(env, ac.code)).ok, true);
+  let before = codeStats.pbkdf2;
+  for (let i = 0; i < 5; i++) assert.equal(((await checkCode(env, "12345678")) as any).reason, "used");
+  assert.equal(codeStats.pbkdf2, before, "a used code costs no hashing");
+  const ac2 = newApprovalCode(); const env2: any = { ...env, GUARD: new MockGuardNS(), APPROVAL_CODE_HASH: ac2.hash };
+  for (let i = 0; i < 5; i++) await checkCode(env2, "00000000");
+  before = codeStats.pbkdf2;
+  for (let i = 0; i < 5; i++) assert.equal(((await checkCode(env2, ac2.code)) as any).reason, "locked");
+  assert.equal(codeStats.pbkdf2, before, "a locked code costs no hashing");
 });
