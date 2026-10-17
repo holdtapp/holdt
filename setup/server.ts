@@ -83,11 +83,26 @@ export function createSetupServer(deps: SetupDeps) {
 }
 
 /** `npm run setup -- --new-code` (fresh approval code) and `--revoke-all` (cut off every connection). */
-export async function cliAction(flag: string, save: (n: string, v: string) => Promise<void>, out: (s: string) => void) {
+export function newEnrollToken() { const token = randomBytes(32).toString("base64url"); return { token, hash: createHash("sha256").update(token).digest("hex") }; }
+/** `--add-device` (passkey enroll link) and `--reset-passkeys` (forget every passkey) too. */
+export async function cliAction(flag: string, save: (n: string, v: string) => Promise<void>, out: (s: string) => void, workerUrl = process.env.WORKER_URL) {
   if (flag === "--new-code") {
     const ac = newApprovalCode();
     await save("APPROVAL_CODE_HASH", ac.hash); await save("APPROVAL_CODE_ISSUED", String(Date.now()));
     out(`\n  New approval code (works once, for 15 minutes):  ${ac.display}\n  In Grok Bot, connect the server again and enter it on the approval page.\n`);
+    return true;
+  }
+  if (flag === "--add-device") {
+    // A one-time enroll link. Only the token's SHA-256 goes to Cloudflare. The token itself is in the link's fragment.
+    const t = newEnrollToken();
+    await save("ENROLL_TOKEN_HASH", t.hash); await save("ENROLL_TOKEN_ISSUED", String(Date.now()));
+    const base = (workerUrl ?? "https://<your-worker>.workers.dev").replace(/\/+$/, "");
+    out(`\n  Open this on the device you want to add (works once, for 15 minutes):\n\n    ${base}/enroll#${t.token}\n\n  One-tap connect also needs PASSKEYS = "on" in wrangler.toml [vars].${workerUrl ? "" : " Set WORKER_URL to print the full link."}\n`);
+    return true;
+  }
+  if (flag === "--reset-passkeys") {
+    await save("PASSKEY_EPOCH", randomBytes(18).toString("base64url"));
+    out("\n  Done. Every passkey for this server stopped working. Approval codes still work. Add a device again with npm run setup -- --add-device.\n");
     return true;
   }
   if (flag === "--revoke-all") {
@@ -101,7 +116,7 @@ export async function cliAction(flag: string, save: (n: string, v: string) => Pr
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const workerName = process.env.WORKER_NAME ?? "holdt";
   const flag = process.argv[2] ?? "";
-  if (flag) { cliAction(flag, wranglerSaver(workerName), console.log).then((ok) => { if (!ok) { console.log("Unknown option. Use --new-code or --revoke-all."); process.exit(2); } }, (e) => { console.error(redact(e)); process.exit(1); }); }
+  if (flag) { cliAction(flag, wranglerSaver(workerName), console.log).then((ok) => { if (!ok) { console.log("Unknown option. Use --new-code, --revoke-all, --add-device or --reset-passkeys."); process.exit(2); } }, (e) => { console.error(redact(e)); process.exit(1); }); }
   else {
   const { server, key } = createSetupServer({ caldavUrl: process.env.CALDAV_URL ?? "https://caldav.icloud.com/", workerName, workerUrl: process.env.WORKER_URL, saveSecret: wranglerSaver(workerName) });
   server.listen(0, "127.0.0.1", () => {

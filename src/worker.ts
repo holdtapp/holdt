@@ -18,6 +18,9 @@ export interface Env {
   /** Off in v1: Apple's upgraded Reminders aren't reachable over CalDAV. */ REMINDERS_EXPERIMENTAL?: string;
   /** Comma-separated exact OAuth callback URIs allowed to receive a code. Unset: any https or loopback callback. */ REDIRECT_ALLOWLIST?: string;
   /** Workers Rate Limiting bindings (wrangler.toml). Absent: no limit. */ RL_REGISTER?: RateLimiter; RL_APPROVE?: RateLimiter; RL_MCP?: RateLimiter;
+  /** "on" turns on passkey one-tap connect (src/passkey.ts). The approval code always stays as the fallback. */ PASSKEYS?: string;
+  /** SHA-256 of the one-time enroll token from `npm run setup -- --add-device`, and when it was issued. */ ENROLL_TOKEN_HASH?: string; ENROLL_TOKEN_ISSUED?: string;
+  /** Rotated by `--reset-passkeys`: passkeys enrolled under an older value stop working. */ PASSKEY_EPOCH?: string;
   OAUTH_KV: any;
   /** Durable Object for atomic single use (confirm tokens, approval code). Optional: without it, KV plus in-isolate locks are used. */ GUARD?: any;
 }
@@ -26,7 +29,7 @@ export interface GrantProps { epoch: string }
 export const SEC_HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 const json = (o: unknown, status = 200, h: Record<string, string> = {}) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", ...SEC_HEADERS, ...h } });
 
-export function registerEnvSecrets(env: Partial<Env>) { for (const s of [env.ICLOUD_APP_PASSWORD, env.CONFIRM_SECRET, env.CONFIRM_SECRET_PREVIOUS, env.ICLOUD_EMAIL, env.GRANT_EPOCH, env.APPROVAL_CODE_HASH]) registerSecret(s); }
+export function registerEnvSecrets(env: Partial<Env>) { for (const s of [env.ICLOUD_APP_PASSWORD, env.CONFIRM_SECRET, env.CONFIRM_SECRET_PREVIOUS, env.ICLOUD_EMAIL, env.GRANT_EPOCH, env.APPROVAL_CODE_HASH, env.ENROLL_TOKEN_HASH]) registerSecret(s); }
 
 /** The MCP endpoint. Called only after the OAuth library has verified the access token. */
 export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | undefined, fetchImpl?: typeof fetch): Promise<Response> {
@@ -128,7 +131,7 @@ export async function rateLimited(req: Request, env: Env, path: string): Promise
   const ip = req.headers.get("cf-connecting-ip") ?? "unknown";
   let rl: RateLimiter | undefined, key = "";
   if (path === "/oauth/register") { rl = env.RL_REGISTER; key = `reg:${ip}`; }
-  else if (path === "/authorize" && req.method === "POST") { rl = env.RL_APPROVE; key = `approve:${ip}`; }
+  else if ((path === "/authorize" || path.startsWith("/enroll/")) && req.method === "POST") { rl = env.RL_APPROVE; key = `approve:${ip}`; }
   else if (path === "/mcp") { rl = env.RL_MCP; const auth = req.headers.get("authorization") ?? ""; key = `mcp:${auth ? (await sha256Short(auth)) : ip}`; }
   if (!rl) return false;
   try { return !(await rl.limit({ key })).success; } catch (e) { log.warn(`rate limiter unavailable: ${(e as any)?.name ?? "error"}`); return false; }

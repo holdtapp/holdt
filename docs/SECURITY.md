@@ -11,7 +11,7 @@ Ordered by how much you can trust each layer: invariants in code first, then CI 
 | Never sends invitations. | No invite tool. Edits to events with any ORGANIZER or ATTENDEE (in any component) are refused. `assertSafeIcs()` refuses any ICS that adds an ATTENDEE or ORGANIZER line or carries a control character, as the last step before every write. Rows C1, R1, R2, R4, R7. |
 | Every write is the exact change you saw. | HMAC confirm tokens bound to action, payload hash, expiry, GRANT_EPOCH and a single-use nonce held in a Durable Object. Previews show full values. Rows B1 to B6, R5, R6, R8, G1. |
 | Nothing typed reaches iCloud unchecked. | Every tool schema is strict (bounded strings, ranged integers, closed objects), checked at module load and in CI (`strictSchemaProblems`). The validator checks the whole argument tree. `propLine` refuses CR/LF/controls. `test/fuzz.test.ts` sends CR, LF, NUL, U+2028, U+0085, bidi and smuggled iCalendar lines into every field of every tool and checks every byte sent to iCloud. |
-| Only you can connect it. | A single-use 8-digit code (salted PBKDF2 hash, 15 minutes, 5 tries, decided atomically in a Durable Object), redirect URIs pinned with REDIRECT_ALLOWLIST, per-IP rate limits. Rows A1 to A9, G2. |
+| Only you can connect it. | With one-tap on: a passkey enrolled from a single-use link, checked for exact origin, RP ID, Face ID (user verification), signature and counter, against a 5-minute single-use challenge bound to that connect request. Rows P1 to P8. Always available: a single-use 8-digit code (salted PBKDF2 hash, 15 minutes, 5 tries, decided atomically in a Durable Object), redirect URIs pinned with REDIRECT_ALLOWLIST, per-IP rate limits. Rows A1 to A9, G2. |
 
 `npm run prove` switches each protection off in a scratch copy and shows its attack getting through, then back on. The table is in docs/attack-proof.md.
 
@@ -37,3 +37,13 @@ The check refuses browser calls from other sites. Grok Bot calls from its server
 2. Run `npm run tail` and use the connector from every surface you use (web, desktop, phone) for a few calls each.
 3. If no `foreign` lines appear, set `ORIGIN_CHECK = "enforce"` and deploy. If a Grok Bot origin does appear, add it to `ALLOWED_ORIGINS` first.
 4. Rollback is one line: set it back to `"report"` and deploy.
+
+## Passkey one-tap connect (PASSKEYS = "on")
+Off by default. With it on and a device enrolled, the consent page shows **Allow with Face ID** and keeps the approval code under "No Face ID here? Use an approval code".
+- **Enroll.** `npm run setup -- --add-device` prints `https://<worker>/enroll#<token>`. The token is 32 random bytes, single use, 15 minutes. Only its SHA-256 is a Worker secret, and it rides in the URL fragment, so it never reaches a server log or a Referer. The page removes it from the address bar as soon as it loads.
+- **Verify.** Hand-written relying party in `src/webauthn.ts` (no new dependency): ES256 or RS256, attestation none, `userVerification: required`, exact origin, RP ID = the Worker host, `crossOrigin` refused, signature over authenticatorData and the client-data hash, and a counter that may never step back once it moves (iCloud Keychain passkeys report 0).
+- **Challenge.** An HMAC-signed token from a key derived for this purpose only, 5 minutes, single use in the Durable Object, bound to the OAuth consent handle. Its binding is checked before it's spent, so pasting it into another request can't burn the real one.
+- **Pages.** A script runs only on the enroll and consent pages, and only the one carrying that response's CSP nonce. `connect-src 'self'`, `frame-ancestors 'none'`, `form-action` still limited to self and the redirect origin.
+- **Don't allow** always wins: the Face ID path is taken only when no button value came with the form.
+- **Lost devices.** `npm run setup -- --reset-passkeys` rotates PASSKEY_EPOCH, which orphans every stored passkey at once. Codes keep working.
+- **Not built yet:** remembered consent, the hosted multi-tenant variant, and enrolling from the setup page itself (the CLI flag does it for now).

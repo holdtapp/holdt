@@ -5,6 +5,7 @@ import type { Env } from "./worker.js";
 import { registerEnvSecrets, SEC_HEADERS } from "./worker.js";
 import { log } from "./redact.js";
 import { guardFor } from "./guard.js";
+import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, LOGIN_SCRIPT, ENROLL_SCRIPT } from "./passkey.js";
 
 const CODE_TTL_MS = 15 * 60_000, MAX_TRIES = 5;
 const esc = (v: string) => String(v).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -37,31 +38,40 @@ input[aria-invalid=true]{border-color:var(--red)}.err{color:var(--red);font-size
 export function formActionFor(uri: string) {
   try { const u = new URL(uri); if (u.username || u.password || u.hash) return false; return u.protocol === "https:" || u.protocol === "http:" ? u.origin : u.protocol; } catch { return ""; }
 }
-function page(title: string, body: string, status = 200, headers?: Headers, redirectUri = "") {
+function page(title: string, body: string, status = 200, headers?: Headers, redirectUri = "", script = "") {
   const h = headers ?? new Headers();
   h.set("Content-Type", "text/html; charset=utf-8"); for (const [k, v] of Object.entries(SEC_HEADERS)) h.set(k, v);
-  h.set("Content-Security-Policy", `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'${redirectUri && formActionFor(redirectUri) ? " " + formActionFor(redirectUri) : ""}; frame-ancestors 'none'; base-uri 'none'`);
+  // A script runs only on the passkey pages, and only the one carrying this response's nonce.
+  const nonce = script ? crypto.randomUUID().replace(/-/g, "") : "";
+  h.set("Content-Security-Policy", `default-src 'none'; style-src 'unsafe-inline';${nonce ? ` script-src 'nonce-${nonce}'; connect-src 'self';` : ""} form-action 'self'${redirectUri && formActionFor(redirectUri) ? " " + formActionFor(redirectUri) : ""}; frame-ancestors 'none'; base-uri 'none'`);
+  if (nonce) body += `<script nonce="${nonce}">${script}</script>`;
   h.set("X-Frame-Options", "DENY");
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style><main><div class="card">${body}</div></main></html>`, { status, headers: h });
 }
-function consentBody(d: any, handle: string, writes: string, error?: string) {
+function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }) {
   const local = d.redirectIsLoopback ? `<p class="warn">This sends access to an app on this computer. Continue only if you just started connecting from it.</p>` : "";
   return `<h1>Connect ${esc(d.clientName || "an app")} to your iCloud Calendar?</h1>
 <p class="muted">${d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : "This app registered itself, so its name isn't verified."} Access goes to <strong>${esc(d.redirectHost || "the app")}</strong>.</p>${local}
 <p class="muted">It can read your calendars. Changes are ${esc(writes)}. It can never delete events or send invitations.</p>
 <form method="post" autocomplete="off">
 <input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="ctx" value="${esc(d.__ctx ?? "")}">
+${pk ? `<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">
+<button type="button" class="allow" id="pk" style="width:100%" data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">Allow with Face ID</button>
+<p class="err" id="pkmsg" role="status">${error ? esc(error) : ""}</p>
+<details id="codealt"${error ? " open" : ""}><summary>No Face ID here? Use an approval code</summary>` : ""}
 <label for="code">Approval code from your setup screen</label>
-<input id="code" name="code" inputmode="numeric" placeholder="1234-5678" maxlength="12" autofocus ${error ? 'aria-invalid="true" aria-describedby="err"' : ""}>
-${error ? `<div class="err" id="err" role="alert">${esc(error)}</div>` : ""}
-<div class="row"><button class="deny" name="decision" value="deny">Don't allow</button><button class="allow" name="decision" value="approve">Allow</button></div>
-</form>
-<p class="muted" style="margin-top:14px">No code, or it expired? On your computer, run <code>npm run setup -- --new-code</code>.</p>`;
+<input id="code" name="code" inputmode="numeric" placeholder="1234-5678" maxlength="12" ${pk ? "" : "autofocus "}${error && !pk ? 'aria-invalid="true" aria-describedby="err"' : ""}>
+${error && !pk ? `<div class="err" id="err" role="alert">${esc(error)}</div>` : ""}
+<div class="row"><button class="deny" name="decision" value="deny">Don't allow</button><button class="allow" name="decision" value="approve">Allow${pk ? " with code" : ""}</button></div>
+<p class="muted" style="margin-top:14px">No code, or it expired? On your computer, run <code>npm run setup -- --new-code</code>.</p>${pk ? "</details>" : ""}
+</form>`;
 }
 
 export async function authorizeHandler(req: Request, env: Env): Promise<Response> {
   registerEnvSecrets(env);
   const url = new URL(req.url);
+  if (url.pathname === "/enroll" && req.method === "GET") return enrollPage(env);
+  if (url.pathname.startsWith("/enroll/")) return enrollApi(req, env);
   if (url.pathname !== "/authorize") return new Response("Not found", { status: 404, headers: SEC_HEADERS });
   const oauth = (env as any).OAUTH_PROVIDER;
   const writes = env.WRITES_ENABLED === "true" ? "allowed, and each one waits for your yes" : "turned off (read-only)";
@@ -72,23 +82,29 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle, writes), 200, consent.headers, request.redirectUri);
+      const pk = await loginOptions(env, url, consent.handle);
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle, writes, undefined, pk), 200, consent.headers, request.redirectUri, pk ? LOGIN_SCRIPT : "");
     }
     if (req.method !== "POST") return new Response(null, { status: 405, headers: SEC_HEADERS });
     const form = await req.formData();
     const handle = String(form.get("handle") ?? "");
-    if (form.get("decision") !== "approve") {
+    // The Face ID button submits from script, so no button value comes with it. A clicked Don't allow always wins.
+    const viaPasskey = !form.get("decision") && !!form.get("pk_sig");
+    if (!viaPasskey && form.get("decision") !== "approve") {
       const denied = await oauth.denyConsent(req, handle);
       return new Response(null, { status: 302, headers: denied.headers });
     }
-    const verdict = await checkCode(env, String(form.get("code") ?? ""));
+    const f = (k: string) => String(form.get(k) ?? "");
+    const verdict = viaPasskey ? await checkPasskeyLogin(env, url, handle, { token: f("pk_token"), id: f("pk_id"), clientDataJSON: f("pk_cdj"), authenticatorData: f("pk_ad"), signature: f("pk_sig") }) : await checkCode(env, f("code"));
     if (!verdict.ok) {
-      log.warn(`approval code rejected: ${verdict.reason}`);
+      log.warn(`${viaPasskey ? "passkey" : "approval code"} rejected: ${verdict.reason.slice(0, 80)}`);
       const ctxRaw = String(form.get("ctx") ?? "");
       const details: any = (await readCtx(env, ctxRaw)) ?? { clientName: "the app", redirectHost: "" };
       details.__ctx = ctxRaw;
-      if (verdict.reason === "used") return page("Already approved", `<h1>You're already approved</h1><p class="muted">This code already connected Holdt. Go back to Grok Bot and check the connection. If it still asks to connect, run <code>npm run setup -- --new-code</code> and try once more.</p>`, 400);
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message), 400, undefined, details.redirectUri ?? "");
+      if (!viaPasskey && verdict.reason === "used") return page("Already approved", `<h1>You're already approved</h1><p class="muted">This code already connected Holdt. Go back to Grok Bot and check the connection. If it still asks to connect, run <code>npm run setup -- --new-code</code> and try once more.</p>`, 400);
+      // A fresh challenge for the retry: the old one is spent, whether or not it verified.
+      const pk = await loginOptions(env, url, handle);
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
     if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
@@ -102,6 +118,13 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
     log.error("authorize failed", e);
     return page("Couldn't connect", `<h1>Something went wrong</h1><p class="muted">Start connecting again from Grok Bot.</p>`, 500);
   }
+}
+
+function enrollPage(env: Env): Response {
+  if (!passkeysOn(env)) return page("Holdt", `<h1>One-tap connect is off</h1><p class="muted">Turn it on in the Worker's settings (PASSKEYS = on), then run <code>npm run setup -- --add-device</code>.</p>`, 404);
+  return page("Holdt: Turn on one-tap connect", `<div id="card"><h1>Turn on one-tap connect</h1>
+<p class="muted">Save a passkey for this server on this device. After that, connecting takes Face ID instead of a code. Your other Apple devices get it through iCloud Keychain.</p>
+<button type="button" class="allow" id="go" style="width:100%">Save a passkey</button><p class="err" id="msg" role="status"></p></div>`, 200, undefined, "", ENROLL_SCRIPT);
 }
 
 type Verdict = { ok: true; hash: string } | { ok: false; reason: string; message: string };

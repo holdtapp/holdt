@@ -13,6 +13,8 @@ preview_urls = false
 # First deploy: "report" only logs Origin headers on /mcp. After `npm run tail` shows Grok Bot sends none (or only allowed ones),
 # change this to "enforce" and deploy again (see docs/SECURITY.md, Origin rollout).
 ORIGIN_CHECK = "report"
+# Passkey one-tap connect (src/passkey.ts). "on" shows Allow with Face ID once a device is enrolled. The approval code always stays.
+PASSKEYS = "off"
 REDIRECT_ALLOWLIST = "https://www.cursor.com/agents/mcp/oauth/callback,http://localhost:8787/callback"
 
 # Secrets are set by `npm run setup` (wrangler secret put, via stdin). Never put them here.

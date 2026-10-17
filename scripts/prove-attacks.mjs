@@ -48,7 +48,7 @@ const ROWS = [
   { id: "R12", attack: "Cross-origin browser call (DNS rebinding)", protection: "Origin check on /mcp", patches: [M("src/worker.ts", "if (origin && origin !==", "if (false && origin !==")], breaks: ["R12"] },
   { id: "R13", attack: "Forge a log line through a tool name", protection: "Log lines flattened to one line", patches: [M("src/redact.ts", "const flat = (s: string) => s.replace(", "const flat = (s: string) => s || s.replace(")], breaks: ["R13"] },
   { id: "R14", attack: "Out-of-range XML character reference", protection: "Code point range guard", patches: [M("src/xml.ts", "return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n)", "return true ? String.fromCodePoint(n)")], breaks: ["R14"] },
-  { id: "R15", attack: "Client name displaces the read-only notice on the consent page", protection: "writes text passed as a parameter, not a string placeholder", patches: [M("src/authorize.ts", "Changes are ${esc(writes)}.", "Changes are ${\"{{writes}}\"}."), M("src/authorize.ts", "consentBody(details, consent.handle, writes)", "consentBody(details, consent.handle, writes).replace(\"{{writes}}\", writes)")], breaks: ["R15"] },
+  { id: "R15", attack: "Client name displaces the read-only notice on the consent page", protection: "writes text passed as a parameter, not a string placeholder", patches: [M("src/authorize.ts", "Changes are ${esc(writes)}.", "Changes are ${\"{{writes}}\"}."), M("src/authorize.ts", "consentBody(details, consent.handle, writes, undefined, pk)", "consentBody(details, consent.handle, writes, undefined, pk).replace(\"{{writes}}\", writes)")], breaks: ["R15"] },
   { id: "R16", attack: "50 KB of '<' in a CalDAV response", protection: "Tag regex excludes '<' (linear time)", patches: [M("src/xml.ts", "<([^\\s/><]+)", "<([^\\s/>]+)")], breaks: ["R16"] },
   { id: "E1", attack: "Forge a revert token to undo a change", protection: "HMAC signature on revert_token", patches: [M("src/confirm.ts", "if (!valid) return", "if (false) return")], breaks: ["E1"] },
   { id: "E2 layer 1", attack: "Replay a used undo to write twice", protection: "Nonce store only (undone flag and ETag still on)", layered: true, patches: [M("src/confirm.ts", "if (await used.has(t.n)) return", "if (false) return"), M("src/confirm.ts", "if (used !== NO_SPEND && !reserve(t.n, t.e)) return", "if (false) return")], holds: ["E2"] },
@@ -61,6 +61,14 @@ const ROWS = [
   { id: "G2", attack: "31 simultaneous approval-code guesses (cross-isolate race)", protection: "Durable Object serializes codeTry()", patches: [M("src/guard.ts", "const r = this.q.then(f); this.q = r.catch(() => undefined); return r;", "return f();")], breaks: ["G2"] },
   { id: "A8", attack: "Phishing connect from an attacker's own https app", protection: "REDIRECT_ALLOWLIST pinned to Grok Bot's callbacks", patches: [M("src/authorize.ts", "if (!list.length) return true;", "return true;")], breaks: ["A8"] },
   { id: "A9", attack: "Flood sign-up (DCR) and the approval form from one IP", protection: "Per-IP rate limits (Workers Rate Limiting)", patches: [M("src/worker.ts", "  if (!rl) return false;", "  return false;")], breaks: ["A9"] },
+  { id: "P1", attack: "Phishing page relays a passkey approval made for its own origin", protection: "WebAuthn exact-origin check", patches: [M("src/webauthn.ts", "if (cd.origin !== ex.origin) throw", "if (false) throw")], breaks: ["P1"] },
+  { id: "P2", attack: "Approve without Face ID (user verification flag off)", protection: "userVerification required", patches: [M("src/webauthn.ts", "if (!ad.flags.uv) throw", "if (false) throw")], breaks: ["P2"] },
+  { id: "P3", attack: "Use one connect request's Face ID approval for another app's request", protection: "Challenge bound to the consent handle", patches: [M("src/passkey.ts", "if (peek.ok && !safeEq(String(peek.payload.bind), bind)) throw", "if (false) throw")], breaks: ["P3"] },
+  { id: "P4", attack: "Reuse a Face ID challenge after a failed try", protection: "Single-use challenge (nonce store)", patches: [M("src/passkey.ts", "`webauthn_${purpose}`, usedStore(env), now, expired)", "`webauthn_${purpose}`, NO_SPEND, now, expired)")], breaks: ["P4"] },
+  { id: "P5", attack: "Sign in with a different key under the enrolled credential id", protection: "Signature check with the enrolled public key", patches: [M("src/webauthn.ts", "if (!ok) throw new WebAuthnError(\"bad signature\");", "")], breaks: ["P5"] },
+  { id: "P6", attack: "Enroll a second passkey from a leaked enroll link", protection: "Single-use enroll token", patches: [M("src/passkey.ts", "if (await env.OAUTH_KV.get(`enroll-used:${env.ENROLL_TOKEN_HASH}`)) return", "if (false) return"), M("src/passkey.ts", "if (await env.OAUTH_KV.get(`enroll-used:${h}`)) return false;", "")], breaks: ["P6"] },
+  { id: "P7", attack: "Sign in with a cloned passkey (counter steps back)", protection: "Signature counter check", patches: [M("src/webauthn.ts", "&& ad.signCount <= cred.signCount) throw", "&& false) throw")], breaks: ["P7"] },
+  { id: "P8", attack: "Turn a Don't allow tap into an approval with stashed Face ID fields", protection: "A clicked Don't allow always wins", patches: [M("src/authorize.ts", "const viaPasskey = !form.get(\"decision\") && !!form.get(\"pk_sig\");", "const viaPasskey = !!form.get(\"pk_sig\");")], breaks: ["P8"] },
 ];
 const NOT_TOGGLED = [
   ["A3", "Replay an OAuth authorization code", "@cloudflare/workers-oauth-provider (single-use codes). Third-party code, not patched here. Attack refused."],
@@ -70,13 +78,13 @@ const NOT_TOGGLED = [
 ];
 
 function run(dir, pattern) {
-  const r = spawnSync(process.execPath, ["--import", "./test/register.mjs", "--import", "tsx", "--test", `--test-name-pattern=${pattern}`, "test/attacks.test.ts", "test/redteam.test.ts", "test/guard.test.ts"], { cwd: dir, encoding: "utf8" });
+  const r = spawnSync(process.execPath, ["--import", "./test/register.mjs", "--import", "tsx", "--test", `--test-name-pattern=${pattern}`, "test/attacks.test.ts", "test/redteam.test.ts", "test/guard.test.ts", "test/passkey.test.ts"], { cwd: dir, encoding: "utf8" });
   const res = {}; for (const m of (r.stdout ?? "").matchAll(/^(not ok|ok) \d+ - (?:ATTACK|REDTEAM) (\w+):/gm)) res[m[2]] = m[1] === "ok";
   return res;
 }
 function scratch() {
   const d = mkdtempSync(join(tmpdir(), "holdt-prove-"));
-  for (const x of ["src", "test", "package.json", "tsconfig.json"]) cpSync(join(root, x), join(d, x), { recursive: true });
+  for (const x of ["src", "test", "setup", "package.json", "tsconfig.json"]) cpSync(join(root, x), join(d, x), { recursive: true });
   symlinkSync(join(root, "node_modules"), join(d, "node_modules"));
   return d;
 }
