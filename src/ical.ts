@@ -243,8 +243,23 @@ export function buildEvent(uid: string, e: EventInput, now = Date.now()): string
   for (const m of e.alertsMinutesBefore ?? []) if (!Number.isInteger(m) || m < 0 || m > 40320) throw new UserError("Alerts must be whole minutes between 0 and 40320.");
   for (const m of e.alertsMinutesBefore ?? []) L.push("BEGIN:VALARM", "ACTION:DISPLAY", propLine("DESCRIPTION", escapeText(e.title)), `TRIGGER:-PT${Math.round(m)}M`, propLine("X-WR-ALARMUID", `${uid}-a${m}`), "END:VALARM");
   L.push("END:VEVENT", "END:VCALENDAR");
-  return L.join("\r\n") + "\r\n";
+  return assertSafeIcs(L.join("\r\n") + "\r\n");
 }
+
+const INVITE_LINE = /^(ATTENDEE|ORGANIZER)[;:]/i;
+/** Last check before any ICS leaves Holdt. Every unfolded line must be NAME[;params]:value with no control characters,
+ * and Holdt may never add an ATTENDEE or ORGANIZER line (that is how a calendar server decides to email invitations).
+ * `invitesBefore` is how many such lines the stored event already had (patches keep them, never add). */
+export function assertSafeIcs(ics: string, invitesBefore = 0): string {
+  const lines = unfold(ics); let invites = 0;
+  for (const l of lines) {
+    if (/[\u0000-\u0008\u000a-\u001f\u007f]/.test(l) || !/^[A-Za-z][A-Za-z0-9-]*(;[^:]*)?:/.test(l)) throw new Error("refusing to write a malformed calendar line");
+    if (INVITE_LINE.test(l)) invites++;
+  }
+  if (invites > invitesBefore) throw new Error("refusing to add an invitee to an event");
+  return ics;
+}
+export const countInviteLines = (ics: string) => unfold(ics).filter((l) => INVITE_LINE.test(l)).length;
 
 export interface EventPatch { title?: string; start?: ITime; end?: ITime; location?: string | null; notes?: string | null }
 /** Patch the master VEVENT in raw ICS, preserving every line we don't manage (attendees, X- props, alarms, overrides). */
@@ -293,5 +308,5 @@ export function patchEvent(raw: string, patch: EventPatch, now = Date.now()): st
       depth--;
     }
   }
-  return out.join("\r\n") + "\r\n";
+  return assertSafeIcs(out.join("\r\n") + "\r\n", countInviteLines(raw));
 }

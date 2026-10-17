@@ -74,6 +74,8 @@ function checkObject(schema: { properties?: Record<string, any>; required?: stri
 }
 function checkValue(s: any, v: unknown, k: string) {
   const bad = (want: string): never => { throw new UserError(`${k} must be ${want}.`); };
+  if (s.oneOf) { const errs: string[] = []; for (const alt of s.oneOf) { try { checkValue(alt, v, k); return; } catch (e) { errs.push((e as Error).message); } } throw new UserError(errs[errs.length - 1] ?? `${k} isn't allowed.`); }
+  if (!s.type) bad("something this tool accepts"); // a property with no schema accepts nothing
   const t = s.type;
   if (t === "string") { if (typeof v !== "string") bad("text"); if (s.maxLength !== undefined && (v as string).length > s.maxLength) bad(`at most ${s.maxLength} characters`); }
   if (t === "integer") { if (!Number.isInteger(v)) bad("a whole number"); if ((s.minimum !== undefined && (v as number) < s.minimum) || (s.maximum !== undefined && (v as number) > s.maximum)) bad(`between ${s.minimum} and ${s.maximum}`); }
@@ -98,3 +100,23 @@ export function friendly(e: unknown): string {
   log.error("unexpected error", e);
   return "Something went wrong on the connector. Nothing was changed. Try again, and if it keeps happening check the Worker logs.";
 }
+
+/** Schema rule, checked when the module loads and in CI: every input is strictly typed and bounded.
+ * Strings have maxLength (or an enum), integers have a range, arrays have maxItems and typed items,
+ * objects are closed (additionalProperties false). With checkValue above, no unbounded or untyped
+ * user value can reach a tool, and so none can reach an ICS line. */
+export function strictSchemaProblems(tools: { name: string; inputSchema: any }[]): string[] {
+  const bad: string[] = [];
+  const walk = (s: any, at: string) => {
+    if (!s || typeof s !== "object") { bad.push(`${at}: no schema`); return; }
+    if (s.oneOf) { s.oneOf.forEach((x: any, i: number) => walk(x, `${at}|${i}`)); return; }
+    if (s.type === "string" && s.maxLength === undefined && !s.enum) bad.push(`${at}: string without maxLength`);
+    else if (s.type === "integer" && (s.minimum === undefined || s.maximum === undefined)) bad.push(`${at}: integer without a range`);
+    else if (s.type === "array") { if (s.maxItems === undefined) bad.push(`${at}: array without maxItems`); walk(s.items, `${at}[]`); }
+    else if (s.type === "object") { if (s.additionalProperties !== false) bad.push(`${at}: object not closed`); for (const [k, v] of Object.entries(s.properties ?? {})) walk(v, `${at}.${k}`); }
+    else if (!["string", "integer", "boolean", "array", "object"].includes(s.type)) bad.push(`${at}: untyped`);
+  };
+  for (const t of tools) walk(t.inputSchema, t.name);
+  return bad;
+}
+{ const p = strictSchemaProblems(toolsFor({ remindersExperimental: true })); if (p.length) throw new Error(`Tool schemas must be strict: ${p.join("; ")}`); }
