@@ -1,3 +1,4 @@
+import { codeMatches } from "../src/authorize.js";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { MockCalDav } from "./mock-caldav.js";
@@ -36,7 +37,9 @@ test("setup server: one-time key, live 'Found N calendars', plain-English errors
     assert.equal(saved.ICLOUD_APP_PASSWORD, PASS); assert.equal(saved.ICLOUD_EMAIL, USER); assert.equal(saved.WRITES_ENABLED, "false"); assert.equal(saved.TIMEZONE, "America/Denver");
     assert.ok(saved.GRANT_EPOCH.length >= 30); assert.ok(saved.CONFIRM_SECRET.length >= 40); assert.equal(saved.MCP_TOKEN, undefined);
     const { createHash } = await import("node:crypto");
-    assert.equal(saved.APPROVAL_CODE_HASH, createHash("sha256").update(`icloud-mcp-approval:${s.j.approvalCode.replace("-", "")}`).digest("hex"));
+    assert.match(saved.APPROVAL_CODE_HASH, /^pbkdf2\$20000\$[A-Za-z0-9_-]{22}\$[0-9a-f]{64}$/, "salted PBKDF2, never a bare hash");
+    assert.equal(await codeMatches(saved.APPROVAL_CODE_HASH, s.j.approvalCode.replace("-", "")), true);
+    assert.equal(await codeMatches(saved.APPROVAL_CODE_HASH, "00000000"), false);
     assert.ok(!Object.values(saved).includes(s.j.approvalCode.replace("-", "")), "only the hash of the code is stored");
     assert.match((await call("/api/save", {})).j.message, /test first/, "password forgotten after save");
     for (const v of [JSON.stringify(good.j), JSON.stringify(bad.j), stderr.join("\n")]) { assert.ok(!v.includes(PASS)); assert.ok(!v.includes("zzzz-zzzz-zzzz-zzzz")); }

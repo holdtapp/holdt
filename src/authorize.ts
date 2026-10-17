@@ -106,15 +106,27 @@ export function checkCode(env: Env, raw: string, now = Date.now()): Promise<Verd
   return run;
 }
 export const CODE_SALT = "icloud-mcp-approval:";
+/** APPROVAL_CODE_HASH is "pbkdf2$<iterations>$<salt>$<hex>" (setup writes this: a random salt per code and PBKDF2-SHA256,
+ * so a leaked hash can't be reversed with a lookup table) or, from older setups, a bare SHA-256 hex. Constant-time compare. */
+export async function codeMatches(stored: string, code: string): Promise<boolean> {
+  let given: string, want: string;
+  const m = stored.match(/^pbkdf2\$(\d{4,6})\$([A-Za-z0-9_-]{16,64})\$([0-9a-f]{64})$/);
+  if (m) {
+    const it = Math.min(Number(m[1]), 100_000); const salt = Uint8Array.from(atob(m[2]!.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(code), "PBKDF2", false, ["deriveBits"]);
+    given = [...new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: it }, k, 256))].map((b) => b.toString(16).padStart(2, "0")).join(""); want = m[3]!;
+  } else { given = await sha256Hex(`${CODE_SALT}${code}`); want = stored; }
+  let diff = given.length ^ want.length; for (let i = 0; i < Math.min(given.length, want.length); i++) diff |= given.charCodeAt(i) ^ want.charCodeAt(i);
+  return diff === 0;
+}
 async function checkCodeOnce(env: Env, raw: string, now: number): Promise<Verdict> {
   const g = guardFor(env);
   if (g && env.APPROVAL_CODE_HASH && env.APPROVAL_CODE_ISSUED) {
     // Atomic across isolates: the Durable Object decides used / locked / spent / charged in one step.
     const hash = env.APPROVAL_CODE_HASH;
     if (now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return { ok: false, reason: "expired", message: "That code expired (codes last 15 minutes). On your computer, run npm run setup -- --new-code." };
-    const code = normalizeCode(raw); const given = await sha256Hex(`${CODE_SALT}${code}`);
-    let diff = given.length ^ hash.length; for (let i = 0; i < Math.min(given.length, hash.length); i++) diff |= given.charCodeAt(i) ^ hash.charCodeAt(i);
-    const v = await g.codeTry(hash, code.length === 8 && diff === 0, MAX_TRIES);
+    const code = normalizeCode(raw);
+    const v = await g.codeTry(hash, code.length === 8 && (await codeMatches(hash, code)), MAX_TRIES);
     if (v.ok) { await env.OAUTH_KV.put(`approval-used:${hash}`, "1", { expirationTtl: 86400 }); return { ok: true, hash }; }
     if (v.reason === "locked") return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. On your computer, run npm run setup -- --new-code." };
     if (v.reason === "used") return { ok: false, reason: "used", message: "That code was already used. On your computer, run npm run setup -- --new-code for a fresh one." };
@@ -128,9 +140,7 @@ async function checkCodeOnce(env: Env, raw: string, now: number): Promise<Verdic
   if (await env.OAUTH_KV.get(`approval-used:${hash}`)) return { ok: false, reason: "used", message: "That code was already used. On your computer, run npm run setup -- --new-code for a fresh one." };
   if (now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return { ok: false, reason: "expired", message: "That code expired (codes last 15 minutes). On your computer, run npm run setup -- --new-code." };
   const code = normalizeCode(raw);
-  const given = await sha256Hex(`icloud-mcp-approval:${code}`);
-  let diff = given.length ^ hash.length; for (let i = 0; i < Math.min(given.length, hash.length); i++) diff |= given.charCodeAt(i) ^ hash.charCodeAt(i);
-  if (code.length === 8 && diff === 0) { await env.OAUTH_KV.put(`approval-used:${hash}`, "1", { expirationTtl: 86400 }); return { ok: true, hash }; }
+  if (code.length === 8 && (await codeMatches(hash, code))) { await env.OAUTH_KV.put(`approval-used:${hash}`, "1", { expirationTtl: 86400 }); return { ok: true, hash }; }
   {
     await env.OAUTH_KV.put(failKey, String(fails + 1), { expirationTtl: 86400 });
     const left = MAX_TRIES - fails - 1;
@@ -141,9 +151,15 @@ async function checkCodeOnce(env: Env, raw: string, now: number): Promise<Verdic
 // The re-shown page (after a wrong code) needs the client's name. Carry it in an HMAC-signed field
 // so a forged form can't make the page lie about who is asking.
 async function mac(env: Env, data: string) {
-  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(`consent-ctx:${env.CONFIRM_SECRET}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const k = await crypto.subtle.importKey("raw", await subkey(env.CONFIRM_SECRET, "holdt/consent-ctx/v1"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return [...new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(data)))].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 const safeEq = (a: string, b: string) => { let d = a.length ^ b.length; for (let i = 0; i < Math.min(a.length, b.length); i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
 async function signCtx(env: Env, o: object) { const d = btoa(unescape(encodeURIComponent(JSON.stringify(o)))); return `${d}.${await mac(env, d)}`; }
 async function readCtx(env: Env, s: string) { const [d, m] = s.split("."); if (!d || !m || !safeEq(m, await mac(env, d))) return undefined; try { return JSON.parse(decodeURIComponent(escape(atob(d)))); } catch { return undefined; } }
+
+/** A separate key per purpose, derived from CONFIRM_SECRET (HMAC as a KDF), so a token for one purpose can never verify as another. */
+export async function subkey(secret: string, label: string): Promise<ArrayBuffer> {
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return crypto.subtle.sign("HMAC", k, new TextEncoder().encode(label));
+}

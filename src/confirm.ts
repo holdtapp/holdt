@@ -19,11 +19,12 @@ export async function issue(secret: string, action: string, payload: unknown, tt
 export interface UsedStore { has(nonce: string): boolean | Promise<boolean>; add(nonce: string): unknown; /** Atomic check-and-mark (the Durable Object). When present, has/add aren't used. */ spend?(nonce: string, expiresAt: number): Promise<boolean> }
 /** For tokens that may be shown more than once (a revert token is checked at prepare and again at commit). Never use it for a commit. */
 export const NO_SPEND: UsedStore = { has: () => false, add: () => undefined };
-export async function verify<T = unknown>(secret: string, token: string, action: string, used: UsedStore, now = Date.now(), expiredMsg = "That preview expired (10 minutes). Ask for a fresh one."): Promise<{ ok: true; payload: T } | { ok: false; reason: string }> {
+/** `secret` may list the current key first, then a previous one, so CONFIRM_SECRET can rotate without breaking in-flight previews. */
+export async function verify<T = unknown>(secret: string | string[], token: string, action: string, used: UsedStore, now = Date.now(), expiredMsg = "That preview expired (10 minutes). Ask for a fresh one."): Promise<{ ok: true; payload: T } | { ok: false; reason: string }> {
   const [body, sig] = (typeof token === "string" ? token : "").split(".");
   if (!body || !sig) return { ok: false, reason: "That confirmation code is missing or damaged. Ask for a fresh preview." };
   let valid = false;
-  try { valid = await crypto.subtle.verify("HMAC", await key(secret), fromB64u(sig), enc.encode(body)); } catch { valid = false; }
+  for (const k of (Array.isArray(secret) ? secret : [secret]).filter(Boolean).slice(0, 3)) { try { if (await crypto.subtle.verify("HMAC", await key(k), fromB64u(sig), enc.encode(body))) { valid = true; break; } } catch { /* try the next key */ } }
   if (!valid) return { ok: false, reason: "That confirmation code isn't valid. Ask for a fresh preview." };
   let t: any; try { t = JSON.parse(new TextDecoder().decode(fromB64u(body))); } catch { return { ok: false, reason: "That confirmation code is damaged. Ask for a fresh preview." }; }
   if (t.a !== action) return { ok: false, reason: "That confirmation was for a different kind of change." };

@@ -9,10 +9,12 @@ import { fileURLToPath } from "node:url";
 import { CalDavClient, CalDavError } from "../src/caldav.js";
 import { normalizeAppPassword, normalizeEmail, explainFailure } from "./validate.js";
 import { registerSecret, redact } from "../src/redact.js";
-import { createHash, randomInt } from "node:crypto";
+import { createHash, randomInt, pbkdf2Sync } from "node:crypto";
 
 /** 8-digit one-time approval code, shown as 1234-5678. Only its salted hash is stored. */
-export function newApprovalCode() { const c = String(randomInt(0, 100_000_000)).padStart(8, "0"); return { code: c, display: `${c.slice(0, 4)}-${c.slice(4)}`, hash: createHash("sha256").update(`icloud-mcp-approval:${c}`).digest("hex") }; }
+/** 8-digit code. Only a salted PBKDF2 hash goes to Cloudflare (20,000 rounds keeps the Worker check near 4 ms of CPU). */
+export const CODE_ROUNDS = 20_000;
+export function newApprovalCode() { const c = String(randomInt(0, 100_000_000)).padStart(8, "0"); const salt = randomBytes(16).toString("base64url"); return { code: c, display: `${c.slice(0, 4)}-${c.slice(4)}`, hash: `pbkdf2$${CODE_ROUNDS}$${salt}$${pbkdf2Sync(c, Buffer.from(salt, "base64url"), CODE_ROUNDS, 32, "sha256").toString("hex")}` }; }
 
 export interface SetupDeps { caldavUrl: string; saveSecret: (name: string, value: string) => Promise<void>; workerName: string; workerUrl?: string }
 

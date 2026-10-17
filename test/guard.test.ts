@@ -45,3 +45,18 @@ test("confirm tokens are single use through the Durable Object, across separate 
   assert.equal(r.filter((x) => x.status === "fulfilled" && (x.value as any).event_id).length, 1);
   assert.equal(mock.requests.filter((x) => x.method === "PUT").length, 1);
 });
+
+test("T8: salted PBKDF2 code hashes verify, legacy SHA-256 hashes still verify, two setups never share a hash", async () => {
+  const { newApprovalCode } = await import("../setup/server.js"); const { codeMatches } = await import("../src/authorize.js");
+  const a = newApprovalCode(), b = newApprovalCode();
+  assert.notEqual(a.hash.split("$")[2], b.hash.split("$")[2]);
+  assert.equal(await codeMatches(a.hash, a.code), true); assert.equal(await codeMatches(a.hash, b.code === a.code ? "x" : b.code), false);
+  assert.equal(await codeMatches(await sha256Hex(`icloud-mcp-approval:12345678`), "12345678"), true);
+});
+
+test("T8: a confirm token from the previous CONFIRM_SECRET verifies during rotation, never after", async () => {
+  const { issue, verify } = await import("../src/confirm.js");
+  const tok = await issue("old-key", "create_event", { x: 1 });
+  assert.equal((await verify(["new-key", "old-key"], tok, "create_event", new Set())).ok, true);
+  assert.equal((await verify(["new-key"], await issue("old-key", "create_event", { x: 1 }), "create_event", new Set())).ok, false);
+});

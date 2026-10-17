@@ -13,7 +13,7 @@ export { Guard } from "./guard.js";
 export interface Env {
   ICLOUD_EMAIL: string; ICLOUD_APP_PASSWORD: string; CONFIRM_SECRET: string; GRANT_EPOCH: string;
   /** Optional comma-separated browser origins allowed to call /mcp. Requests without an Origin header (server-side clients) always pass. */ ALLOWED_ORIGINS?: string;
-  APPROVAL_CODE_HASH?: string; APPROVAL_CODE_ISSUED?: string;
+  APPROVAL_CODE_HASH?: string; APPROVAL_CODE_ISSUED?: string; /** Set only during a key rotation (see docs/key-rotation.md). */ CONFIRM_SECRET_PREVIOUS?: string;
   TIMEZONE?: string; WRITES_ENABLED?: string; CALENDAR_ALLOWLIST?: string; CALDAV_URL?: string;
   /** Off in v1: Apple's upgraded Reminders aren't reachable over CalDAV. */ REMINDERS_EXPERIMENTAL?: string;
   OAUTH_KV: any;
@@ -24,7 +24,7 @@ export interface GrantProps { epoch: string }
 export const SEC_HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 const json = (o: unknown, status = 200, h: Record<string, string> = {}) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", ...SEC_HEADERS, ...h } });
 
-export function registerEnvSecrets(env: Partial<Env>) { for (const s of [env.ICLOUD_APP_PASSWORD, env.CONFIRM_SECRET, env.ICLOUD_EMAIL, env.GRANT_EPOCH, env.APPROVAL_CODE_HASH]) registerSecret(s); }
+export function registerEnvSecrets(env: Partial<Env>) { for (const s of [env.ICLOUD_APP_PASSWORD, env.CONFIRM_SECRET, env.CONFIRM_SECRET_PREVIOUS, env.ICLOUD_EMAIL, env.GRANT_EPOCH, env.APPROVAL_CODE_HASH]) registerSecret(s); }
 
 /** The MCP endpoint. Called only after the OAuth library has verified the access token. */
 export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | undefined, fetchImpl?: typeof fetch): Promise<Response> {
@@ -48,7 +48,7 @@ export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | un
   let body: any; try { body = JSON.parse(raw); } catch { return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400); }
   const reminders = env.REMINDERS_EXPERIMENTAL === "true";
   const makeTools = () => new Tools(new CalDavClient({ baseUrl: env.CALDAV_URL ?? "https://caldav.icloud.com/", username: env.ICLOUD_EMAIL, password: env.ICLOUD_APP_PASSWORD, fetch: (fetchImpl ?? ((u: any, i: any) => fetch(u, i))) as any }), {
-    timezone: env.TIMEZONE || "UTC", writesEnabled: env.WRITES_ENABLED === "true", confirmSecret: confirmKey(env), remindersExperimental: reminders, usedStore: guardUsedStore(env) ?? kvUsedStore(env.OAUTH_KV), journal: env.OAUTH_KV, owner: env.ICLOUD_EMAIL,
+    timezone: env.TIMEZONE || "UTC", writesEnabled: env.WRITES_ENABLED === "true", confirmSecret: confirmKey(env), previousSecrets: env.CONFIRM_SECRET_PREVIOUS ? [confirmKey({ CONFIRM_SECRET: env.CONFIRM_SECRET_PREVIOUS, GRANT_EPOCH: env.GRANT_EPOCH })] : undefined, remindersExperimental: reminders, usedStore: guardUsedStore(env) ?? kvUsedStore(env.OAUTH_KV), journal: env.OAUTH_KV, owner: env.ICLOUD_EMAIL,
     calendarAllowlist: env.CALENDAR_ALLOWLIST ? env.CALENDAR_ALLOWLIST.split(",").map((s) => s.trim()).filter(Boolean) : undefined });
   const msgs = Array.isArray(body) ? body : [body];
   if (msgs.length > 20) return json({ error: "batch too large" }, 413);

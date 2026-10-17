@@ -6,7 +6,7 @@ import { Journal, KVLike, Change, ownerKey, newId, REVERT_TTL_MS, MAX_BEFORE } f
 import { log } from "./redact.js";
 import { Iv, merge, subtract, parseWorkingHours, workWindows, nearestSlots } from "./free.js";
 
-export interface Config { timezone: string; /** Where the change log lives (the Worker passes OAUTH_KV). Without it, commits return no revert_token. */ journal?: KVLike; /** Whose change log this is, e.g. the iCloud email. Stored only as a hash. */ owner?: string; /** Clock override for tests. */ now?: () => number; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Where used confirm-token nonces are remembered. Defaults to this instance only; the Worker passes a KV-backed store. */ usedStore?: UsedStore; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
+export interface Config { timezone: string; /** Older keys still accepted for verification during a CONFIRM_SECRET rotation. Never used to issue. */ previousSecrets?: string[]; /** Where the change log lives (the Worker passes OAUTH_KV). Without it, commits return no revert_token. */ journal?: KVLike; /** Whose change log this is, e.g. the iCloud email. Stored only as a hash. */ owner?: string; /** Clock override for tests. */ now?: () => number; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Where used confirm-token nonces are remembered. Defaults to this instance only; the Worker passes a KV-backed store. */ usedStore?: UsedStore; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
 export const REMINDER_TOOLS = new Set(["list_reminder_lists", "list_reminders", "prepare_add_reminder", "commit_add_reminder", "prepare_complete_reminder", "commit_complete_reminder"]);
 export const toolsFor = (cfg: { remindersExperimental?: boolean }) => TOOLS.filter((t) => cfg.remindersExperimental || !REMINDER_TOOLS.has(t.name));
 export interface ToolDef { name: string; title: string; description: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations: Record<string, boolean | string> }
@@ -96,6 +96,7 @@ export class Tools {
     if (!ok) throw new UserError("That id isn't valid. List the items again and use an id from the result.");
     return { c, href };
   }
+  private keys() { return [this.cfg.confirmSecret, ...(this.cfg.previousSecrets ?? [])]; }
   private now() { return (this.cfg.now ?? Date.now)(); }
   private jr?: Promise<{ j: Journal; o: string } | undefined>;
   private journal() { return (this.jr ??= (async () => { if (!this.cfg.journal) return undefined; const o = await ownerKey(this.cfg.owner ?? "owner"); return { j: new Journal(this.cfg.journal, o), o }; })()); }
@@ -112,7 +113,7 @@ export class Tools {
   }
   private async loadUndo(token: unknown) {
     const jr = await this.journal(); if (!jr) throw new UserError("Undo isn't available on this connection.");
-    const v = await verify<{ o: string; id: string }>(this.cfg.confirmSecret, token as string, "revert", NO_SPEND, this.now(), "That undo window has closed (7 days). Change the event in the Calendar app instead.");
+    const v = await verify<{ o: string; id: string }>(this.keys(), token as string, "revert", NO_SPEND, this.now(), "That undo window has closed (7 days). Change the event in the Calendar app instead.");
     if (!v.ok) throw new UserError(v.reason.replace("confirmation code", "revert token").replace("Ask for a fresh preview.", "Call list_changes for current tokens."));
     this.assertOwner(v.payload.o, jr.o);
     const ch = await jr.j.get(v.payload.o, v.payload.id);
@@ -199,7 +200,7 @@ export class Tools {
       }
       case "commit_create_event": {
         this.requireWrites();
-        const v = await verify<any>(this.cfg.confirmSecret, a.confirm_token, "create_event", this.used); if (!v.ok) throw new UserError(v.reason);
+        const v = await verify<any>(this.keys(), a.confirm_token, "create_event", this.used); if (!v.ok) throw new UserError(v.reason);
         const p = v.payload; const c = await this.col(p.cid, "VEVENT");
         const href = new URL(`${encodeURIComponent(p.uid.replace(/@.*/, ""))}.ics`, c.href.endsWith("/") ? c.href : c.href + "/").toString();
         const ics = buildEvent(p.uid, { title: p.title, start: p.start, end: p.end, location: p.location, notes: p.notes, alertsMinutesBefore: p.alerts, rrule: p.rrule, tz: this.cfg.timezone });
@@ -242,7 +243,7 @@ export class Tools {
       }
       case "commit_update_event": {
         this.requireWrites();
-        const v = await verify<any>(this.cfg.confirmSecret, a.confirm_token, "update_event", this.used); if (!v.ok) throw new UserError(v.reason);
+        const v = await verify<any>(this.keys(), a.confirm_token, "update_event", this.used); if (!v.ok) throw new UserError(v.reason);
         const { cid, href, etag, patch } = v.payload; const c = await this.col(cid, "VEVENT");
         const r = await this.dav.get(href);
         if (etag && r.etag && r.etag !== etag) throw new UserError("This event changed in iCloud after the preview. Nothing was changed. Ask for a fresh preview.");
@@ -285,7 +286,7 @@ export class Tools {
       }
       case "commit_undo": {
         this.requireWrites();
-        const v = await verify<{ o: string; id: string; etag: string }>(this.cfg.confirmSecret, a.confirm_token, "undo", this.used); if (!v.ok) throw new UserError(v.reason);
+        const v = await verify<{ o: string; id: string; etag: string }>(this.keys(), a.confirm_token, "undo", this.used); if (!v.ok) throw new UserError(v.reason);
         const jr = await this.journal(); if (!jr) throw new UserError("Undo isn't available on this connection.");
         this.assertOwner(v.payload.o, jr.o);
         const ch = await jr.j.get(v.payload.o, v.payload.id); if (!ch) throw new UserError("Holdt has no record of that change.");
@@ -326,7 +327,7 @@ export class Tools {
       }
       case "commit_add_reminder": {
         this.requireWrites();
-        const v = await verify<any>(this.cfg.confirmSecret, a.confirm_token, "add_reminder", this.used); if (!v.ok) throw new UserError(v.reason);
+        const v = await verify<any>(this.keys(), a.confirm_token, "add_reminder", this.used); if (!v.ok) throw new UserError(v.reason);
         const p = v.payload; const l = await this.col(p.lid, "VTODO");
         const href = new URL(`${encodeURIComponent(p.uid.replace(/@.*/, ""))}.ics`, l.href.endsWith("/") ? l.href : l.href + "/").toString();
         const now = Date.now();
@@ -348,7 +349,7 @@ export class Tools {
       }
       case "commit_complete_reminder": {
         this.requireWrites();
-        const v = await verify<any>(this.cfg.confirmSecret, a.confirm_token, "complete_reminder", this.used); if (!v.ok) throw new UserError(v.reason);
+        const v = await verify<any>(this.keys(), a.confirm_token, "complete_reminder", this.used); if (!v.ok) throw new UserError(v.reason);
         const { href, etag } = v.payload; const r = await this.dav.get(href);
         if (etag && r.etag && r.etag !== etag) throw new UserError("This reminder changed after the preview. Nothing was changed. Ask for a fresh preview.");
         await this.dav.put(href, completeTodo(r.ics), { etag: r.etag || etag });
