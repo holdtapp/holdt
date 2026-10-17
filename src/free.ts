@@ -60,11 +60,12 @@ export function workWindows(from: number, to: number, tz: string, wh: WorkingHou
 }
 /** Up to n slots of length dur, each inside a free interval, nearest to target first. Starts snap to the quarter hour. */
 export function nearestSlots(free: Iv[], dur: number, target: number, n = 3, step = 15 * MIN): Iv[] {
-  const c: number[] = [];
+  const c = new Set<number>();
   for (const [a, b] of free) {
     if (b - a < dur) continue;
     const lo = Math.ceil(a / step) * step, hi = Math.floor((b - dur) / step) * step; if (hi < lo) continue;
-    const t = Math.min(Math.max(Math.round(target / step) * step, lo), hi); c.push(t);
+    // The slot nearest the target, plus both ends of the gap, so a long gap offers "just before" and "just after".
+    c.add(Math.min(Math.max(Math.round(target / step) * step, lo), hi)); c.add(lo); c.add(hi);
   }
-  return c.sort((x, y) => Math.abs(x - target) - Math.abs(y - target) || x - y).slice(0, n).sort((x, y) => x - y).map((s) => [s, s + dur]);
+  return [...c].sort((x, y) => Math.abs(x - target) - Math.abs(y - target) || x - y).slice(0, n).sort((x, y) => x - y).map((s) => [s, s + dur]);
 }

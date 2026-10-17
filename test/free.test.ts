@@ -18,7 +18,7 @@ test("merge and subtract intervals", () => {
 test("nearestSlots picks the closest quarter-hour slots on both sides", () => {
   const M = 60000; const free: [number, number][] = [[0, 60 * M], [120 * M, 240 * M], [300 * M, 310 * M]];
   const r = nearestSlots(free, 30 * M, 90 * M, 3);
-  assert.deepEqual(r, [[30 * M, 60 * M], [120 * M, 150 * M]]); // the 10-minute gap is too short
+  assert.deepEqual(r, [[0, 30 * M], [30 * M, 60 * M], [120 * M, 150 * M]]); // the 10-minute gap is too short
 });
 
 test("working-hours windows keep 9 to 5 local across the DST change", () => {
