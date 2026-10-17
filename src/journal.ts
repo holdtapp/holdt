@@ -2,7 +2,7 @@
 // That is what undo restores. Holdt never deletes an event, except one it added itself in the last 24 hours,
 // and only through prepare_undo then commit_undo after the user's yes.
 export interface KVLike { get(k: string): Promise<string | null>; put(k: string, v: string, o?: { expirationTtl?: number }): Promise<unknown>; list(o: { prefix: string; limit?: number; cursor?: string }): Promise<{ keys: { name: string }[]; list_complete?: boolean; cursor?: string }> }
-export interface Change { id: string; at: number; action: "create" | "update" | "undo"; cid: string; href: string; uid: string; title: string; before?: string; afterEtag: string; undone?: number; of?: string }
+export interface Change { id: string; at: number; action: "create" | "update" | "undo"; cid: string; href: string; uid: string; title: string; before?: string; afterEtag: string; /** eventFingerprint of the event as iCloud stored it right after Holdt's write. Undo compares this, not the ETag. */ afterFp?: string; undone?: number; of?: string }
 
 export const CHANGE_TTL_S = 30 * 86400, OWN_CREATE_TTL_S = 24 * 3600, REVERT_TTL_MS = 7 * 86400_000, MAX_BEFORE = 200_000;
 const pad = (n: number) => String(n).padStart(13, "0");

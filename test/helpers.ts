@@ -8,7 +8,7 @@ export const USER = "test.user@example.com", PASS = "abcd-efgh-ijkl-mnop", TZ = 
 export const ev = (uid: string, lines: string[]) => ["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", `UID:${uid}`, ...lines, "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
 export function makeMock() { return new MockCalDav({ user: USER, pass: PASS }); }
 export function seed(mock: MockCalDav) {
-  mock.items.clear(); mock.requests = []; mock.fail = null;
+  mock.items.clear(); mock.requests = []; mock.fail = null; mock.onPut = null;
   mock.add("home", "standup.ics", ev("standup-1", ["DTSTART;TZID=America/Denver:20261026T090000", "DTEND;TZID=America/Denver:20261026T093000", "SUMMARY:Standup", "RRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=6", "EXDATE;TZID=America/Denver:20261028T090000"]));
   mock.add("home", "dentist.ics", ev("dentist-1", ["DTSTART:20261029T163000Z", "DURATION:PT1H", "SUMMARY:Dentist", "LOCATION:12 Main St"]));
   mock.add("work", "offsite.ics", ev("offsite-1", ["DTSTART;VALUE=DATE:20261030", "DTEND;VALUE=DATE:20261101", "SUMMARY:Team offsite"]));

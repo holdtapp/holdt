@@ -5,6 +5,7 @@ import { resolvePhrase, Resolved } from "./phrases.js";
 import { issue, verify, UsedStore, NO_SPEND } from "./confirm.js";
 import { Journal, KVLike, Change, ownerKey, newId, REVERT_TTL_MS, MAX_BEFORE } from "./journal.js";
 import { log } from "./redact.js";
+import { eventFingerprint } from "./fingerprint.js";
 import { Iv, merge, subtract, parseWorkingHours, workWindows, nearestSlots } from "./free.js";
 
 export interface Config { timezone: string; /** Older keys still accepted for verification during a CONFIRM_SECRET rotation. Never used to issue. */ previousSecrets?: string[]; /** Where the change log lives (the Worker passes OAUTH_KV). Without it, commits return no revert_token. */ journal?: KVLike; /** Whose change log this is, e.g. the iCloud email. Stored only as a hash. */ owner?: string; /** Clock override for tests. */ now?: () => number; /** Passkeys enrolled for one-tap connect (the Worker passes them when PASSKEYS is on). */ devices?: () => Promise<{ label?: string; createdAt: number; via?: string }[]>; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Where used confirm-token nonces are remembered. Defaults to this instance only; the Worker passes a KV-backed store. */ usedStore?: UsedStore; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
@@ -117,10 +118,14 @@ export class Tools {
   private jr?: Promise<{ j: Journal; o: string } | undefined>;
   private journal() { return (this.jr ??= (async () => { if (!this.cfg.journal) return undefined; const o = await ownerKey(this.cfg.owner ?? "owner"); return { j: new Journal(this.cfg.journal, o), o }; })()); }
   /** Log a commit and mint its revert token. A logging failure never undoes the user's change; it just means no undo. */
-  private async recordChange(c: Omit<Change, "id" | "at">): Promise<string | undefined> {
+  // The fingerprint comes from a fresh GET right after the PUT, i.e. what iCloud actually stored, falling back to what
+  // Holdt wrote if that read fails. Either way only user-visible fields count (see fingerprint.ts).
+  private async recordChange(c: Omit<Change, "id" | "at" | "afterFp">, written: string): Promise<string | undefined> {
     try {
       const jr = await this.journal(); if (!jr) return undefined;
-      if (!c.afterEtag) c.afterEtag = (await this.dav.get(c.href)).etag; if (!c.afterEtag) return undefined;
+      const got = await this.dav.get(c.href).catch(() => undefined);
+      const afterFp = await eventFingerprint(got?.ics || written);
+      c = { ...c, afterEtag: got?.etag || c.afterEtag, afterFp } as Change;
       if (c.before && c.before.length > MAX_BEFORE) return undefined;
       const now = this.now(); const id = newId(now);
       await jr.j.record({ ...c, id, at: now, title: oneLine(c.title) });
@@ -252,7 +257,7 @@ export class Tools {
         try { put = await this.dav.put(href, ics, { create: true }); }
         catch (e) { if (e instanceof CalDavError && e.code === "conflict") return { done: true, note: "This event was already added. Nothing was added twice." }; throw e; }
         log.info("event created");
-        const revert = await this.recordChange({ action: "create", cid: c.id, href, uid: p.uid, title: p.title, afterEtag: put.etag });
+        const revert = await this.recordChange({ action: "create", cid: c.id, href, uid: p.uid, title: p.title, afterEtag: put.etag }, ics);
         return { done: true, event_id: this.itemId(c, href), message: `Added "${p.title}" to ${c.name}.`, revert_token: revert, undo: revert ? "Holdt can take this back within 24 hours: call prepare_undo with revert_token, after the user asks." : undefined };
       }
       case "prepare_update_event": {
@@ -291,10 +296,11 @@ export class Tools {
         const { cid, href, etag, patch } = v.payload; const c = await this.col(cid, "VEVENT");
         const r = await this.dav.get(href);
         if (etag && r.etag && r.etag !== etag) throw new UserError("This event changed in iCloud after the preview. Nothing was changed. Ask for a fresh preview.");
-        const put = await this.dav.put(href, patchEvent(r.ics, patch), { etag: r.etag || etag });
+        const written = patchEvent(r.ics, patch);
+        const put = await this.dav.put(href, written, { etag: r.etag || etag });
         log.info("event updated");
         const m = this.master(r.ics);
-        const revert = await this.recordChange({ action: "update", cid: c.id, href, uid: (m && getProp(m, "UID")?.value) ?? "", title: patch.title ?? (m ? titleOf(m) : ""), before: r.ics, afterEtag: put.etag });
+        const revert = await this.recordChange({ action: "update", cid: c.id, href, uid: (m && getProp(m, "UID")?.value) ?? "", title: patch.title ?? (m ? titleOf(m) : ""), before: r.ics, afterEtag: put.etag }, written);
         return { done: true, event_id: this.itemId(c, href), message: "Updated.", revert_token: revert, undo: revert ? "Holdt can put this back: call prepare_undo with revert_token, after the user asks." : undefined };
       }
       case "list_changes": {
@@ -312,7 +318,10 @@ export class Tools {
         const c = await this.col(ch.cid, "VEVENT");
         if (!c.writable) throw new UserError(`"${oneLine(c.name, 60)}" is read-only in iCloud now, so Holdt can't take this change back. Nothing was changed.`);
         const r = await this.currentOf(ch);
-        if (!r.etag || r.etag !== ch.afterEtag) throw new UserError("This event was edited after Holdt's change, so taking it back could wipe out those edits. Nothing was changed. Fix it in the Calendar app, or ask me for a new change.");
+        const fp = await eventFingerprint(r.ics);
+        log.info(`undo check: etag ${r.etag && r.etag === ch.afterEtag ? "same" : "differs"}, content ${!ch.afterFp ? "not recorded" : fp === ch.afterFp ? "same" : "differs"}`);
+        // Changes logged before 1.0.2 have no fingerprint: they keep the old exact-ETag rule (fail closed, never looser).
+        if (ch.afterFp ? fp !== ch.afterFp : !r.etag || r.etag !== ch.afterEtag) throw new UserError("This event was edited after Holdt's change, so taking it back could wipe out those edits. Nothing was changed. Fix it in the Calendar app, or ask me for a new change.");
         let lines: string[];
         if (ch.action === "create") {
           await this.assertOwnCreate(jr.j, ch, r.ics);
@@ -327,11 +336,11 @@ export class Tools {
           if ((A.location ?? "") !== (Bv.location ?? "")) lines.push(`Where: "${oneLine(A.location ?? "")}" → "${oneLine(Bv.location ?? "") || "(none)"}"`);
           if ((A.notes ?? "") !== (Bv.notes ?? "")) lines.push(`Notes: "${oneLine(A.notes ?? "", 200)}" → "${oneLine(Bv.notes ?? "", MAX.notes) || "(none)"}"`);
         }
-        return { preview: lines.join("\n"), confirm_token: await issue(this.cfg.confirmSecret, "undo", { o: jr.o, id: ch.id, etag: r.etag }), expires_in_minutes: 10, next_step: "Show this preview. Call commit_undo only if the user says yes." };
+        return { preview: lines.join("\n"), confirm_token: await issue(this.cfg.confirmSecret, "undo", { o: jr.o, id: ch.id, fp }), expires_in_minutes: 10, next_step: "Show this preview. Call commit_undo only if the user says yes." };
       }
       case "commit_undo": {
         this.requireWrites();
-        const v = await verify<{ o: string; id: string; etag: string }>(this.keys(), a.confirm_token, "undo", this.used); if (!v.ok) throw new UserError(v.reason);
+        const v = await verify<{ o: string; id: string; fp: string }>(this.keys(), a.confirm_token, "undo", this.used); if (!v.ok) throw new UserError(v.reason);
         const jr = await this.journal(); if (!jr) throw new UserError("Undo isn't available on this connection.");
         this.assertOwner(v.payload.o, jr.o);
         const ch = await jr.j.get(v.payload.o, v.payload.id); if (!ch) throw new UserError("Holdt has no record of that change.");
@@ -339,7 +348,8 @@ export class Tools {
         const uc = await this.col(ch.cid, "VEVENT");
         if (!uc.writable) throw new UserError(`"${oneLine(uc.name, 60)}" is read-only in iCloud now, so Holdt can't take this change back. Nothing was changed.`);
         const r = await this.currentOf(ch);
-        if (r.etag !== v.payload.etag) throw new UserError("This event changed after the undo preview. Nothing was changed. Ask for a fresh preview.");
+        // Same content as at the preview; the remove or restore itself is pinned to this exact read with If-Match.
+        if (!v.payload.fp || (await eventFingerprint(r.ics)) !== v.payload.fp || !r.etag) throw new UserError("This event changed after the undo preview. Nothing was changed. Ask for a fresh preview.");
         if (ch.action === "create") { await this.assertOwnCreate(jr.j, ch, r.ics); await this.dav.deleteIfMatch(ch.href, r.etag); }
         else await this.dav.put(ch.href, ch.before!, { etag: r.etag });
         const now = this.now(); await jr.j.markUndone(ch, now);

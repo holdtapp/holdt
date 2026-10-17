@@ -55,7 +55,7 @@ test("undo refuses when the event was edited since Holdt's change", async () => 
 test("undo refuses when the event changes between preview and yes", async () => {
   const c = await addOne(); const href = [...mock.items.keys()].find((k) => mock.items.get(k)!.ics.includes("Holdt test"))!;
   const p: any = await T().call("prepare_undo", { revert_token: c.revert_token });
-  mock.items.set(href, { ics: mock.items.get(href)!.ics, etag: mock.etagSeq++ });
+  mock.items.set(href, { ics: mock.items.get(href)!.ics.replace("SUMMARY:Holdt test", "SUMMARY:Holdt test (moved by me)"), etag: mock.etagSeq++ });
   await assert.rejects(T().call("commit_undo", { confirm_token: p.confirm_token }), /changed after the undo preview/);
   assert.ok(mock.items.has(href)); assert.equal(method("DELETE").length, 0);
 });

@@ -9,6 +9,8 @@ export class MockCalDav {
   server!: http.Server; port = 0; requests: { method: string; url: string; headers: http.IncomingHttpHeaders; body: string }[] = [];
   fail: { status: number; times: number; methods?: string[]; retryAfter?: string } | null = null;
   items = new Map<string, Item>(); etagSeq = 1;
+  /** Simulates iCloud: what it stores is a rewrite of what was PUT, under a newer ETag than the PUT response named. */
+  onPut: ((ics: string) => string) | null = null;
   cols: Record<string, { name: string; comps: string[]; readOnly?: boolean; color?: string }> = {
     "home": { name: "Home", comps: ["VEVENT"], color: "#34AADC" },
     "work": { name: "Work", comps: ["VEVENT"], color: "#FF2968" },
@@ -60,7 +62,9 @@ export class MockCalDav {
       const col = p.split("/")[3]!; if (!this.cols[col]) return send(404); if (this.cols[col]!.readOnly) return send(403);
       if (req.headers["if-none-match"] === "*" && it) return send(412);
       if (req.headers["if-match"] && (!it || req.headers["if-match"] !== `"${it.etag}"`)) return send(412);
-      const n = { ics: body, etag: this.etagSeq++ }; this.items.set(p, n); return send(it ? 204 : 201, "", { ETag: `"${n.etag}"` });
+      const n = { ics: body, etag: this.etagSeq++ }; this.items.set(p, n);
+      if (this.onPut) this.items.set(p, { ics: this.onPut(body), etag: this.etagSeq++ });
+      return send(it ? 204 : 201, "", { ETag: `"${n.etag}"` });
     }
     if (req.method === "DELETE") { if (!it) return send(404); if (!req.headers["if-match"] || req.headers["if-match"] !== `"${it.etag}"`) return send(412); this.items.delete(p); return send(204); }
     return send(405);
