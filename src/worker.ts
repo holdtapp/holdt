@@ -16,6 +16,7 @@ export interface Env {
   APPROVAL_CODE_HASH?: string; APPROVAL_CODE_ISSUED?: string; /** Set only during a key rotation (see docs/key-rotation.md). */ CONFIRM_SECRET_PREVIOUS?: string;
   TIMEZONE?: string; WRITES_ENABLED?: string; CALENDAR_ALLOWLIST?: string; CALDAV_URL?: string;
   /** Off in v1: Apple's upgraded Reminders aren't reachable over CalDAV. */ REMINDERS_EXPERIMENTAL?: string;
+  /** Comma-separated exact OAuth callback URIs allowed to receive a code. Unset: any https or loopback callback. */ REDIRECT_ALLOWLIST?: string;
   OAUTH_KV: any;
   /** Durable Object for atomic single use (confirm tokens, approval code). Optional: without it, KV plus in-isolate locks are used. */ GUARD?: any;
 }

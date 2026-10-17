@@ -16,6 +16,14 @@ export function redirectAllowed(uri: string) {
   try { const u = new URL(uri); if (u.username || u.password || u.hash) return false; return u.protocol === "https:" || u.protocol === "cursor:" || (u.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)); } catch { return false; }
 }
 
+/** When REDIRECT_ALLOWLIST is set (comma-separated exact URIs), only those callbacks may receive a code. This closes the
+ * phishing path where someone starts a connect from their own app and talks the owner into approving it. */
+export function redirectListed(env: Pick<Env, "REDIRECT_ALLOWLIST">, uri: string) {
+  const list = (env.REDIRECT_ALLOWLIST ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (!list.length) return true;
+  try { const u = new URL(uri).href; return list.some((x) => { try { return new URL(x).href === u; } catch { return false; } }); } catch { return false; }
+}
+
 const STYLE = `:root{--bg:#f6f7f9;--card:#fff;--ink:#111827;--muted:#5b6472;--line:#e5e7eb;--blue:#0a66ff;--red:#c62828;--amber:#8a5a00;color-scheme:light dark}
 @media (prefers-color-scheme:dark){:root{--bg:#0d1117;--card:#161b22;--ink:#e6edf3;--muted:#9aa4b2;--line:#2a313c;--blue:#4c8dff;--red:#ff6b6b;--amber:#e3b341}}
 *{box-sizing:border-box}body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
@@ -60,7 +68,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
   try {
     if (req.method === "GET") {
       const request = await oauth.parseAuthRequest(req);
-      if (!redirectAllowed(request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1><p class="muted">It asked to send access somewhere this connector doesn't allow.</p>`, 400);
+      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1><p class="muted">It asked to send access somewhere this connector doesn't allow. Only the apps listed in this connector's settings can connect.</p>`, 400);
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
@@ -83,7 +91,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message), 400, undefined, details.redirectUri ?? "");
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
-    if (!redirectAllowed(approved.request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
+    if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
     const { redirectTo } = await oauth.completeAuthorization({ request: approved.request, userId: "owner", metadata: { label: "Grok Bot" }, scope: approved.request.scope, props: { epoch: env.GRANT_EPOCH } });
     log.info("connection approved");
     approved.headers.set("Location", redirectTo);

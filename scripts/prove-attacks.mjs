@@ -59,6 +59,7 @@ const ROWS = [
   { id: "E5", attack: "Aim undo at an event Holdt didn't add (corrupted or forged log entry)", protection: "Own-create check: Holdt's UID record from the last 24 hours", patches: [M("src/tools.ts", "if (uid !== ch.uid || !(await j.isOwnRecentCreate(ch.uid, this.now()))) throw", "if (false) throw")], breaks: ["E5"] },
   { id: "G1", attack: "Spend one token 10 times at once (cross-isolate race)", protection: "Durable Object serializes spend()", patches: [M("src/guard.ts", "const r = this.q.then(f); this.q = r.catch(() => undefined); return r;", "return f();")], breaks: ["G1"] },
   { id: "G2", attack: "31 simultaneous approval-code guesses (cross-isolate race)", protection: "Durable Object serializes codeTry()", patches: [M("src/guard.ts", "const r = this.q.then(f); this.q = r.catch(() => undefined); return r;", "return f();")], breaks: ["G2"] },
+  { id: "A8", attack: "Phishing connect from an attacker's own https app", protection: "REDIRECT_ALLOWLIST pinned to Grok Bot's callbacks", patches: [M("src/authorize.ts", "if (!list.length) return true;", "return true;")], breaks: ["A8"] },
 ];
 const NOT_TOGGLED = [
   ["A3", "Replay an OAuth authorization code", "@cloudflare/workers-oauth-provider (single-use codes). Third-party code, not patched here. Attack refused."],
