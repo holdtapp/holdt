@@ -38,3 +38,22 @@ class_name = "Guard"
 [[migrations]]
 tag = "v1-guard"
 new_sqlite_classes = ["Guard"]
+
+# Rate limits (Workers Rate Limiting, period 10 or 60 s). Sign-up and approval-code submits per IP, MCP calls per connection.
+[[unsafe.bindings]]
+name = "RL_REGISTER"
+type = "ratelimit"
+namespace_id = "7101"
+simple = { limit = 10, period = 60 }
+
+[[unsafe.bindings]]
+name = "RL_APPROVE"
+type = "ratelimit"
+namespace_id = "7102"
+simple = { limit = 10, period = 60 }
+
+[[unsafe.bindings]]
+name = "RL_MCP"
+type = "ratelimit"
+namespace_id = "7103"
+simple = { limit = 120, period = 60 }

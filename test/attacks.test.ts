@@ -9,7 +9,7 @@ import { MockCalDav } from "./mock-caldav.js";
 import { MockKV } from "./kv-mock.js";
 import { CalDavClient } from "../src/caldav.js";
 import { Tools } from "../src/tools.js";
-import { providerFor, kvUsedStore } from "../src/worker.js";
+import worker, { providerFor, kvUsedStore } from "../src/worker.js";
 import { sha256Hex, redirectAllowed } from "../src/authorize.js";
 import { issue, canonical } from "../src/confirm.js";
 import { ownerKey, newId } from "../src/journal.js";
@@ -285,4 +285,18 @@ test("ATTACK A8: phishing connect from an attacker's own https app when the owne
   const a = await connect("https://evil.example/cb");
   assert.equal(a.page.status, 400); assert.match(a.html, /can't connect/); assert.equal(a.handle, undefined);
   const ok = await connect(CB); assert.equal(ok.page.status, 200); assert.ok(ok.handle);
+});
+
+// A stand-in for the Workers Rate Limiting binding: N per key per test.
+const limiter = (n: number) => { const c = new Map<string, number>(); return { limit: async ({ key }: { key: string }) => { const v = (c.get(key) ?? 0) + 1; c.set(key, v); return { success: v <= n }; } }; };
+test("ATTACK A9: flood sign-up (DCR) and the approval form from one IP", async () => {
+  await freshEnv({ RL_REGISTER: limiter(10), RL_APPROVE: limiter(10), RL_MCP: limiter(120) });
+  const reg = () => (worker as any).fetch(new Request(ORIGIN + "/oauth/register", { method: "POST", headers: { "Content-Type": "application/json", "CF-Connecting-IP": "203.0.113.9" }, body: JSON.stringify({ client_name: "x", redirect_uris: [CB], token_endpoint_auth_method: "none" }) }), env, ctx());
+  const codes: number[] = []; for (let i = 0; i < 12; i++) codes.push((await reg()).status);
+  assert.deepEqual(codes.slice(10), [429, 429]); assert.ok(codes.slice(0, 10).every((c) => c === 201));
+  const post = () => (worker as any).fetch(new Request(ORIGIN + "/authorize", { method: "POST", headers: { "CF-Connecting-IP": "203.0.113.9", "Content-Type": "application/x-www-form-urlencoded" }, body: "code=1" }), env, ctx());
+  const p: number[] = []; for (let i = 0; i < 11; i++) p.push((await post()).status);
+  assert.equal(p[10], 429);
+  const other = await (worker as any).fetch(new Request(ORIGIN + "/oauth/register", { method: "POST", headers: { "Content-Type": "application/json", "CF-Connecting-IP": "198.51.100.7" }, body: JSON.stringify({ client_name: "y", redirect_uris: [CB], token_endpoint_auth_method: "none" }) }), env, ctx());
+  assert.equal(other.status, 201, "other people aren't affected");
 });

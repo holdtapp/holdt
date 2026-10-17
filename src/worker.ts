@@ -17,6 +17,7 @@ export interface Env {
   TIMEZONE?: string; WRITES_ENABLED?: string; CALENDAR_ALLOWLIST?: string; CALDAV_URL?: string;
   /** Off in v1: Apple's upgraded Reminders aren't reachable over CalDAV. */ REMINDERS_EXPERIMENTAL?: string;
   /** Comma-separated exact OAuth callback URIs allowed to receive a code. Unset: any https or loopback callback. */ REDIRECT_ALLOWLIST?: string;
+  /** Workers Rate Limiting bindings (wrangler.toml). Absent: no limit. */ RL_REGISTER?: RateLimiter; RL_APPROVE?: RateLimiter; RL_MCP?: RateLimiter;
   OAUTH_KV: any;
   /** Durable Object for atomic single use (confirm tokens, approval code). Optional: without it, KV plus in-isolate locks are used. */ GUARD?: any;
 }
@@ -111,10 +112,25 @@ export function providerFor(origin: string, fetchImpl?: typeof fetch): OAuthProv
   return p;
 }
 
+export interface RateLimiter { limit(o: { key: string }): Promise<{ success: boolean }> }
+/** Per-IP limits on sign-up (DCR) and approval-code submits, per-connection on /mcp. A limiter error fails open,
+ * because every route behind it has its own hard checks; the limits are there to stop floods and lockout griefing. */
+export async function rateLimited(req: Request, env: Env, path: string): Promise<boolean> {
+  const ip = req.headers.get("cf-connecting-ip") ?? "unknown";
+  let rl: RateLimiter | undefined, key = "";
+  if (path === "/oauth/register") { rl = env.RL_REGISTER; key = `reg:${ip}`; }
+  else if (path === "/authorize" && req.method === "POST") { rl = env.RL_APPROVE; key = `approve:${ip}`; }
+  else if (path === "/mcp") { rl = env.RL_MCP; const auth = req.headers.get("authorization") ?? ""; key = `mcp:${auth ? (await sha256Short(auth)) : ip}`; }
+  if (!rl) return false;
+  try { return !(await rl.limit({ key })).success; } catch (e) { log.warn(`rate limiter unavailable: ${(e as any)?.name ?? "error"}`); return false; }
+}
+async function sha256Short(s: string) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join(""); }
+
 export default {
-  fetch(req: Request, env: Env, ctx: any) {
+  async fetch(req: Request, env: Env, ctx: any) {
     const url = new URL(req.url);
     if (url.pathname === "/" || url.pathname === "/health") return json({ ok: true, name: "holdt", mcp: "/mcp" });
+    if (await rateLimited(req, env, url.pathname)) { log.warn(`rate limited ${url.pathname.slice(0, 40)}`); return json({ error: "rate_limited", error_description: "Too many requests. Wait a minute and try again." }, 429, { "Retry-After": "60" }); }
     return providerFor(url.origin).fetch(req, env, ctx);
   },
 };
