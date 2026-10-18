@@ -9,6 +9,7 @@ import { registerSecret, log } from "./redact.js";
 import { authorizeHandler } from "./authorize.js";
 import { guardFor } from "./guard.js";
 import { loadPasskeys } from "./passkey.js";
+import { reviewerGrantValid } from "./reviewer.js";
 export { Guard } from "./guard.js";
 
 export interface Env {
@@ -24,22 +25,25 @@ export interface Env {
   /** "on" turns on passkey one-tap connect (src/passkey.ts). The approval code always stays as the fallback. */ PASSKEYS?: string;
   /** SHA-256 of the one-time enroll token from `npm run setup -- --add-device`, and when it was issued. */ ENROLL_TOKEN_HASH?: string; ENROLL_TOKEN_ISSUED?: string;
   /** Rotated by `--reset-passkeys`: passkeys enrolled under an older value stop working. */ PASSKEY_EPOCH?: string;
+  /** Reviewer test path (src/reviewer.ts, docs/reviewer-testing.md). Only a demo Worker on the test account sets REVIEWER_MODE = "on". */
+  REVIEWER_MODE?: string; REVIEWER_CODE_HASH?: string; REVIEWER_CODE_ISSUED?: string;
   OAUTH_KV: any;
   /** Durable Object for atomic single use (confirm tokens, approval code). Optional: without it, KV plus in-isolate locks are used. */ GUARD?: any;
 }
-export interface GrantProps { epoch: string }
+export interface GrantProps { epoch: string; via?: "reviewer"; rc?: string; acct?: string }
 
 export const SEC_HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 const json = (o: unknown, status = 200, h: Record<string, string> = {}) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", ...SEC_HEADERS, ...h } });
 
-export function registerEnvSecrets(env: Partial<Env>) { for (const s of [env.ICLOUD_APP_PASSWORD, env.CONFIRM_SECRET, env.CONFIRM_SECRET_PREVIOUS, env.ICLOUD_EMAIL, env.GRANT_EPOCH, env.APPROVAL_CODE_HASH, env.ENROLL_TOKEN_HASH]) registerSecret(s); }
+export function registerEnvSecrets(env: Partial<Env>) { for (const s of [env.ICLOUD_APP_PASSWORD, env.CONFIRM_SECRET, env.CONFIRM_SECRET_PREVIOUS, env.ICLOUD_EMAIL, env.GRANT_EPOCH, env.APPROVAL_CODE_HASH, env.ENROLL_TOKEN_HASH, env.REVIEWER_CODE_HASH]) registerSecret(s); }
 
 /** The MCP endpoint. Called only after the OAuth library has verified the access token. */
 export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | undefined, fetchImpl?: typeof fetch): Promise<Response> {
   registerEnvSecrets(env);
   if (!env.ICLOUD_EMAIL || !env.ICLOUD_APP_PASSWORD || !env.CONFIRM_SECRET || !env.GRANT_EPOCH) return json({ error: "This connector isn't set up yet. Run `npm run setup`." }, 503);
   // Rerunning setup (or `npm run setup -- --revoke-all`) rotates GRANT_EPOCH, which cuts off every earlier grant at once.
-  if (!props || props.epoch !== env.GRANT_EPOCH) {
+  // A reviewer connection lives only as long as its reviewer code: revoked, expired or a different iCloud account cuts it.
+  if (!props || props.epoch !== env.GRANT_EPOCH || (props.via === "reviewer" && !(await reviewerGrantValid(env, props)))) {
     // Point the client back at our metadata (RFC 9728 §5.1) so it can re-authorize on its own.
     const rm = `${new URL(req.url).origin}/.well-known/oauth-protected-resource/mcp`;
     return json({ error: "invalid_token", error_description: "This connection was revoked. Reconnect it in Grok Bot." }, 401, { "WWW-Authenticate": `Bearer error="invalid_token", error_description="connection revoked", resource_metadata="${rm}"` });

@@ -10,6 +10,10 @@ import { CalDavClient, CalDavError } from "../src/caldav.js";
 import { normalizeAppPassword, normalizeEmail, explainFailure } from "./validate.js";
 import { registerSecret, redact } from "../src/redact.js";
 import { createHash, randomInt, pbkdf2Sync } from "node:crypto";
+import { writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { newReviewerCode } from "./reviewer.js";
 /** The exact wrangler pinned in package.json (never whatever npx would fetch today), since it runs with your Cloudflare login. */
 const WRANGLER = fileURLToPath(new URL(`../node_modules/.bin/wrangler${process.platform === "win32" ? ".cmd" : ""}`, import.meta.url));
 
@@ -85,7 +89,26 @@ export function createSetupServer(deps: SetupDeps) {
 /** `npm run setup -- --new-code` (fresh approval code) and `--revoke-all` (cut off every connection). */
 export function newEnrollToken() { const token = randomBytes(32).toString("base64url"); return { token, hash: createHash("sha256").update(token).digest("hex") }; }
 /** `--add-device` (passkey enroll link) and `--reset-passkeys` (forget every passkey) too. */
-export async function cliAction(flag: string, save: (n: string, v: string) => Promise<void>, out: (s: string) => void, workerUrl = process.env.WORKER_URL) {
+export interface ReviewerCliOpts { workerName?: string; account?: string; codeFile?: string; now?: number }
+export async function cliAction(flag: string, save: (n: string, v: string) => Promise<void>, out: (s: string) => void, workerUrl = process.env.WORKER_URL, rv: ReviewerCliOpts = {}) {
+  if (flag === "--new-reviewer-code" || flag === "--revoke-reviewer") {
+    // Reviewer codes belong on a separate demo Worker on the test account, never on the owner's own Worker.
+    const name = rv.workerName ?? process.env.WORKER_NAME ?? "holdt";
+    if (name === "holdt") { out("\n  Reviewer codes only go on a separate demo Worker. Set WORKER_NAME to that Worker's name and try again.\n"); return true; }
+    if (flag === "--revoke-reviewer") {
+      await save("REVIEWER_CODE_HASH", "revoked");
+      out(`\n  Done. The reviewer code for ${name} stopped working, and every reviewer connection is cut off on its next call. Your own connections keep working.\n`);
+      return true;
+    }
+    const r = newReviewerCode(rv.account ?? process.env.HOLDT_REVIEWER_ACCOUNT ?? "", rv.now);
+    await save("REVIEWER_CODE_HASH", r.hash); await save("REVIEWER_CODE_ISSUED", String(r.issued));
+    // The code goes to a private file, not the terminal, so it never lands in a scrollback, a log or a chat transcript.
+    const file = rv.codeFile ?? join(homedir(), ".holdt", `reviewer-code-${name}.txt`);
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, `${r.display}\n`, { mode: 0o600 }); chmodSync(file, 0o600);
+    const until = new Date(r.expiresAt).toLocaleString("en-US", { timeZone: process.env.TZ || "America/Denver", dateStyle: "medium", timeStyle: "short" });
+    out(`\n  New reviewer code for ${name} saved to ${file} (readable only by you).\n  It works for any number of reviewers until ${until}. Revoke it any time with npm run setup -- --revoke-reviewer.\n  The demo Worker also needs REVIEWER_MODE = "on" in its [vars].\n`);
+    return true;
+  }
   if (flag === "--new-code") {
     const ac = newApprovalCode();
     await save("APPROVAL_CODE_HASH", ac.hash); await save("APPROVAL_CODE_ISSUED", String(Date.now()));
@@ -118,7 +141,7 @@ export async function cliAction(flag: string, save: (n: string, v: string) => Pr
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const workerName = process.env.WORKER_NAME ?? "holdt";
   const flag = process.argv[2] ?? "";
-  if (flag) { cliAction(flag, wranglerSaver(workerName), console.log).then((ok) => { if (!ok) { console.log("Unknown option. Use --new-code, --revoke-all, --add-device or --reset-passkeys."); process.exit(2); } }, (e) => { console.error(redact(e)); process.exit(1); }); }
+  if (flag) { cliAction(flag, wranglerSaver(workerName), console.log, process.env.WORKER_URL, { workerName }).then((ok) => { if (!ok) { console.log("Unknown option. Use --new-code, --revoke-all, --add-device, --reset-passkeys, --new-reviewer-code or --revoke-reviewer."); process.exit(2); } }, (e) => { console.error(redact(e)); process.exit(1); }); }
   else {
   const { server, key } = createSetupServer({ caldavUrl: process.env.CALDAV_URL ?? "https://caldav.icloud.com/", workerName, workerUrl: process.env.WORKER_URL, saveSecret: wranglerSaver(workerName) });
   server.listen(0, "127.0.0.1", () => {

@@ -5,6 +5,7 @@ import type { Env } from "./worker.js";
 import { registerEnvSecrets, SEC_HEADERS } from "./worker.js";
 import { log } from "./redact.js";
 import { guardFor } from "./guard.js";
+import { reviewerState, checkReviewerCode, looksLikeReviewerCode } from "./reviewer.js";
 import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, loadPasskeys, deviceNotice, LOGIN_SCRIPT, ENROLL_SCRIPT } from "./passkey.js";
 
 const CODE_TTL_MS = 15 * 60_000, MAX_TRIES = 5;
@@ -55,7 +56,7 @@ function page(title: string, body: string, status = 200, headers?: Headers, redi
   h.set("X-Frame-Options", "DENY");
   return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style><main><div class="card">${body}</div></main></html>`, { status, headers: h });
 }
-function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }, notice?: string) {
+function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }, notice?: string, reviewer = false) {
   const local = (notice ? `<p class="warn" role="status">${esc(notice)}</p>` : "") + (d.redirectIsLoopback ? `<p class="warn">This sends access to an app on this computer. Continue only if you just started connecting from it.</p>` : "");
   return `<h1>Connect ${esc(d.clientName || "an app")} to your iCloud Calendar?</h1>
 <p class="muted">${d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : "This app registered itself, so its name isn't verified."} Access goes to <strong>${esc(d.redirectHost || "the app")}</strong>.</p>${local}
@@ -66,11 +67,11 @@ ${pk ? `<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input typ
 <button type="button" class="allow" id="pk" style="width:100%" data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">Allow with Face ID</button>
 <p class="err" id="pkmsg" role="status">${error ? esc(error) : ""}</p>
 <details id="codealt"${error ? " open" : ""}><summary>No Face ID here? Use an approval code</summary>` : ""}
-<label for="code">Approval code from your setup screen</label>
-<input id="code" name="code" inputmode="numeric" placeholder="1234-5678" maxlength="12" ${pk ? "" : "autofocus "}${error && !pk ? 'aria-invalid="true" aria-describedby="err"' : ""}>
+<label for="code">${reviewer ? "Approval code or reviewer code" : "Approval code from your setup screen"}</label>
+<input id="code" name="code" ${reviewer ? 'inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="40"' : 'inputmode="numeric" maxlength="12"'} placeholder="1234-5678" ${pk ? "" : "autofocus "}${error && !pk ? 'aria-invalid="true" aria-describedby="err"' : ""}>
 ${error && !pk ? `<div class="err" id="err" role="alert">${esc(error)}</div>` : ""}
 <div class="row"><button class="deny" name="decision" value="deny">Don't allow</button><button class="allow" name="decision" value="approve">Allow${pk ? " with code" : ""}</button></div>
-<p class="muted" style="margin-top:14px">No code, or it expired? On your computer, run <code>npm run setup -- --new-code</code>.</p>${pk ? "</details>" : ""}
+${reviewer ? `<p class="muted" style="margin-top:14px">Reviewing Holdt? Enter the reviewer code from the testing instructions. It starts with RVW.</p>` : ""}<p class="muted" style="margin-top:14px">No code, or it expired? On your computer, run <code>npm run setup -- --new-code</code>.</p>${pk ? "</details>" : ""}
 </form>`;
 }
 
@@ -90,7 +91,8 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
       const pk = await loginOptions(env, url, consent.handle);
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle, writes, undefined, pk, await noticeFor(env)), 200, consent.headers, request.redirectUri, pk ? LOGIN_SCRIPT : "");
+      const reviewer = (await reviewerState(env)).active;
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle, writes, undefined, pk, await noticeFor(env), reviewer), 200, consent.headers, request.redirectUri, pk ? LOGIN_SCRIPT : "");
     }
     if (req.method !== "POST") return new Response(null, { status: 405, headers: SEC_HEADERS });
     const form = await req.formData();
@@ -102,21 +104,25 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       return new Response(null, { status: 302, headers: denied.headers });
     }
     const f = (k: string) => String(form.get(k) ?? "");
-    const verdict = viaPasskey ? await checkPasskeyLogin(env, url, handle, { token: f("pk_token"), id: f("pk_id"), clientDataJSON: f("pk_cdj"), authenticatorData: f("pk_ad"), signature: f("pk_sig") }) : await checkCode(env, f("code"));
+    // A reviewer code (RVW...) is checked on its own path: multi-use, and it never charges the owner's code tries.
+    const viaReviewer = !viaPasskey && looksLikeReviewerCode(f("code"));
+    const rv = viaReviewer ? await checkReviewerCode(env, f("code")) : undefined;
+    const verdict = viaPasskey ? await checkPasskeyLogin(env, url, handle, { token: f("pk_token"), id: f("pk_id"), clientDataJSON: f("pk_cdj"), authenticatorData: f("pk_ad"), signature: f("pk_sig") }) : rv ? (rv.ok ? { ok: true as const, hash: "" } : rv) : await checkCode(env, f("code"));
     if (!verdict.ok) {
-      log.warn(`${viaPasskey ? "passkey" : "approval code"} rejected: ${verdict.reason.slice(0, 80)}`);
+      log.warn(`${viaPasskey ? "passkey" : viaReviewer ? "reviewer code" : "approval code"} rejected: ${verdict.reason.slice(0, 80)}`);
       const ctxRaw = String(form.get("ctx") ?? "");
       const details: any = (await readCtx(env, ctxRaw)) ?? { clientName: "the app", redirectHost: "" };
       details.__ctx = ctxRaw;
       if (!viaPasskey && verdict.reason === "used") return page("Already approved", `<h1>You're already approved</h1><p class="muted">This code already connected Holdt. Go back to Grok Bot and check the connection. If it still asks to connect, run <code>npm run setup -- --new-code</code> and try once more.</p>`, 400);
       // A fresh challenge for the retry: the old one is spent, whether or not it verified.
       const pk = await loginOptions(env, url, handle);
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk, await noticeFor(env)), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
+      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk, await noticeFor(env), (await reviewerState(env)).active), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
     if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri) || !clientListed(env, approved.request.clientId)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
-    const { redirectTo } = await oauth.completeAuthorization({ request: approved.request, userId: "owner", metadata: { label: "Grok Bot" }, scope: approved.request.scope, props: { epoch: env.GRANT_EPOCH } });
-    log.info("connection approved");
+    const props = rv?.ok ? { epoch: env.GRANT_EPOCH, ...rv.props } : { epoch: env.GRANT_EPOCH };
+    const { redirectTo } = await oauth.completeAuthorization({ request: approved.request, userId: rv?.ok ? "reviewer" : "owner", metadata: { label: rv?.ok ? "Grok Bot (reviewer)" : "Grok Bot" }, scope: approved.request.scope, props });
+    log.info(rv?.ok ? "connection approved (reviewer code)" : "connection approved");
     approved.headers.set("Location", redirectTo);
     return new Response(null, { status: 302, headers: approved.headers });
   } catch (e) {
