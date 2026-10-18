@@ -1,4 +1,4 @@
-// Hosted-mode credential vault (design implementation, not used by self-host).
+// Envelope encryption. Used by no-Terminal setup (src/setup-web.ts) and by the hosted-mode design.
 // Envelope encryption: per-user random data key (AES-256-GCM) encrypts the app password;
 // the data key is wrapped by a key-encryption key (KEK) that lives only in the platform's
 // secret store / KMS. Associated data binds a ciphertext to its user, so rows can't be swapped.
