@@ -34,10 +34,11 @@ const b64u = (b: Buffer) => b.toString("base64url");
 /** Enroll with the approval code (the default) or with a passkey already on the server (`by`). Afterwards the code is
  * made fresh again, as `npm run setup -- --new-code` would, so a test can still connect with CODE. */
 async function enroll(a: VirtualAuthenticator, token = ENROLL, o2: { code?: string; by?: VirtualAuthenticator } = {}) {
-  const o: any = await (await post("/enroll/options", { token })).json(); if (!o.ok) return o;
+  // The code is checked in /enroll/options, before the authenticator creates anything (no orphan passkeys on a typo).
+  const o: any = await (await post("/enroll/options", { token, code: o2.by ? "" : (o2.code ?? CODE) })).json(); if (!o.ok) return o;
   const r = await a.create(o.publicKey.challenge);
   const auth = o2.by && o.auth ? { challenge_token: o.auth.challenge_token, ...(await o2.by.get(o.auth.challenge)) } : undefined;
-  const out: any = await (await post("/enroll/finish", { token, challenge_token: o.challenge_token, ...r, code: o2.by ? "" : (o2.code ?? CODE), auth })).json();
+  const out: any = await (await post("/enroll/finish", { token, challenge_token: o.challenge_token, ...r, auth })).json();
   await kv.delete(`approval-used:${env.APPROVAL_CODE_HASH}`); await kv.delete(`approval-fail:${env.APPROVAL_CODE_HASH}`);
   return out;
 }
@@ -104,13 +105,26 @@ test("enroll: page carries a nonce CSP, the token works once and expires, and is
 test("enroll: a challenge is single use and bound to the enroll token, and a wrong-origin passkey is refused", async () => {
   await freshEnv();
   const a = await new VirtualAuthenticator(ORIGIN).init();
-  const o: any = await (await post("/enroll/options", { token: ENROLL })).json();
+  const o: any = await (await post("/enroll/options", { token: ENROLL, code: CODE })).json();
   const bad = await a.create(o.publicKey.challenge, { origin: "https://evil.example" });
   assert.match((await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...bad })).json() as any).message, /wasn't saved/);
   // that challenge is spent even though it failed
   const good = await a.create(o.publicKey.challenge);
   assert.equal((await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...good })).json() as any).ok, false);
+  await kv.delete(`approval-used:${env.APPROVAL_CODE_HASH}`); // the code was spent in /enroll/options, as a new code would
   assert.equal((await enroll(a)).ok, true);
+});
+
+test("enroll: a wrong code is refused before the authenticator runs, and a code-less finish is refused", async () => {
+  await freshEnv();
+  const wrong: any = await (await post("/enroll/options", { token: ENROLL, code: "11112222" })).json();
+  assert.equal(wrong.ok, false); assert.equal(wrong.field, "code"); assert.equal(wrong.publicKey, undefined, "no creation options, so no passkey can be made");
+  const a = await new VirtualAuthenticator(ORIGIN).init();
+  const o: any = await (await post("/enroll/options", { token: ENROLL })).json();
+  const r = await a.create(o.publicKey.challenge);
+  const out: any = await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...r })).json();
+  assert.equal(out.ok, false); assert.match(out.message, /approval code/);
+  assert.equal((await loadPasskeys(env)).length, 0);
 });
 
 test("connect: Allow with Face ID approves with no code typed, and the token works", async () => {
@@ -232,7 +246,7 @@ test("ATTACK P13: a second device can be added with an existing passkey, but not
 });
 test("a new device shows on the next consent pages and in connection_status for 7 days", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
-  assert.match((await consent()).html, /Face ID was turned on for a new device today at \d+:\d\d [AP]M\. Not you\? Tap Don’t[\s\u00a0]allow\./);
+  assert.match((await consent()).html, /Face ID was turned on for a new device today at \d+:\d\d[\s\u00a0][AP]M\. Not you\? Tap[\s\u00a0]Don’t[\s\u00a0]allow\./);
   const { mcpEndpoint } = await import("../src/worker.js");
   const st = async () => (await (await mcpEndpoint(new Request(ORIGIN + "/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "connection_status", arguments: {} } }) }), env, { epoch: env.GRANT_EPOCH }, fetch)).json() as any).result.structuredContent;
   const s1 = await st(); assert.equal(s1.passkeys.length, 1); assert.equal(s1.passkeys[0].added_with, "approval code"); assert.match(s1.device_notice, /New device added .*reset-passkeys/);

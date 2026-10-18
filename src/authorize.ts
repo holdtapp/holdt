@@ -59,18 +59,18 @@ export function clientLine(d: { clientName?: string; clientDomain?: string; redi
   const known = d.redirectUri ? knownApp(d.redirectUri) : undefined;
   if (known) return { known: true, title: `Connect ${known} to your iCloud Calendar?`, lede: `Access goes to ${esc(known)} alone. Allow this only if you just asked it to connect.` };
   if (d.clientDomain) return { known: false, title: `Connect ${d.clientName || d.clientDomain} to your iCloud Calendar?`, lede: `Published by <strong>${esc(d.clientDomain)}</strong>. Allow this only if you just asked it to connect.` };
-  return { known: false, title: "Connect an app to your iCloud Calendar?", lede: d.clientName ? `It calls itself “${esc(d.clientName)},” but Holdt can't verify that. Allow only if you just asked it to connect.` : "It didn't give a name, and Holdt can't verify where it's from. Allow this only if you just asked it to connect." };
+  return { known: false, title: "Connect an app to your iCloud Calendar?", lede: d.clientName ? `It calls itself “${esc(d.clientName)},” but Holdt can't verify that. Allow this only if you just asked it to connect.` : "It didn't give a name, and Holdt can't verify where it's from. Allow this only if you just asked it to connect." };
 }
-const HINT = "Shown on the computer where you set up Holdt.";
+const HINT = "8 digits, shown on the computer where you set up Holdt.";
 /** A code that's spent, expired or blocked isn't a typing mistake: calm grey with the way forward, not red. */
 const DEAD = new Set(["expired", "locked", "used", "none"]);
 /** A wrong code comes back as an empty, focused field (like a wrong iPhone passcode): nothing to delete first. */
 type FieldErr = { text: string; dead: boolean };
-const FIELD_CODE = (o: { reviewer: boolean; error?: FieldErr }) => `<label class="field" for="code"><span class="lbl">${o.reviewer ? "Approval code or reviewer code" : "Approval code"}</span>
-<input class="code" id="code" name="code" required ${o.reviewer ? 'inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="40"' : 'inputmode="numeric" placeholder="8 digits" pattern="\\s*[0-9]{4}[ \\-]?[0-9]{4}\\s*" title="The 8 digits of your approval code" maxlength="12"'} autocomplete="one-time-code" enterkeyhint="go"${o.error && !o.error.dead ? " autofocus" : ""} aria-describedby="${o.error ? (o.error.dead ? "err" : "err codehint") : "codehint"}"${o.error && !o.error.dead ? ' aria-invalid="true"' : ""}>
-${o.error ? `<span class="fielderr${o.error.dead ? " calm" : ""}" id="err"${o.error.dead ? "" : ' role="alert"'}>${o.error.dead ? ICON.clock : ICON.alert}<span>${esc(o.error.text)}</span></span>` : ""}${o.error?.dead ? "" : `<span class="hint" id="codehint">${o.reviewer ? "The 8 digits from your computer, or the reviewer code that starts with RVW." : HINT}</span>`}</label>`;
+const FIELD_CODE = (o: { reviewer: boolean; error?: FieldErr }) => `<div class="field"><label class="lbl" for="code">${o.reviewer ? "Approval code or reviewer code" : "Approval code"}</label>
+<input class="code" id="code" name="code" required ${o.reviewer ? 'inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="40"' : 'inputmode="numeric" placeholder="8 digits" pattern="\\s*[0-9]{4}[ \\-]?[0-9]{4}\\s*" title="The 8 digits of your approval code" maxlength="12"'} autocomplete="one-time-code" enterkeyhint="go"${o.error ? " autofocus" : ""} aria-describedby="${o.error ? (o.error.dead ? "err" : "err codehint") : "codehint"}"${o.error && !o.error.dead ? ' aria-invalid="true"' : ""}>
+${o.error ? `<span class="fielderr${o.error.dead ? " calm" : ""}" id="err" role="alert">${o.error.dead ? ICON.clock : ICON.alert}<span>${esc(o.error.text)}</span></span>` : ""}${o.error?.dead ? "" : `<span class="hint" id="codehint">${o.reviewer ? "The 8 digits from your computer, or the reviewer code that starts with RVW." : HINT}</span>`}</div>`;
 const NEW_CODE_CMD = "On the computer where you set up Holdt, run this for a new approval code:<code>npm run new-code</code>";
-const RESET_CMD = "On the computer where you set up Holdt, run this to turn Face ID off everywhere. Codes keep working.<code>npm run reset-passkeys</code>";
+const BOTH_CMDS = "On the computer where you set up Holdt:<ol><li>Turn Face ID off everywhere. Codes keep working.<code>npm run reset-passkeys</code></li><li>Get a new approval code.<code>npm run new-code</code></li></ol>";
 /** One label for owner-only help on every screen. */
 const HELP = "Setup help";
 const REVIEWER_HINT = `<p class="foot">Reviewing Holdt? Enter the reviewer code from the testing instructions. It starts with RVW.</p>`;
@@ -88,12 +88,12 @@ function consentBody(d: any, handle: string, writes: string, error?: string, pk?
   const callouts = (d.redirectIsLoopback ? `<div class="callout">${ICON.alert}<p>This sends access to an app on this computer. Continue only if you just started connecting from it.</p></div>` : "")
     + (notice ? `<div class="callout">${ICON.device}<p><span class="sr">Security notice: </span>${esc(notice)}</p></div>` : "");
   const dead = DEAD.has(reason);
-  const codeErr: FieldErr | undefined = error && (!pk || errorFrom === "code") ? { text: reason === "expired" ? "That code expired. Get a new one below." : error, dead } : undefined; // the open help carries where to get a new one
+  const codeErr: FieldErr | undefined = error && (!pk || errorFrom === "code") ? { text: reason === "expired" ? "That code expired. Get a new one on the computer where you set up Holdt." : error, dead } : undefined; // the open help carries where to get a new one
   const pkErr = error && pk && errorFrom === "pk" ? error : "";
   void typed;
   // A dead code: the way forward sits right under the message, open, and Allow with code steps back until a new code is in.
   // Setup help is the last thing on the page, collapsed. A dead code is the one exception: the fix opens right under it.
-  const help = ownerNote(HELP, dead ? "On the computer where you set up Holdt, run:<code>npm run new-code</code>" : (notice ? RESET_CMD + "<br><br>" : "") + NEW_CODE_CMD, dead, dead ? "dead" : "");
+  const help = ownerNote(HELP, dead ? NEW_CODE_CMD : notice ? BOTH_CMDS : NEW_CODE_CMD, dead, dead ? "dead" : "");
   const allow = `<button class="btn ${dead ? "secondary" : "primary"}" name="decision" value="approve">Allow with code</button>`;
   const inPanel = dead ? help + allow : allow;
   const atEnd = dead ? "" : help;
@@ -101,7 +101,7 @@ function consentBody(d: any, handle: string, writes: string, error?: string, pk?
   const deny = `<button class="btn plain quiet" name="decision" value="deny" formnovalidate>Don’t allow</button>`;
   const actions = pk
     ? `<form method="post" autocomplete="off"${codeErr ? ' class="code"' : ""}>${hidden}<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">
-<button type="button" class="btn primary" id="pk" data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">${ICON.faceId}${ICON.spinner}<span id="pklabel">Allow with Face ID</span></button>
+<button type="button" class="btn primary" id="pk" hidden data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">${ICON.faceId}${ICON.spinner}<span id="pklabel">Allow with Face ID</span></button>
 <p class="status" id="pkmsg">${ICON.info}<span class="st">${esc(pkErr)}</span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
 <div class="alt" id="altwrap"><div class="codebox" id="codepanel">
 ${FIELD_CODE({ reviewer, error: codeErr })}${inPanel}${reviewer ? REVIEWER_HINT : ""}</div>
@@ -125,7 +125,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
   try {
     if (req.method === "GET") {
       const request = await oauth.parseAuthRequest(req);
-      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri) || !clientListed(env, request.clientId)) return page("Holdt: Can't connect", messageBody("This app can’t connect", `It wanted access sent to ${hostOf(request.redirectUri)}, which you haven’t allowed in Holdt. Nothing was shared.`, { owner: `If you trust this app, add its callback to your allowed list (<code>REDIRECT_ALLOWLIST</code> in <code>wrangler.toml</code>) on the computer where you set up Holdt, then deploy. Its callback:<code>${esc(request.redirectUri.slice(0, 200))}</code>` }), 400);
+      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri) || !clientListed(env, request.clientId)) return page("Holdt: Can't connect", messageBody("This app can’t connect", `It wanted access sent to <strong>${esc(hostOf(request.redirectUri))}</strong>, which Holdt isn’t set up to allow. Nothing was shared.`, { html: true, owner: `If you trust this app, on the computer where you set up Holdt:<ol><li>Add this callback to <code>REDIRECT_ALLOWLIST</code> in <code>wrangler.toml</code>.<code>${esc(request.redirectUri.slice(0, 200))}</code></li><li>Run this to deploy.<code>npm run deploy</code></li></ol>` }), 400);
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
@@ -175,18 +175,18 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
 
 async function noticeFor(env: Env) { try { return passkeysOn(env) ? deviceNotice(await loadPasskeys(env), env.TIMEZONE || "UTC") : undefined; } catch { return undefined; } }
 async function enrollPage(env: Env, url: URL): Promise<Response> {
-  if (!passkeysOn(env)) return page("Holdt: Face ID approvals are off", messageBody("Face ID approvals are off", "Your approval code still works. Setup help shows how to turn Face ID approvals on.", { owner: '<ol><li>On the computer where you set up Holdt, set <code>PASSKEYS = "on"</code> in <code>wrangler.toml</code>.</li><li>Deploy.</li><li>Run this and open the link on your iPhone.<code>npm run add-device</code></li></ol>' }), 404);
+  if (!passkeysOn(env)) return page("Holdt: Face ID is off", messageBody("Face ID is off", "Holdt is set up for approval codes only. Your code still works.", { owner: '<ol><li>On the computer where you set up Holdt, set <code>PASSKEYS = "on"</code> in <code>wrangler.toml</code>.</li><li>Run this to deploy:<code>npm run deploy</code></li><li>Run this, then open the new link on this device:<code>npm run add-device</code></li></ol>' }), 404);
   // Offer "skip the code" only when a passkey for this host already exists to confirm with instead.
   let hasOther = false; try { hasOther = usableHere(await loadPasskeys(env), url).length > 0; } catch { /* the code path still works */ }
   const setup = screen({ title: "Turn on Face ID", lede: "Enter your approval code once, then approve with a glance.", markId: "mk",
-    body: `<ul class="facts" role="list"><li>${ICON.faceId}<p>Your face stays on your device. Holdt never sees it.</p></li><li>${ICON.devices}<p>Syncs to your other Apple devices with iCloud\u00a0Keychain.</p></li><li>${ICON.keypad}<p>Your approval code still works.</p></li></ul>`,
-    actions: `<form id="enrollf" novalidate><label class="field" for="code"><span class="lbl">Approval code</span><input class="code" id="code" inputmode="numeric" placeholder="8 digits" maxlength="12" autocomplete="one-time-code" enterkeyhint="go" aria-describedby="codehint"><span class="fielderr" id="err" role="alert" hidden>${ICON.alert}<span></span></span><span class="hint" id="codehint">${HINT}</span></label>
-<button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button></form><p class="status" id="msg" role="status" aria-live="polite">${ICON.info}<span class="st"></span></p>
+    body: `<ul class="facts" role="list"><li>${ICON.faceId}<p id="face1">Your face stays on your device. Holdt never sees it.</p></li><li>${ICON.devices}<p>Syncs to your other Apple devices with iCloud\u00a0Keychain.</p></li><li>${ICON.keypad}<p>Your approval code still works.</p></li></ul>`,
+    actions: `<form id="enrollf" novalidate><div class="field"><label class="lbl" for="code">Approval code</label><input class="code" id="code" inputmode="numeric" placeholder="8 digits" maxlength="12" autocomplete="one-time-code" enterkeyhint="go" aria-describedby="codehint"><span class="fielderr" id="err" role="alert" hidden>${ICON.alert}<span></span></span><span class="hint" id="codehint">${HINT}</span></div>
+<button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button></form><p class="status" id="msg">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
 <button type="button" class="btn plain quiet" id="later">Not now</button>${ownerNote(HELP, NEW_CODE_CMD)}
 ${hasOther ? `<p class="foot">Set up Face ID on another device already? You can skip the code.</p>` : ""}` }).replace('<div class="actions in d3">', '<div class="actions near in d3">');
   return page("Holdt: Turn on Face ID", `<div id="setup">${setup}</div>
 <div id="done" hidden>${screen({ title: "Face ID is on", titleId: "title-done", lede: "Next time, tap Allow with Face ID. Your other Apple devices with iCloud Keychain can use it too.", markState: "open", markId: "mkdone", centered: true, actions: `<p class="foot">You can close this page.</p>` })}</div>
-<div id="skip" hidden>${screen({ title: "Face ID stays off", titleId: "title-skip", lede: "Your approval code still works. Make a Face ID link on the computer where you set up Holdt anytime.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>` })}</div>
+<div id="skip" hidden>${screen({ title: "Face ID not turned on", titleId: "title-skip", lede: "Your approval code still works. You can turn on Face ID anytime.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, "On the computer where you set up Holdt, run this, then open the new link on this device:<code>npm run add-device</code>")}` })}</div>
 <div id="dead" hidden>${screen({ title: "This link expired", titleId: "title-dead", lede: "Links last 15 minutes. Make a new one on the computer where you set up Holdt.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, "On the computer where you set up Holdt, run this, then open the new link on this device:<code>npm run add-device</code>")}` })}</div>`, 200, undefined, "", ENROLL_SCRIPT);
 }
 

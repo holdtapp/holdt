@@ -39,15 +39,15 @@ h1{font-size:1.62rem;line-height:1.16;font-weight:700;letter-spacing:-.021em;mar
 .facts li{position:relative}.facts li+li::before{content:"";position:absolute;top:0;left:3.1rem;right:0;border-top:1px solid var(--line)}
 .ico{flex:none;width:1.25rem;height:1.25rem;margin-top:.08rem;color:var(--green-ink)}
 .facts p{margin:0;text-wrap:pretty}.facts .dest{padding-bottom:.85rem}.facts .dest .ico{color:var(--ink2)}.facts .dest p{font-weight:600}.facts .dest strong{font-weight:700}
-.facts .sub.keep{display:inline;color:var(--ink);font-size:1rem;margin:0}.facts .on .ico{color:var(--green-ink)}.facts .off .ico,.facts .no .ico{color:var(--ink2)}.facts .sub{display:block;text-wrap:wrap;color:var(--ink2);font-size:.9rem;margin-top:.1rem}
+.facts .lock p{text-wrap:pretty}.facts .lock .sub.keep{display:block}.facts .sub.keep{display:inline;color:var(--ink);font-size:1rem;margin:0}.facts .on .ico{color:var(--green-ink)}.facts .off .ico,.facts .no .ico{color:var(--ink2)}.facts .sub{display:block;text-wrap:wrap;color:var(--ink2);font-size:.9rem;margin-top:.1rem}
 .callout{display:flex;gap:.65rem;margin:1rem 0 0;padding:.7rem .9rem;border-radius:.9rem;background:var(--warn-bg);color:var(--warn-ink);font-size:.86rem;line-height:1.38}
 .callout .ico{color:var(--warn-ink)}.callout+.callout,.callout+.facts,.callout+.owner+.facts{margin-top:.6rem}.callout+.owner{margin-top:.1rem}
-.callout p{margin:0}.callout strong{font-weight:650}
+.callout p{margin:0;text-wrap:pretty}#pk[hidden]{display:none}.callout strong{font-weight:650}
 .actions{margin-top:auto;padding-top:1.6rem}
 /* The buttons follow the content with at most a short gap, and spare height goes below them, never into a void mid-page. */
-.gap{flex:1 1 0;min-height:1.2rem;max-height:1.4rem}.screen:not(.msg)::after{content:"";flex:1 1 0}.gap+.actions{margin-top:0;padding-top:0}.actions.near{margin-top:0}
+.gap{flex:0 0 1.4rem}.screen:not(.msg)::after{content:"";flex:1 1 0}.gap+.actions{margin-top:0;padding-top:0}.actions.near{margin-top:0}
 form{margin:0}
-.btn{display:flex;align-items:center;justify-content:center;gap:.55rem;width:100%;min-height:3.05rem;padding:.7rem 1rem;border:0;border-radius:.9rem;
+.btn{display:flex;align-items:center;justify-content:center;gap:.55rem;width:100%;min-height:max(44px,3.05rem);padding:.7rem 1rem;border:0;border-radius:.9rem;
  font:inherit;font-weight:600;letter-spacing:-.005em;cursor:pointer;-webkit-tap-highlight-color:transparent;touch-action:manipulation;transition:transform .12s cubic-bezier(.3,.7,.4,1),opacity .12s}
 .btn:active{transform:scale(.975)}
 .btn[disabled]{opacity:.55;cursor:default}.btn[aria-busy=true]{opacity:1}
@@ -60,14 +60,14 @@ form.code #pk,form.code #pkmsg:not(.keep){display:none}form.js:not(.code) #codep
 form.code #codepanel .field{margin-top:0}#codepanel.codebox{margin-top:0}form.code #codepanel{animation:rise .28s cubic-bezier(.2,.8,.3,1) both}
 .primary{background:var(--green);color:var(--on-green)}
 .secondary{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--field-line)}
-.plain{background:transparent;color:var(--green-ink);min-height:2.75rem;margin-top:.35rem}
+.plain{background:transparent;color:var(--green-ink);min-height:max(44px,2.75rem);margin-top:.35rem}
 .plain.quiet{color:var(--ink);font-weight:500}
 .btn .ico{color:currentColor;margin:0;width:1.35rem;height:1.35rem}
 .btn+.btn{margin-top:.6rem}.btn.plain{margin-top:.15rem}
 :focus-visible{outline:3px solid var(--green-ink);outline-offset:3px;border-radius:.6rem}
-.status{display:block;margin:.45rem 0 .1rem;font-size:.9rem;color:var(--ink2);text-align:center}#msg{margin-bottom:.5rem}.status .ico{display:inline-block;vertical-align:-.2em;width:1.05rem;height:1.05rem;margin:0 .35rem 0 0;color:var(--ink2)}.status:has(.st:empty){display:none}
+.status{display:block;margin:.45rem 0 .1rem;font-size:.9rem;color:var(--ink2);text-align:center}#msg{margin-bottom:.5rem}.status .ico{display:inline-block;vertical-align:-.2em;width:1.05rem;height:1.05rem;margin:0 .35rem 0 0;color:var(--ink2)}.status:has(.st:empty){display:none}.status .st{white-space:pre-line}
 details{margin-top:.35rem}
-summary{display:flex;align-items:center;justify-content:center;gap:.35rem;min-height:2.75rem;color:var(--green-ink);font-weight:600;cursor:pointer;list-style:none;border-radius:.6rem;-webkit-tap-highlight-color:transparent}
+summary{display:flex;align-items:center;justify-content:center;gap:.35rem;min-height:max(44px,2.75rem);color:var(--green-ink);font-weight:600;cursor:pointer;list-style:none;border-radius:.6rem;-webkit-tap-highlight-color:transparent}
 summary::-webkit-details-marker{display:none}
 summary .chev{width:.8rem;height:.8rem;transition:transform .2s cubic-bezier(.3,.7,.4,1)}
 details[open]>summary .chev{transform:rotate(180deg)}
@@ -76,7 +76,7 @@ details[open] .codebox{animation:rise .28s cubic-bezier(.2,.8,.3,1) both}
 .field{display:block;margin:0 0 .9rem}
 .field .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .field .hint{display:block;color:var(--ink2);font-size:.82rem;margin:.45rem 0 0;text-align:center;text-wrap:balance}
-input.code{display:block;width:100%;min-height:3.3rem;padding:.6rem 1rem;border-radius:.9rem;border:1.5px solid var(--field-line);background:var(--surface);color:var(--ink);
+input.code:focus::placeholder{color:transparent}input.code{display:block;width:100%;min-height:3.3rem;padding:.6rem 1rem;border-radius:.9rem;border:1.5px solid var(--field-line);background:var(--surface);color:var(--ink);
  font:600 1.45rem/1 -apple-system,"SF Pro Display",Inter,system-ui,sans-serif;letter-spacing:.1em;word-spacing:.2em;text-align:center;font-variant-numeric:tabular-nums}
 input.code:focus{border-color:var(--green-ink);outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 28%,transparent)}
 input.code::placeholder{color:var(--ink2);font-weight:400;font-size:1.05rem;letter-spacing:0;word-spacing:0;opacity:1}
@@ -89,15 +89,15 @@ input.code[aria-invalid=true]{border-color:var(--err)}input.code[aria-invalid=tr
 .foot{color:var(--ink2);font-size:.82rem;text-align:center;margin:1rem auto 0;max-width:20rem;text-wrap:pretty}
 .owner{margin-top:.5rem}.alt>.owner,form>.owner{margin-top:.5rem}.owner summary{color:var(--ink2);font-weight:500;font-size:.82rem}.owner .body{margin:.2rem 0 0;padding:.75rem;border-radius:.8rem;background:var(--secondary-bg);color:var(--ink2);font-size:.82rem;line-height:1.45}
 .owner ol{margin:0;padding-left:1.2rem}.owner li+li{margin-top:.3rem}
-.owner.dead .body{color:var(--ink)}.factdest{display:flex;gap:.6rem;align-items:center;justify-content:center;margin:1.1rem 0 0;font-size:.94rem}.factdest .ico{color:var(--ink2);margin:0}.factdest+.facts{margin-top:.7rem}
-.owner code{display:block;width:max-content;max-width:100%;overflow-x:auto;white-space:nowrap;margin:.35rem 0;padding:.4rem .55rem}
+.owner.dead .body{color:var(--ink)}.owner.dead+.btn{margin-top:1rem}.factdest{display:flex;gap:.6rem;align-items:center;justify-content:center;margin:1.1rem 0 0;font-size:.94rem}.factdest .ico{color:var(--ink2);margin:0}.factdest+.facts{margin-top:.7rem}
+.owner code{background:var(--surface);box-shadow:inset 0 0 0 1px var(--line);display:block;width:max-content;max-width:100%;overflow-x:auto;white-space:nowrap;margin:.35rem 0;padding:.4rem .55rem}
 code{font:.8rem ui-monospace,"SF Mono",Menlo,monospace;background:var(--secondary-bg);color:var(--ink);padding:.12rem .35rem;border-radius:.35rem;white-space:nowrap}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .in{animation:rise .42s cubic-bezier(.2,.8,.3,1) both}.in.d1{animation-delay:.05s}.in.d2{animation-delay:.1s}.in.d3{animation-delay:.15s}
 @keyframes rise{from{opacity:0;transform:translateY(.5rem)}to{opacity:1;transform:none}}
 .piece{transform-box:fill-box;transform-origin:50% 100%}
 .closed .piece{transform:translateY(14px)}.closed .whole{opacity:1}
-.drop~h1{animation:rise .3s .5s cubic-bezier(.2,.8,.3,1) both}
+#done .drop~h1{animation:rise .3s .5s cubic-bezier(.2,.8,.3,1) both}
 .drop .whole{animation:seal 0s .43s both}@keyframes seal{to{opacity:1}}
 .drop .piece{animation:drop .43s both}
 .drop .plate-g{animation:pulse .2s .39s cubic-bezier(.3,.7,.4,1) both;transform-box:fill-box;transform-origin:50% 50%}
@@ -150,10 +150,10 @@ export function screen(o: { title: string; titleId?: string; lede?: string; mark
 export const ownerNote = (summary: string, html: string, open = false, cls = "") => `<details class="owner${cls ? " " + cls : ""}"${open ? " open" : ""}><summary>${esc(summary)} ${ICON.chev}</summary><div class="body">${html}</div></details>`;
 
 /** End states (done, expired, error, not allowed). Mark: closed = a finished yes, muted = nothing happened.
- * One exit line: "You can close this page." unless the text already says where to go (noClose), then setup help, if any. `text` is plain (escaped here). */
-export function endScreen(title: string, text: string, o: { owner?: string; ownerSummary?: string; ownerOpen?: boolean; mark?: "open" | "closed" | "muted"; extra?: string; ref?: string; noClose?: boolean } = {}) {
+ * One exit line: "You can close this page." unless the text already says where to go (noClose), then setup help, if any. `text` is plain (escaped here) unless html is set, when the caller escapes. */
+export function endScreen(title: string, text: string, o: { owner?: string; ownerSummary?: string; ownerOpen?: boolean; mark?: "open" | "closed" | "muted"; extra?: string; ref?: string; noClose?: boolean; html?: boolean } = {}) {
   const foot = [o.noClose ? "" : "You can close this page.", o.extra ? esc(o.extra) : "", ""].filter(Boolean).join("<br>") + (o.ref ? `<span class="refline">Reference <span class="ref">${esc(o.ref)}</span></span>` : "");
-  return screen({ title, lede: esc(text), markState: o.mark ?? "muted", centered: true, actions: `${foot ? `<p class="foot">${foot}</p>` : ""}${o.owner ? ownerNote(o.ownerSummary ?? "Setup help", o.owner, o.ownerOpen) : ""}` });
+  return screen({ title, lede: o.html ? text : esc(text), markState: o.mark ?? "muted", centered: true, actions: `${foot ? `<p class="foot">${foot}</p>` : ""}${o.owner ? ownerNote(o.ownerSummary ?? "Setup help", o.owner, o.ownerOpen) : ""}` });
 }
 
 /** The shared document. Every Holdt page goes through here. */

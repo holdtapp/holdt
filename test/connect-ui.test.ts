@@ -67,10 +67,10 @@ test("new-device note: plain words, who and when, and the one thing to do", () =
   const now = Date.UTC(2026, 9, 18, 2, 0); // Oct 17, 8:00 PM MDT
   assert.equal(deviceNotice([], "America/Denver", now), undefined);
   const c = (id: string, ago: number, label?: string) => ({ id, jwk: {}, alg: -7 as const, signCount: 0, createdAt: now - ago, label });
-  assert.equal(deviceNotice([c("a", 60_000, "iPhone")], "America/Denver", now), "Face ID was turned on for an iPhone today at 7:59 PM. Not you? Tap Don't\u00a0allow.");
+  assert.equal(deviceNotice([c("a", 60_000, "iPhone")], "America/Denver", now), "Face ID was turned on for an iPhone today at 7:59\u00a0PM. Not you? Tap\u00a0Don't\u00a0allow.");
   assert.equal(deviceNotice([c("a", 60_000, "iPhone"), c("b", 86400_000, "MacIntel"), c("c", 3 * 86400_000)], "America/Denver", now),
-    "Face ID was turned on for an iPhone today at 7:59 PM, a Mac yesterday at 8:00 PM and a new device on Oct 14 at 8:00 PM. Not you? Tap Don't\u00a0allow.");
-  assert.match(deviceNotice([c("a", 60_000)], "Not/AZone", now)!, /a new device today at 1:59 AM/);
+    "Face ID was turned on for an iPhone today at 7:59\u00a0PM, a Mac yesterday at 8:00\u00a0PM and a new device on Oct 14 at 8:00\u00a0PM. Not you? Tap\u00a0Don't\u00a0allow.");
+  assert.match(deviceNotice([c("a", 60_000)], "Not/AZone", now)!, /a new device today at 1:59\u00a0AM/);
   assert.deepEqual(["iPhone", "iPad", "MacIntel", "Win32", "Linux armv8l", "Linux x86_64", "", undefined].map(deviceName), ["an iPhone", "an iPad", "a Mac", "a Windows PC", "an Android device", "a Linux computer", "a new device", "a new device"]);
 });
 
@@ -104,7 +104,7 @@ test("look: AA contrast in light and dark, 44 pt targets, safe areas, Dynamic Ty
       assert.ok(contrast((t as any)[fg], (t as any)[bg]) >= 4.5, `${mode} ${fg} on ${bg}: ${contrast((t as any)[fg], (t as any)[bg]).toFixed(2)}`);
     assert.ok(contrast(t.green, t.bg) >= 3, `${mode} mark plate vs page`);
   }
-  const rem = (sel: string) => Number(STYLE.match(new RegExp(`${sel}\\{[^}]*min-height:([\\d.]+)rem`))?.[1]);
+  const rem = (sel: string) => Number(STYLE.match(new RegExp(`${sel}\\{[^}]*min-height:(?:max\\(44px,)?([\\d.]+)rem`))?.[1]); // max(44px, …) also floors it at small text sizes
   for (const sel of ["\\.btn", "\\.plain", "summary", "input\\.code"]) assert.ok(rem(sel) * 16 >= 44, `${sel} is ${rem(sel)}rem`);
   assert.match(STYLE, /env\(safe-area-inset-bottom\)/); assert.match(STYLE, /font:-apple-system-body/);
   assert.match(STYLE, /prefers-reduced-motion:reduce\)\{[^}]*animation:none!important/);
