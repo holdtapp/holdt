@@ -1,6 +1,6 @@
 # Holdt security
 
-Report a problem privately to the repository owner through GitHub (Security > Report a vulnerability). Please don't open a public issue. Supported version: the latest commit on the default branch.
+Holdt is maintained by Terminus X Partners, LLC. Report a problem privately through GitHub (Security > Report a vulnerability on this repository). Please don't open a public issue. Supported version: the latest commit on the default branch.
 
 ## What Holdt promises, and what enforces it
 Ordered by how much you can trust each layer: invariants in code first, then CI checks, then prose.

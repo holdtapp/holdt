@@ -13,8 +13,8 @@ Holdt runs on your own free Cloudflare account. Your Apple password goes only to
 
 ## 1. Get Holdt
 
-<!-- LINK GOES LIVE ONLY WHEN THE REPO IS PUBLIC. Owner and org still to be decided (launch plan decision 4). Update this link if the repo moves. -->
-Download Holdt from its GitHub page at [github.com/dallintwatts/holdt](https://github.com/dallintwatts/holdt). Press Code, then Download ZIP, and unzip it. The folder is usually named holdt-main. Or, if you use git, clone it.
+<!-- LINK GOES LIVE ONLY WHEN THE REPO IS PUBLIC under the holdtapp GitHub organization (decision 4, Oct 18, 2026). -->
+Download Holdt from its GitHub page at [github.com/holdtapp/holdt](https://github.com/holdtapp/holdt). Press Code, then Download ZIP, and unzip it. The folder is usually named holdt-main. Or, if you use git, clone it.
 
 Then go into that folder. If it unzipped to your Downloads folder:
 
@@ -113,4 +113,4 @@ That's it. Try asking "What's on my calendar this week?"
 - **Reminders don't show up.** That's expected. Apple's current Reminders app can't be reached by calendar connectors, so Holdt covers your calendar only.
 
 ---
-Holdt is an independent product. It is not made by, affiliated with or endorsed by Apple Inc. iCloud and Apple are trademarks of Apple Inc.
+Holdt is made by Terminus X Partners, LLC and provided as is, without warranty (see LICENSE). It is an independent product. It is not made by, affiliated with, sponsored by or endorsed by Apple Inc. or xAI. iCloud, iPhone, Mac and Face ID are trademarks of Apple Inc., registered in the U.S. and other countries.
