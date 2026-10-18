@@ -58,7 +58,7 @@ test("approve on your iPhone: scan, Face ID, and the computer's consent finishes
   assert.match(c.html, /<svg class="qr"/); assert.match(c.link, /^http:\/\/localhost:8787\/ok#[\w-]{43}$/); assert.doesNotMatch(c.html, /name="code"/);
   assert.equal((await pj("/authorize/away", { handle: c.handle })).status, "pending");
   const v = await pj("/ok/view", { s: c.secret });
-  assert.match(v.html, /Connect Grok Bot to your iCloud Calendar\?/); assert.match(v.html, /Asked just now from <strong>a Mac<\/strong>/);
+  assert.match(v.html, /Connect Grok Bot to your iCloud Calendar\?/); assert.match(v.html, /From <strong>a\u00a0Mac<\/strong>, just now\./);
   assert.match(v.html, /Approve only a request you just started yourself\. Never one someone sent you\./);
   assert.match(v.html, /Never deletes your events\.<span class="sub keep"> It can only take back its own, on\u00a0your\u00a0yes\.<\/span>/);
   assert.equal((await approveOn(a, c.secret)).ok, true);
@@ -160,7 +160,7 @@ test("ATTACK N7: the approve page shows who is asking, where access goes, and wh
   const html = await (await providerFor(ORIGIN, fetch).fetch(req, env, ctx() as any)).text();
   const s = unesc(html.match(/data-link="([^"]+)"/)![1]!).split("#")[1]!;
   const v = await pj("/ok/view", { s });
-  assert.match(v.html, /Asked just now from <strong>a Windows PC near Lagos, LA<\/strong>/);
+  assert.match(v.html, /From <strong>a\u00a0Windows\u00a0PC\u00a0near\u00a0Lagos,\u00a0LA<\/strong>, just now\./);
   assert.match(v.html, /calls itself “Grok Bot,” but Holdt can’t verify that/, "a borrowed name is never vouched for");
   assert.match(v.html, /Access goes to <strong>127\.0\.0\.1(:4111)?<\/strong>/);
   assert.match(v.html, /This sends access to an app on the computer that asked\./, "never says 'this computer' on the iPhone");
@@ -184,7 +184,7 @@ test("pairing: a new device shows a QR code, the iPhone approves with Face ID, o
   assert.match(p.qr, /<svg class="qr"/);
   assert.equal((await pj("/pair/status", { claim: p.claim })).status, "pending");
   const v = await pj("/ok/view", { s: p.link.split("#")[1] });
-  assert.match(v.html, /Add a new device\?/); assert.match(v.html, /from <strong>an iPad<\/strong>/); assert.match(v.html, /holding right now/);
+  assert.match(v.html, /Add a new device\?/); assert.match(v.html, /From <strong>an\u00a0iPad<\/strong>, just now\. It wants to approve Holdt connections/); assert.match(v.html, /holding right now/);
   assert.equal((await approveOn(a, p.link.split("#")[1], { bump: 1 })).ok, true);
   const st = await pj("/pair/status", { claim: p.claim }); assert.equal(st.status, "approved"); assert.ok(st.publicKey);
   const b = await new VirtualAuthenticator(ORIGIN).init();

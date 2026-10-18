@@ -226,7 +226,9 @@ export async function enrollApi(req: Request, env: Env, now = Date.now()): Promi
 // ---------- browser scripts (served with a per-response nonce, no other script may run) ----------
 const CODEC = `const b=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));const u=a=>btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');`;
 // Touch ID on a Mac, Face ID elsewhere. The lift mark's piece drops home the moment a passkey answers (src/ui.ts).
-const TOUCH = `const touch=/Macintosh/.test(navigator.userAgent)&&!('ontouchend' in document),bio=touch?'Touch ID':'Face ID';`;
+const TOUCH = `const touch=/Macintosh/.test(navigator.userAgent)&&!('ontouchend' in document),bio=touch?'Touch ID':'Face ID';if(touch)document.documentElement.classList.add('touch');`;
+/** Pages with no other script: on a Mac, say Touch ID inside [data-bio] and show the fingerprint glyph. */
+export const BIO_SWAP = `(()=>{if(!(/Macintosh/.test(navigator.userAgent)&&!('ontouchend' in document)))return;document.documentElement.classList.add('touch');document.querySelectorAll('[data-bio]').forEach(e=>{const w=document.createTreeWalker(e,4);let n;while((n=w.nextNode()))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,'Touch$1ID');});document.title=document.title.replace('Face ID','Touch ID');})();`;
 export const LOGIN_SCRIPT = `${CODEC}${TOUCH}
 const btn=document.getElementById('pk'),f=btn.form,o=JSON.parse(btn.dataset.o),msg=document.getElementById('pkmsg').lastElementChild,mode=document.getElementById('mode'),live=document.getElementById('live'),wrap=document.getElementById('altwrap'),lab=document.getElementById('pklabel'),mk=document.getElementById('mk');
 if(touch)lab.textContent='Allow with Touch ID';
@@ -249,7 +251,7 @@ return post('/enroll/finish',Object.assign({challenge_token:r.challenge_token,cl
 const typo=m=>String(m).replace(/(\\w)'(\\w)/g,'$1’$2');`;
 /** The setup link. Tap Turn on Face ID, look at the phone, done. The token leaves the address bar at once. */
 export const ENROLL_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["setup", "done", "skip", "dead"])}${REGISTER}
-const t=location.hash.slice(1),fromSetup=/[?&]from=setup\b/.test(location.search);history.replaceState(null,'',location.pathname);
+const t=location.hash.slice(1),fromSetup=/[?&]from=setup\\b/.test(location.search);history.replaceState(null,'',location.pathname);
 const btn=$('go'),msg=$('msg').lastElementChild,live=$('live'),blab=btn.lastElementChild;
 if(touch){blab.textContent='Turn on Touch ID';$('title').textContent='Turn on Touch ID';$('face1').textContent='Your fingerprint stays on your Mac. Holdt never sees it.';$('skip').querySelector('h1').textContent='Touch ID not turned on';$('skip').querySelector('.lede').textContent='Holdt needs Touch ID to approve connections on this Mac. Turn it on whenever you’re ready.';}
 const say=m=>{msg.textContent=m;live.textContent=m;};
@@ -269,28 +271,28 @@ if(!r.ok){if(r.net||/most it allows/.test(r.message||''))throw new Error(r.messa
 const d=await register(r,{token:t},()=>{btn.setAttribute('aria-busy','true');blab.textContent='Turning on';live.textContent='Turning on '+bio+'. One moment.';});
 if(!d.ok){if(/already used|expired/.test(d.message||''))return dead(d.message);throw new Error(d.message);}
 const h=$('done').querySelector('h1');h.textContent=bio+' is on';
-const lede=$('done').querySelector('.lede');lede.textContent=fromSetup?'Holdt is ready. Your iPhone gets it through iCloud Keychain too.':touch?'Next time, click Allow with Touch ID. Your other Apple devices with iCloud Keychain can use it too.':lede.textContent;
-if(fromSetup){$('next').hidden=false;$('closeline').hidden=true;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent);$('copy').textContent='Copied';}catch(e){}});}
+const lede=$('done').querySelector('.lede');lede.textContent=fromSetup?(touch?'Holdt is ready. With iCloud Keychain on, your iPhone can use it too.':'Holdt is ready on this device. With iCloud Keychain on, your other Apple devices can use it too.'):touch?'Next time, click Allow with Touch ID. With iCloud Keychain on, your other Apple devices can use it too.':lede.textContent;if(touch)$('done').querySelector('h1').textContent='Touch ID is on';
+if(fromSetup){$('next').hidden=false;$('closeline').hidden=true;const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent);cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in Grok Bot.';setTimeout(()=>{cl.textContent='Copy';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy';$('copylive').textContent='Couldn’t copy. The text is selected, so copy it yourself.';}});}
 show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
 }catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';fetchOpts();
-if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again, or tap Not\u00a0now.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else say(typo((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;
+if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again when you’re\u00a0ready.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else say(typo((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;
 
 /** The consent page: Face ID here (the sheet can also offer a nearby phone), or scan the QR code and approve on the iPhone.
  * The page polls for the iPhone's answer and finishes by itself. Without script, the QR code shows with a Continue button. */
 export const CONSENT_SCRIPT = `${CODEC}${TOUCH}${POST}
-const $=id=>document.getElementById(id),btn=$('pk'),f=btn.form,o=JSON.parse(btn.dataset.o),msg=$('pkmsg').lastElementChild,mode=$('mode'),live=$('live'),wrap=$('altwrap'),lab=$('pklabel'),mk=$('mk'),panel=$('awaypanel'),am=$('awaymsg');
+const $=id=>document.getElementById(id),btn=$('pk'),f=btn.form,o=JSON.parse(btn.dataset.o),msg=$('pkmsg').lastElementChild,mode=$('mode'),live=$('live'),wrap=$('altwrap'),lab=$('pklabel'),mk=$('mk'),panel=$('awaypanel'),am=$('awaymsg'),other=panel.dataset.other||'your iPhone',Other=other;
 if(touch){lab.textContent='Allow with Touch ID';$('modeface').textContent='Use Touch ID on this Mac';}
 let timer=0,done=false,fails=0,busy=false;
 const say=m=>{msg.textContent=m;live.textContent=m;};
 const refresh=async()=>{const r=await post('/authorize/away/new',{handle:f.handle.value,ctx:f.ctx.value});if(r&&r.ok&&r.qr){const w=$('qrwrap');w.innerHTML=r.qr;w.dataset.link=r.link;}};
-const finish=(away)=>{done=true;clearInterval(timer);if(away){am.lastElementChild.textContent='Approved on your iPhone';am.classList.remove('wait');live.textContent='Approved on your iPhone. Finishing.';f.away.value='1';}
+const finish=(away)=>{done=true;clearInterval(timer);if(away){$('awayok').hidden=false;window.scrollTo(0,0);live.textContent='Approved on '+Other+'. Finishing up.';f.away.value='1';}
 mk.classList.add('drop');wrap.inert=true;f.classList.add('busy');setTimeout(()=>f.submit(),away?500:0);};
 const poll=async()=>{if(done||document.hidden)return;const r=await post('/authorize/away',{handle:f.handle.value});if(done||!r||!r.ok)return;
 if(r.status==='approved')finish(true);
-else if(r.status==='denied'){done=true;clearInterval(timer);const i=document.createElement('input');i.type='hidden';i.name='decision';i.value='deny';f.appendChild(i);live.textContent='Not allowed on your iPhone.';f.submit();}
+else if(r.status==='denied'){done=true;clearInterval(timer);const i=document.createElement('input');i.type='hidden';i.name='decision';i.value='deny';f.appendChild(i);live.textContent='Not allowed on '+Other+'.';f.submit();}
 else if(r.status==='gone')refresh();};
 const setMode=(on,speak)=>{f.classList.toggle('away',on);if(!on){msg.parentNode.classList.remove('keep');msg.textContent='';live.textContent='';}mode.setAttribute('aria-expanded',on?'true':'false');
-if(on&&!timer)timer=setInterval(poll,2000);if(speak){live.textContent=on?'QR code shown. Scan it with your iPhone’s camera.':bio+' shown';(on?panel:btn).focus();}};
+if(on&&!timer)timer=setInterval(poll,2000);if(speak){live.textContent=on?(other==='your iPhone'?'QR code shown. Scan it with your iPhone’s camera.':'QR code shown. Scan it with another device’s camera.'):bio+' shown';if(on){panel.focus({preventScroll:true});const d=f.querySelector('[value=deny]')||panel,fc=document.querySelector('.facts')||panel,y=e=>e.getBoundingClientRect().top+scrollY,need=d.getBoundingClientRect().bottom+scrollY+24-innerHeight;if(need>scrollY)scrollTo(0,y(fc)-12>=need?y(fc)-12:y(panel)-16);}else btn.focus();}};
 f.classList.add('js');btn.hidden=false;mode.hidden=false;mode.addEventListener('click',()=>setMode(!f.classList.contains('away'),true));
 if(f.classList.contains('away'))setMode(true);
 if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);}
@@ -299,11 +301,11 @@ const c=await navigator.credentials.get({publicKey:{challenge:b(o.challenge),rpI
 if(done)return;f.pk_id.value=c.id;f.pk_cdj.value=u(c.response.clientDataJSON);f.pk_ad.value=u(c.response.authenticatorData);f.pk_sig.value=u(c.response.signature);
 btn.setAttribute('aria-busy','true');lab.textContent='Approving';live.textContent='Approving. One moment.';finish(false);
 }catch(e){busy=false;btn.removeAttribute('aria-disabled');if(done)return;fails++;
-if(fails>1){setMode(true);msg.parentNode.classList.add('keep');say(bio+' didn’t finish.\\nScan the QR code with your iPhone instead.');}else say(bio+' didn’t finish.\\nTry again, or approve on your\u00a0iPhone.');}});`;
+if(fails>1){setMode(true);msg.parentNode.classList.add('keep');say(bio+' didn’t finish.\\nScan the QR code with '+(other==='your iPhone'?'your iPhone':'another device')+' instead.');}else say(bio+' didn’t finish.\\nTry again, or approve on '+other.replace(/ (\\S+)$/,'\u00a0$1')+'.');}});`;
 
 /** Consent page before any device has Face ID: wait, and carry on by itself once one does. */
 export const READY_SCRIPT = `${POST}
-const m=document.getElementById('readymsg');m.hidden=false;
+const m=document.getElementById('readymsg');if(m){m.hidden=false;setTimeout(()=>{document.getElementById('readylive').textContent=m.textContent.replace(/\\s+/g,' ').trim();},600);}
 const t=setInterval(async()=>{if(document.hidden)return;const r=await post('/authorize/ready',{});if(r&&r.ready){clearInterval(t);location.reload();}},3000);`;
 
 /** The approving iPhone. The secret leaves the address bar at once. Reading the request is a POST, so a link preview
@@ -316,7 +318,7 @@ else if(r.gone==='invalid'||r.net){d.querySelector('h1').textContent=r.net?'Hold
 show('dead');};
 (async()=>{if(!s)return gone({gone:'invalid'});let o=await post('/ok/view',{s});if(!o.ok)return gone(o);
 $('ask').innerHTML=o.html;show('ask');$('ask').querySelector('h1').removeAttribute('tabindex');
-if(o.kind==='pair'){$('ok').querySelector('h1').textContent='Device approved';$('ok').querySelector('.lede').textContent='Go back to the new device to finish.';$('no').querySelector('h1').textContent='Device not added';$('no').querySelector('.lede').textContent='Nothing changed.';}
+if(o.kind==='pair'){$('ok').querySelector('h1').textContent='Device approved';$('ok').querySelector('.lede').textContent='Go back to the new device to finish.';$('no').querySelector('h1').textContent='Device not added';$('no').querySelector('.lede').textContent='Nothing changed.';}else if(o.device&&o.device!=='device')$('ok').querySelector('.lede').textContent='Your '+o.device+' finishes on its own. There’s nothing more to do here.';
 const yes=$('yes'),lab=$('yeslabel'),msg=$('askmsg').lastElementChild,live=$('live'),idle=()=>{lab.textContent='Allow with '+bio;};idle();
 const say=m=>{msg.textContent=m;live.textContent=m;};
 if(!window.PublicKeyCredential){yes.disabled=true;say(bio+' isn’t available in this browser. Open the link in Safari.');}
@@ -350,4 +352,4 @@ const d=await register(opts,{pair:claim},()=>{blab.textContent='Turning on';live
 if(!d.ok){if(/expired|already used/.test(d.message||'')){show('dead');return;}throw new Error(d.message);}
 show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
 }catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();
-if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again, or tap Not\u00a0now.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else say(typo((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;
+if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again when you’re\u00a0ready.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else say(typo((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;

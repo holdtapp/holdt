@@ -15,8 +15,10 @@ About 10 minutes once Node.js and a free Cloudflare account are ready, plus abou
    - **Open Apple's password page**, make an app-specific password, and paste it.
    - **Test connection** shows "Found N calendars".
    - Choose read-only or "changes with my yes", then **Save**.
-4. Setup shows your connector address (`https://holdt.<you>.workers.dev/mcp`) and an 8-digit approval code. In Grok Bot, open **Connect Apps → Add custom MCP server**, paste the address, and enter the code on the approval page that opens. The code works once, for 15 minutes. Lost it? `npm run setup -- --new-code`.
-5. Optional, one-tap connect: set `PASSKEYS = "on"` in wrangler.toml and deploy, then run `npm run add-device` and open the link it prints on your iPhone. After that, connecting is **Allow with Face ID**, with nothing to type. The code stays as the fallback. See docs/SECURITY.md, "Passkey one-tap connect".
+4. Save opens a one-time Face ID link in the same browser. Click **Turn on Touch ID** (Face ID on an iPhone). That's the only step: iCloud Keychain carries the passkey to your iPhone. The last screen shows your connector address with a Copy button. In Grok Bot, open **Connect Apps → Add custom MCP server** and paste it.
+5. When Grok Bot connects, the approval page has one button: **Allow with Face ID**. Nothing to type. Not on a device with your passkey? Tap **Approve on your iPhone instead**, scan the code with your iPhone's camera and approve there. Click counts for every path, and the threat model, are in docs/no-typed-codes.md.
+
+Adding a device later: `npm run add-device` opens a fresh link in your browser (one click). For a phone, `npm run add-device -- --qr` prints a QR code. Lost every device? `npm run new-code` prints a one-time recovery code, and the approval page shows a code field for 15 minutes.
 
 Your password only goes to Apple and to your own Cloudflare secrets (via `wrangler secret put` on stdin). It is never written to disk, logged, or put on a command line. To disconnect, remove the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
 

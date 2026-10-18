@@ -110,7 +110,7 @@ test("enroll: a challenge is single use and bound to the enroll token, and a wro
   assert.equal((await enroll(a)).ok, true, "the link itself is still unused");
 });
 
-test("ATTACK N2: opening the setup link, previews and repeated options spend nothing. Only the one click's finish does", async () => {
+test("ATTACK N8: opening the setup link, previews and repeated options spend nothing. Only the one click's finish does", async () => {
   await freshEnv();
   const before = [...kv.m.keys()].sort().join();
   for (const path of ["/enroll", `/enroll?t=${ENROLL}`, "/enroll?from=setup"]) assert.equal((await call(path)).status, 200);
@@ -244,7 +244,7 @@ test("ATTACK P12: the setup link is the owner's proof: hash only, fragment only,
 });
 test("a new device shows on the next consent pages and in connection_status for 7 days", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
-  assert.match((await consent()).html, /Face ID was turned on for a new device today at \d+:\d\d[\s\u00a0][AP]M\. Not you\? Tap[\s\u00a0]Don’t[\s\u00a0]allow\./);
+  assert.match((await consent()).html, /Face ID was turned on for a new device today at \d+:\d\d[\s\u00a0][AP]M\.(?: |<br>)Not you\? Tap[\s\u00a0]Don’t[\s\u00a0]allow\./);
   const { mcpEndpoint } = await import("../src/worker.js");
   const st = async () => (await (await mcpEndpoint(new Request(ORIGIN + "/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "connection_status", arguments: {} } }) }), env, { epoch: env.GRANT_EPOCH }, fetch)).json() as any).result.structuredContent;
   const s1 = await st(); assert.equal(s1.passkeys.length, 1); assert.equal(s1.passkeys[0].added_with, "setup link"); assert.match(s1.device_notice, /New device added .*reset-passkeys/);

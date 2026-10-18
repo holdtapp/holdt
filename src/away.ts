@@ -135,7 +135,7 @@ export async function awayApi(req: Request, env: Env, now = Date.now()): Promise
     if (!creds.length) return json({ ok: false, gone: "nopk", message: "No device has Face ID for Holdt yet." }, 400);
     const c = await newChallenge(env, "away", `away:${id}`, now);
     const { askHtml } = await import("./authorize.js");
-    return json({ ok: true, kind: rec.kind, html: askHtml(rec.kind, rec.from, ago(now - rec.created), rec.app, rec.writes ?? ""), challenge_token: c.token, challenge: c.challenge, rpId: url.hostname, ids: creds.map((x) => x.id) });
+    return json({ ok: true, kind: rec.kind, device: String(rec.from ?? "").replace(/^an? /, "").split(" near ")[0].slice(0, 40), html: askHtml(rec.kind, rec.from, ago(now - rec.created), rec.app, rec.writes ?? ""), challenge_token: c.token, challenge: c.challenge, rpId: url.hostname, ids: creds.map((x) => x.id) });
   }
   if (p === "/ok/deny") {
     if (!(await once(env, `away-decide:${id}`, rec.created + AWAY_TTL_MS))) return json({ ok: false, gone: "decided", message: GONE.decided }, 400);

@@ -32,7 +32,7 @@ body{margin:0;background:var(--bg);color:var(--ink);line-height:1.38;-webkit-fon
 .brand{margin:0 0 1rem;color:var(--ink2);font-size:.78rem;font-weight:600;letter-spacing:.01em}
 .mark.muted .piece{opacity:.45}
 h1{font-size:1.62rem;line-height:1.16;font-weight:700;letter-spacing:-.021em;margin:0 0 .7rem;text-wrap:balance}
-.lede{color:var(--ink2);margin:0 auto;max-width:21rem;text-wrap:pretty}
+.lede{color:var(--ink2);margin:0 auto;max-width:21rem;text-wrap:balance}
 .lede strong{color:var(--ink);font-weight:600}
 .facts{list-style:none;margin:1.5rem 0 0;padding:.3rem 0;background:var(--surface);border-radius:1rem;box-shadow:0 0 0 1px var(--line)}
 .facts li{display:flex;gap:.85rem;align-items:flex-start;padding:.64rem 1rem}
@@ -56,7 +56,7 @@ form{margin:0}
 form.busy .alt{opacity:0;transition:opacity .2s}
 form.code #pk,form.code #pkmsg:not(.keep){display:none}form.js:not(.code) #codepanel{display:none}
 #mode .on,form.code #mode .off{display:none}form.code #mode .on{display:inline-flex}
-#mode{font-weight:500;font-size:.94rem}#mode span{display:inline-flex;align-items:center;gap:.4rem}#mode .ico{width:1.1rem;height:1.1rem;margin:0}
+#mode{font-weight:500;font-size:.94rem;color:var(--ink)}#mode .ico{color:var(--green-ink)}#pkmsg{margin-bottom:.35rem}html.touch .ico.bio-face{display:none}html:not(.touch) .ico.bio-touch{display:none}#mode span{display:inline-flex;align-items:center;gap:.4rem}#mode .ico{width:1.1rem;height:1.1rem;margin:0}
 form.code #codepanel .field{margin-top:0}#codepanel.codebox{margin-top:0}form.code #codepanel{animation:rise .28s cubic-bezier(.2,.8,.3,1) both}
 .primary{background:var(--green);color:var(--on-green)}
 .secondary{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--field-line)}
@@ -64,8 +64,8 @@ form.code #codepanel .field{margin-top:0}#codepanel.codebox{margin-top:0}form.co
 .plain.quiet{color:var(--ink);font-weight:500}.btn.plain.quiet{margin-top:.9rem}
 .btn .ico{color:currentColor;margin:0;width:1.35rem;height:1.35rem}
 .btn+.btn{margin-top:.6rem}.btn.plain{margin-top:.15rem}
-:focus-visible{outline:3px solid var(--green-ink);outline-offset:3px;border-radius:.6rem}
-.status{display:flex;justify-content:center;align-items:flex-start;gap:.35rem;margin:.45rem 0 .1rem;font-size:.9rem;color:var(--ink2);text-align:left}#msg{margin-bottom:.5rem}.status .ico{flex:none;width:1.05rem;height:1.05rem;margin:.1em 0 0;color:var(--ink2)}.status:has(.st:empty){display:none}.status .st{white-space:pre-line;max-width:19rem}.status[hidden]{display:none}#codeok{margin:.2rem 0 .7rem}#codeok .st,#msg .st{width:18rem;max-width:calc(100% - 1.4rem)}#codeok .ico{color:var(--green-ink)}
+:focus-visible{outline:3px solid var(--green-ink);outline-offset:3px;border-radius:.6rem}h1[tabindex="-1"]:focus{outline:none}.status.ok .ico{color:var(--green-ink)}form.busy #awayok{opacity:1}
+.status{display:flex;justify-content:center;align-items:flex-start;gap:.35rem;margin:.45rem 0 .1rem;font-size:.9rem;color:var(--ink2);text-align:left}#msg{margin-bottom:.5rem}.status .ico{flex:none;width:1.05rem;height:1.05rem;margin:.1em 0 0;color:var(--ink2)}.status:has(.st:empty){display:none}.status .st{white-space:pre-line;max-width:19rem}.status[hidden]{display:none}#codeok{margin:.2rem 0 .7rem}#codeok .ico{color:var(--green-ink)}
 details{margin-top:.35rem}
 summary{display:flex;align-items:center;justify-content:center;gap:.35rem;min-height:max(44px,2.75rem);color:var(--green-ink);font-weight:600;cursor:pointer;list-style:none;border-radius:.6rem;-webkit-tap-highlight-color:transparent}
 summary::-webkit-details-marker{display:none}
@@ -108,15 +108,15 @@ code{font:.8rem ui-monospace,"SF Mono",Menlo,monospace;background:var(--secondar
  100%{transform:translateY(14px) scale(1,1)}}
 @keyframes pulse{0%,100%{transform:scale(1)}45%{transform:scale(1.02)}}
 /* Approve on your iPhone: a QR code card, the fallback when Face ID isn't on this device. Black on white in both modes so cameras read it. */
-.awaybox{margin:0 0 .2rem;padding:1rem 1rem .8rem;background:var(--surface);border-radius:1rem;box-shadow:0 0 0 1px var(--line);text-align:center}
+.awaybox{margin:0 0 .2rem;padding:.85rem .9rem .75rem;background:var(--surface);border-radius:1rem;box-shadow:0 0 0 1px var(--line);text-align:center}
 .awaybox:focus{outline:none}.awaybox:focus-visible{outline:3px solid var(--green-ink);outline-offset:3px}
-#qrwrap{display:flex;justify-content:center}.qr{display:block;width:min(10.5rem,56vw);height:auto;border-radius:.45rem}.qrwait{width:min(10.5rem,56vw);aspect-ratio:1;margin:0 auto;border-radius:.45rem;background:var(--secondary-bg)}
-.steps{text-align:left;margin:.85rem auto 0;padding-left:1.3rem;max-width:19rem;font-size:.94rem}.steps li+li{margin-top:.25rem}
+#qrwrap{display:flex;justify-content:center}.qr{display:block;width:min(9.5rem,50vw);height:auto;border-radius:.45rem}.qrwait{width:min(9.5rem,50vw);aspect-ratio:1;margin:0 auto;border-radius:.45rem;background:var(--secondary-bg)}
+.steps{text-align:left;margin:.8rem auto 0;padding-left:1.3rem;width:fit-content;max-width:100%;font-size:.94rem}.steps li+li{margin-top:.25rem}
 .awaybox .status{margin:.6rem 0 0}.status.wait .ico{animation:spin .9s linear infinite}.status.wait .ico.spin{display:block}
-.awaybox.setup{text-align:left}.awaybox.setup p{margin:0}.awayh{display:flex;gap:.55rem;align-items:center;font-weight:600;margin-bottom:.35rem!important}.awayh .ico{margin:0}.awaybox.setup .status{justify-content:flex-start}
+.awaybox.setup{text-align:left}.awaybox.setup p{margin:0}.awayh{display:flex;gap:.55rem;align-items:center;font-weight:600;margin-bottom:.35rem!important}.awayh .ico{margin:0}.awaybox.lone{margin-top:1.5rem}.in:has(>.awaybox.lone)+.gap{flex-basis:0}.awaybox:not(.setup) .awayh{justify-content:center;margin-bottom:.7rem!important}.awaybox.setup p:not(.awayh){color:var(--ink2);font-size:.94rem}.awaybox.setup .status{justify-content:flex-start;margin:.55rem 0 0}#awayok{color:var(--ink)}#qrwrap .qr{box-shadow:0 0 0 1px var(--line)}
 form.js:not(.away) #awaypanel{display:none}form.away #pk,form.away #pkmsg:not(.keep){display:none}form.js #awaygo{display:none}#awaygo{margin-top:.8rem}
 form.away #mode .off{display:none}form.away #mode .on{display:inline-flex}form.away #awaypanel{animation:rise .28s cubic-bezier(.2,.8,.3,1) both}
-.next{margin:0 0 .6rem}.next p{margin:0;color:var(--ink2)}.next .say{margin:.4rem 0 .7rem;padding:.6rem .8rem;border-radius:.8rem;background:var(--surface);box-shadow:0 0 0 1px var(--line);color:var(--ink);font-weight:600;overflow-wrap:anywhere}
+.next{margin:0 0 .6rem;text-align:center}.next p{margin:0;color:var(--ink2)}.next .say{margin:.5rem 0 .3rem;padding:.7rem .9rem;border-radius:.8rem;background:var(--secondary-bg);color:var(--ink);overflow-wrap:anywhere}.next .say span{display:block}.next .say .url{font-weight:600}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.drop .piece{transform:translateY(14px)}.drop .whole{opacity:1}}
 @media (prefers-contrast:more){:root{--ink2:var(--ink);--line:var(--ink2)}}`;
 
@@ -131,12 +131,15 @@ export const ICON = {
   pencil: I(`<path d="M14.5 5.5l4 4M4 20l1-4.5L15.8 4.7a1.8 1.8 0 012.5 0l1 1a1.8 1.8 0 010 2.5L8.5 19z"/>`),
   lock: I(`<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/>`),
   trashOff: I(`<path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.9 12.2a1.5 1.5 0 001.5 1.3h6.2a1.5 1.5 0 001.5-1.3L17.5 7M3 3l18 18"/>`),
+  copy: I(`<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.5"/><path d="M15.5 8.5V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7.5a2 2 0 002 2h2.5"/>`),
   info: I(`<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/>`),
   checkCircle: I(`<circle cx="12" cy="12" r="8.6"/><path d="M8.2 12.3l2.6 2.6 5-5.4"/>`),
   guard: I(`<path d="M12 3.5l7 2.6v5.3c0 4.4-3 7.9-7 9.1-4-1.2-7-4.7-7-9.1V6.1z"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4"/>`),
   undo: I(`<path d="M9 14L4.5 9.5 9 5"/><path d="M4.5 9.5H14a5.5 5.5 0 010 11h-3"/>`),
   mailOff: I(`<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M4 7l8 6 8-6M3 3l18 18"/>`),
-  faceId: I(`<path d="M4 8.5V6.5A2.5 2.5 0 016.5 4h2M15.5 4h2A2.5 2.5 0 0120 6.5v2M20 15.5v2a2.5 2.5 0 01-2.5 2.5h-2M8.5 20h-2A2.5 2.5 0 014 17.5v-2M9 9.5v1.2M15 9.5v1.2M12 9.5v3.6h-1M9.5 16a4 4 0 005 0"/>`),
+  // Face ID and Touch ID glyphs travel together. A Mac (html.touch, set by the page script) shows the fingerprint.
+  faceId: I(`<path d="M4 8.5V6.5A2.5 2.5 0 016.5 4h2M15.5 4h2A2.5 2.5 0 0120 6.5v2M20 15.5v2a2.5 2.5 0 01-2.5 2.5h-2M8.5 20h-2A2.5 2.5 0 014 17.5v-2M9 9.5v1.2M15 9.5v1.2M12 9.5v3.6h-1M9.5 16a4 4 0 005 0"/>`).replace('class="ico"', 'class="ico bio-face"')
+    + I(`<path d="M12 11v3.5c0 2-.6 3.8-1.6 5.3M8.6 12.3V11a3.4 3.4 0 016.8 0v2.2c0 2.4-.5 4.6-1.4 6.6M5.6 15.5c.2-1.3.3-2.8.3-4.5a6.1 6.1 0 0110.2-4.5M18.1 9.4c.1.5.1 1 .1 1.6 0 2.6-.3 5-1 7.2M4.8 7.6A8.7 8.7 0 0112 3.2c1.6 0 3.1.4 4.4 1.2"/>`).replace('class="ico"', 'class="ico bio-touch"'),
   device: I(`<rect x="7" y="2.8" width="10" height="18.4" rx="2.6"/><path d="M11 18h2"/>`),
   alert: I(`<circle cx="12" cy="12" r="8.6"/><path d="M12 7.6v5.2M12 16.3v.1"/>`),
   globe: I(`<circle cx="12" cy="12" r="8.6"/><path d="M3.6 12h16.8M12 3.4c2.4 2.4 3.6 5.3 3.6 8.6s-1.2 6.2-3.6 8.6c-2.4-2.4-3.6-5.3-3.6-8.6S9.6 5.8 12 3.4z"/>`),

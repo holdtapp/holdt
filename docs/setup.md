@@ -82,24 +82,26 @@ Terminal prints a link. Open it in your browser. It only works on this computer.
 5. Choose **read-only** or **changes with my yes**. Read-only is the safe start. You can change it later.
 6. Press **Save**.
 
-The last screen shows your connector address (ending in `/mcp`) and an 8-digit approval code. The code works once, for 15 minutes.
+Save opens a page called **Turn on Touch ID** (Face ID on an iPhone). Click the button and touch the sensor. That's the only step. Your iPhone gets it through iCloud Keychain. The next screen shows your connector address (ending in `/mcp`) with a Copy button.
 
 ## 4. Add Holdt to Grok Bot
 
 1. In Grok Bot, open **Connect Apps**, then **Add custom MCP server**.
 2. Paste your connector address, the one ending in `/mcp`.
 3. An approval page opens. Check that it says "Connect Grok Bot to your iCloud Calendar?"
-4. Type the 8-digit code and press **Allow**.
+4. Click **Allow with Touch ID** (or Face ID). Nothing to type.
+
+Not on a device with your passkey? Tap **Approve on your iPhone instead**, point your iPhone's camera at the code, tap the link and approve with Face ID. The computer finishes by itself.
 
 That's it. Try asking "What's on my calendar this week?"
 
 ## Good to know
 
 - **Every change waits for your yes.** With changes on, Holdt shows a preview first and only makes the change after you agree. It never deletes your events and never sends invitations. It can take back its own changes, on your yes.
-- **Code ran out?** Run `npm run new-code` in the Holdt folder for a fresh one.
+- **Lost every device with Face ID?** Run `npm run new-code` in the Holdt folder. It prints a one-time recovery code, and for 15 minutes the approval page shows a field for it. Type it yourself, never paste it into a chat.
 - **Turn changes on later.** In the Cloudflare dashboard, open Workers & Pages, then holdt, then Settings, then Variables and Secrets. Set WRITES_ENABLED to true and save.
-- **Approve with Face ID instead of a code (optional).** Once Face ID sign-in is on for your Holdt, run `npm run add-device` and open the link it shows on your iPhone. From then on, the approval page has an Allow with Face ID button.
-- **Reset Face ID.** If the approval page says Face ID was turned on for a device you don't recognize, tap Don't allow. Then run `npm run reset-passkeys` in the Holdt folder. Every Face ID device stops working at once, approval codes keep working, and you can add your own devices again.
+- **Add a device.** Apple devices on the same Apple Account get Face ID for Holdt through iCloud Keychain. For another device, run `npm run add-device` (it opens the link in this computer's browser) or `npm run add-device -- --qr` and scan the code with that phone. Or open **Setup help** on the approval page, tap **add it**, and approve from your iPhone.
+- **Reset Face ID.** If the approval page says Face ID was turned on for a device you don't recognize, tap Don't allow. Then run `npm run reset-passkeys` in the Holdt folder. Every Face ID device stops working at once. Then run `npm run add-device` to add your own again.
 - **Cut off every connection.** Run `npm run revoke-all`.
 - **Disconnect from Apple completely.** At account.apple.com, open Sign-In and Security, then App-Specific Passwords, and remove the Holdt password.
 
