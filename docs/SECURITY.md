@@ -1,6 +1,19 @@
 # Holdt security
 
-Holdt is maintained by Terminus X Partners, LLC. Report a problem privately through GitHub (Security > Report a vulnerability on this repository). Please don't open a public issue. Supported version: the latest commit on the default branch.
+Holdt is maintained by Terminus X Partners, LLC. Supported version: the latest commit on the default branch.
+
+<!-- Reporting policy: draft, not legal advice, pending attorney review. Bracketed values are pending from the owner. -->
+## Reporting a vulnerability
+Please report privately through GitHub: open this repository's Security tab and choose Report a vulnerability. If that isn't available, email [SECURITY CONTACT EMAIL]. Please don't open a public issue.
+
+We aim to acknowledge a report within [3] business days and to share a plan within [10] business days. We'll credit you in the advisory unless you'd rather we didn't.
+
+**In scope:** the code in this repository, the Holdt demo server used for marketplace review, and holdt.app.
+**Out of scope:** anyone else's deployment of Holdt, and Apple, Cloudflare and Grok Bot services. Report those to their owners.
+
+**Safe harbor.** If you act in good faith, avoid privacy violations and service disruption, use only your own accounts or the demo server, and give us reasonable time to fix before you publish, Terminus X Partners, LLC will not pursue legal action against you for your research.
+
+**Fixes.** Holdt is self-hosted, so we can't update your copy for you. Every security fix ships as a GitHub security advisory and a pinned notice at the top of the README saying what to update.
 
 ## What Holdt promises, and what enforces it
 Ordered by how much you can trust each layer: invariants in code first, then CI checks, then prose.
@@ -15,7 +28,7 @@ Ordered by how much you can trust each layer: invariants in code first, then CI 
 
 `npm run prove` switches each protection off in a scratch copy and shows its attack getting through, then back on. The table is in docs/attack-proof.md.
 
-## Red-team items (REDTEAM-REPORT.md) and their status
+## Red-team items (internal review, round 1) and their status
 | Item | Status |
 |---|---|
 | R1 to R16, N1 | Fixed (red-team patch, rebased), each with a test and a prove row. |
@@ -34,11 +47,11 @@ Ordered by how much you can trust each layer: invariants in code first, then CI 
 ## Client ID Metadata Documents: off by default
 `clientIdMetadataDocumentEnabled` follows `CIMD = "on"` and is off otherwise (attack row M1). Reason: the live Grok Bot connection was made with Dynamic Client Registration (its client record is a DCR registration, Oct 17, 2026), so nothing needs CIMD today. With it on, anyone who opens /authorize makes the Worker fetch a URL they choose before any approval, which is SSRF surface (limited to public hosts by `global_fetch_strictly_public`) and a free way to make the consent page show a publisher name. Turn it on if Grok Bot or another client you use moves to CIMD.
 
-## Red-team round 2 (REDTEAM2-REPORT.md) and their status
+## Red-team items (internal review, round 2) and their status
 | Item | Status |
 |---|---|
 | S1 to S6, S8 | Fixed (fixes2.patch), each with a test and a prove row. S8 removed the http://localhost callback from the production allowlist. The live grant uses the https callback, so it is unaffected. |
-| S7 shared hosted callback | `CLIENT_ALLOWLIST` exists but stays **off**. On Oct 17, 2026, production KV held 5 client registrations. 4 were named "Cursor", carried identical metadata and were made within 6 minutes (Oct 16, 11:23 to 11:29 PM MDT). The live grant belongs to the last one. So Grok Bot registers a new client_id on every connect, and pinning one would lock the owner out on the next reconnect. The real defense is the human gate: approve only a connect you just started. |
+| S7 shared hosted callback | `CLIENT_ALLOWLIST` exists but stays **off**. On Oct 17, 2026, production KV held 5 client registrations. 4 carried the client name Grok Bot registers with, identical metadata, and were made within 6 minutes (Oct 16, 11:23 to 11:29 PM MDT). The live grant belongs to the last one. So Grok Bot registers a new client_id on every connect, and pinning one would lock the owner out on the next reconnect. The real defense is the human gate: approve only a connect you just started. |
 | (a) enroll root of trust | Fixed: single-use fragment link from the owner's Worker secrets, or approval from an enrolled passkey, logged, visible notice. Rows P12, N5, N8. |
 | (b) passkey store races, cap | Fixed: per-credential records in the Durable Object. Rows P9 to P11. |
 | (c) PBKDF2 on dead codes | Fixed: Durable Object state checked first. Row K1. |
@@ -53,6 +66,15 @@ The check refuses browser calls from other sites. Grok Bot calls from its server
 2. Run `npm run tail` and use the connector from every surface you use (web, desktop, phone) for a few calls each.
 3. If no `foreign` lines appear, set `ORIGIN_CHECK = "enforce"` and deploy. If a Grok Bot origin does appear, add it to `ALLOWED_ORIGINS` first.
 4. Rollback is one line: set it back to `"report"` and deploy.
+
+## No-Terminal setup (sealed, `/setup`)
+The path in docs/agent-setup.md. The owner's Grok Bot runs `npm run agent-setup` on the owner's computer, and the owner types the Apple app-specific password into their own Worker's page. Prove rows SW1 to SW8, tests in test/setup-web.test.ts and test/agent-setup.test.ts.
+- **Owner proof.** Only someone who can write Worker secrets (the owner, signed in to Cloudflare) can mint a setup link. `agent-setup` makes 32 random bytes, stores only the SHA-256 as `SETUP_TOKEN_HASH` (stdin), and opens `/setup#<token>` in the local browser. The token is never printed. With no browser it goes to `~/.holdt/setup-link-<name>.txt` (mode 600). A first visitor can't take over a fresh Worker: with no valid link, `/setup` only says the link has ended.
+- **One use, 30 minutes.** The page removes the fragment and spends the token at once in the Durable Object (`setup:<hash>`). A newer link ends older sessions. That gives this tab a `__Host-` session cookie (HttpOnly, Secure, SameSite=Strict, HMAC from a key derived from SEAL_KEY) that also lasts 30 minutes. The claim takes same-origin JSON only (SW2, SW3, SW4, SW7).
+- **Save.** Same-origin JSON only (Origin and Content-Type checked, SW1), session cookie required, live CalDAV check with Apple, 8 tries per session, one successful save per session (SW1, SW8). Setup POSTs share the per-IP approval rate limit (SW6).
+- **Sealing.** The record (Apple Account email, app-specific password, time zone, mode, a fresh confirm key, a fresh grant epoch, the passkey link hash) is sealed with AES-256-GCM under a data key wrapped by `SEAL_KEY` (src/vault.ts) and stored in the Durable Object, KV as the fallback. SEAL_KEY is a Worker secret made once and never replaced by `agent-setup`. No endpoint returns the password, and it's registered for log redaction (SW5).
+- **Re-setup.** A new link plus a save replaces the record and its grant epoch, which ends every existing connection. A `GRANT_EPOCH` secret still applies on top, so `--revoke-all` keeps working.
+- **What the owner still types.** The app-specific password. Apple makes it only on Apple's own page and offers no other way for a third-party calendar app.
 
 ## Passkey one-tap connect (PASSKEYS = "on")
 On in wrangler.toml (`PASSKEYS = "on"`). No screen in the normal flow asks anyone to copy, paste or type a code. Full threat model, prove rows and click counts: docs/no-typed-codes.md.

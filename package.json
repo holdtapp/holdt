@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p .",
     "prove": "node scripts/prove-attacks.mjs",
     "setup": "tsx setup/server.ts",
+    "agent-setup": "tsx setup/agent.ts",
     "new-code": "tsx setup/server.ts --new-code",
     "add-device": "tsx setup/server.ts --add-device",
     "reset-passkeys": "tsx setup/server.ts --reset-passkeys",

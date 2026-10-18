@@ -6,21 +6,26 @@ Holdt is a small MCP server that runs on **your own Cloudflare account** and let
 
 > Status: v1.0, self-hosted. You run it on your own Cloudflare account. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Adding, changing and undoing events were verified live on an iCloud test account on Oct 17, 2026. All 18 checks passed, including a repeated commit being refused, an undo being refused after a later edit, and every other event staying untouched. 249 automated tests. `npm run prove` refuses 102 attacks and proves 103 protections by switching each one off (docs/attack-proof.md).
 
-## Setup (about 10 minutes, ESTIMATE)
-About 10 minutes once Node.js and a free Cloudflare account are ready, plus about 5 if you still need them. You type these commands in Terminal on a Mac (or Command Prompt or PowerShell on Windows). A step-by-step version in plain English is in docs/setup.md.
+## Setup (no Terminal)
+Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your own free Cloudflare account from your computer (it needs the Grok Bot desktop app). You do three things:
+
+1. Click **Allow** on Cloudflare's page.
+2. On the Holdt setup page that opens, make an app-specific password on Apple's page, enter it with your Apple Account email, choose read-only or changes with your yes, and press **Continue**. Holdt checks it with Apple and seals it in your Cloudflare account.
+3. Save one passkey (Face ID on an iPhone, Touch ID or password on a Mac). Then add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
+
+When Grok Bot connects, the approval page has one button: **Allow with Face ID**. Not on a device with your passkey? Tap **Approve on your iPhone instead** and scan the code. Click counts for every path, and the threat model, are in docs/no-typed-codes.md.
+
+### For developers: Terminal setup
+About 10 minutes once Node.js and a free Cloudflare account are ready (ESTIMATE). A step-by-step version is in docs/setup.md.
 
 1. `npm install`
-2. `npm run cf:login`, then `npm run deploy` (both use the wrangler version pinned in package.json). Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
-3. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens on your computer:
-   - **Open Apple's password page**, make an app-specific password, and paste it.
-   - **Test connection** shows "Found N calendars".
-   - Choose read-only or "changes with my yes", then **Save**.
-4. Save opens a one-time Face ID link in the same browser. Click **Save passkey** (Turn on Face ID on an iPhone), then use Touch ID or your Mac password. That's the only step: iCloud Keychain carries the passkey to your iPhone. The last screen shows your connector address with a Copy button. In Grok Bot, open **Connect Apps → Add custom MCP server** and paste it.
-5. When Grok Bot connects, the approval page has one button: **Allow with Face ID**. Nothing to type. Not on a device with your passkey? Tap **Approve on your iPhone instead**, scan the code with your iPhone's camera and approve there. Click counts for every path, and the threat model, are in docs/no-typed-codes.md.
+2. `npm run cf:login`, then `npm run deploy`. Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
+3. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens on your computer. Make an app-specific password on Apple's page, enter it, **Test connection**, choose the mode, then **Save**.
+4. Save opens a one-time passkey link in the same browser. Click **Save passkey** (Turn on Face ID on an iPhone). iCloud Keychain carries the passkey to your iPhone. The last screen shows your connector address with a Copy button.
 
 Adding a device later: `npm run add-device` opens a fresh link in your browser (one click). For a phone, `npm run add-device -- --qr` prints a QR code. Lost every device? `npm run new-code` prints a one-time recovery code, and the approval page shows a code field for 15 minutes.
 
-Your password only goes to Apple and to your own Cloudflare secrets (via `wrangler secret put` on stdin). It is never written to disk, logged, or put on a command line. To disconnect, remove the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
+Your password only goes to Apple and to your own Cloudflare account. On the no-Terminal path it is sealed (AES-256-GCM, key in your Cloudflare secrets) in Holdt's storage. On the Terminal path it goes to `wrangler secret put` on stdin. It is never written to disk on your computer, logged, or put on a command line. To disconnect, remove the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
 
 ## Tools
 | Tool | Kind |
@@ -56,7 +61,7 @@ Anything we built would read the wrong list, so v1 leaves Reminders out. You can
 Times without an offset are in your time zone (set by setup). Plain English works too: "tomorrow at 3pm", "next friday", "end of month", "the last friday of november", "in 2 weeks". "Next friday" means the Friday of next week. A clock time that falls in the spring-forward gap moves to the first valid time. Every preview spells out the date, so check it before saying yes. A date alone means that whole day in your zone, so "from 2026-10-17 to 2026-10-17" is all of Saturday Oct 17. All-day events stay on their date wherever you are. Repeating events are expanded per date, including "2nd Tuesday", "last Friday", "1st and 15th" and yearly rules like Thanksgiving. Rare rules (BYSETPOS, week numbers) show the first date with a note.
 
 ## Develop
-`npm test` (249 tests) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
+`npm test` (265 tests) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
 
 ## License, warranty and who makes Holdt
 Holdt is made by Terminus X Partners, LLC and released under the MIT License (see LICENSE). It is provided as is, without warranty of any kind. You run it on your own accounts, and you are responsible for your Cloudflare deployment and your Apple Account, including the app-specific password you create for it. Read every preview before you say yes. Security reports: docs/SECURITY.md.

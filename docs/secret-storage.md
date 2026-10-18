@@ -20,7 +20,10 @@
   - The setup test checks that no API response or stderr contains the password.
   - The probe test checks the same for its output.
 
-## Hosted mode (designed, `src/vault.ts` implemented and tested, not wired up)
+## Self-host, no-Terminal setup (built, `src/setup-web.ts`)
+When the owner sets up through `/setup` (docs/agent-setup.md), the Apple Account email and app-specific password never become Worker secrets. They are sealed with `src/vault.ts` (AES-256-GCM data key, wrapped with AES-KW by the `SEAL_KEY` Worker secret) and stored under `sealed:setup` in the Durable Object, KV as the fallback. `withSealed()` opens the record per request and overlays it on the environment. Only the Worker, holding SEAL_KEY, can open it. Cloudflare dashboard readers of KV or Durable Object storage see ciphertext. Details and prove rows: docs/SECURITY.md, "No-Terminal setup".
+
+## Hosted mode (designed, `src/vault.ts` implemented and tested, wired up for no-Terminal setup only)
 - **Envelope encryption:** a fresh AES-256-GCM data key per user encrypts the password, and the data key is wrapped (AES-KW) by a key-encryption key held only in the platform secret store or KMS.
 - **Bound to the user:** associated data `icloud-mcp:v1:<userId>` binds each ciphertext to its user, so copying a row to another user fails (tested).
 - **Key rotation:** a `kekId` is stored for rotation. Rotation means unwrapping with the old key and rewrapping with the new one. Calendar data is never stored.

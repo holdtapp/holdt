@@ -66,6 +66,9 @@ export class Guard extends DurableObject {
       return true;
     });
   }
+  // ---- no-terminal setup (src/setup-web.ts): the sealed record and setup sessions. Values are ciphertext or opaque ids ----
+  sealedGet(key: string): Promise<unknown> { return this.serial(async () => this.ctx.storage.get(`sealed:${String(key).slice(0, 120)}`)); }
+  sealedPut(key: string, value: unknown): Promise<void> { return this.serial(async () => { await this.ctx.storage.put(`sealed:${String(key).slice(0, 120)}`, value); }); }
   private async sweep(now: number) {
     const all = (await this.ctx.storage.list({ prefix: "spent:" })) as Map<string, number>;
     const dead = [...all].filter(([, e]) => e <= now).map(([k]) => k);

@@ -1,0 +1,55 @@
+// `npm run agent-setup` (setup/agent.ts): the install your Grok Bot runs on your computer. Secrets never printed.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, writeFileSync, readFileSync, statSync, existsSync, copyFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { agentSetup, linkFile, type Run } from "../setup/agent.js";
+
+function fake(o: { authed?: boolean; kvIds?: string[]; secrets?: string[] } = {}) {
+  const calls: { args: string[]; input?: string }[] = [];
+  const run: Run = async (args, opt = {}) => {
+    calls.push({ args, input: opt.input });
+    const a = args.join(" ");
+    if (a === "whoami") return { code: 0, out: o.authed === false ? "You are not authenticated. Please run `wrangler login`." : "You are logged in with an OAuth Token" };
+    if (a === "login") return { code: 0, out: "Successfully logged in." };
+    if (a === "kv namespace list") return { code: 0, out: JSON.stringify((o.kvIds ?? []).map((id) => ({ id, title: "x" }))) };
+    if (a === "kv namespace create OAUTH_KV") return { code: 0, out: 'Add the following to your configuration file:\n[[kv_namespaces]]\nbinding = "OAUTH_KV"\nid = "0123456789abcdef0123456789abcdef"\n' };
+    if (a === "deploy") return { code: 0, out: "Uploaded holdt\nDeployed holdt triggers\n  https://holdt.someone.workers.dev\nCurrent Version ID: x" };
+    if (args[0] === "secret" && args[1] === "list") return { code: 0, out: JSON.stringify((o.secrets ?? []).map((name) => ({ name, type: "secret_text" }))) };
+    if (args[0] === "secret" && args[1] === "put") return { code: 0, out: "Success" };
+    return { code: 1, out: "unexpected " + a };
+  };
+  return { run, calls };
+}
+function home() { const h = mkdtempSync(join(tmpdir(), "holdt-agent-")); const toml = join(h, "wrangler.toml"); copyFileSync(new URL("../wrangler.toml", import.meta.url), toml); return { h, toml }; }
+
+test("agent setup: signs in, makes storage, deploys, seals nothing in the open, opens the one-time link, prints no secret", async () => {
+  const { h, toml } = home(); const f = fake({ authed: false }); const logs: string[] = []; let opened = "";
+  const url = await agentSetup({ run: f.run, open: async (u) => { opened = u; return true; }, log: (s) => logs.push(s), toml, home: h, workerName: "holdt", now: () => 1_000 });
+  assert.equal(url, "https://holdt.someone.workers.dev");
+  assert.ok(f.calls.some((c) => c.args[0] === "login"));
+  assert.match(readFileSync(toml, "utf8"), /id = "0123456789abcdef0123456789abcdef"/, "the user's own storage id goes in wrangler.toml");
+  const puts = f.calls.filter((c) => c.args[1] === "put");
+  assert.deepEqual(puts.map((c) => c.args[2]), ["SEAL_KEY", "SETUP_TOKEN_HASH", "SETUP_TOKEN_ISSUED"]);
+  assert.ok(puts.every((c) => typeof c.input === "string" && !c.args.includes(c.input!)), "values only on stdin, never as arguments");
+  const token = opened.split("#")[1]!; assert.match(opened, /^https:\/\/holdt\.someone\.workers\.dev\/setup#[A-Za-z0-9_-]{43}$/);
+  assert.equal(puts[1]!.input, createHash("sha256").update(token).digest("hex"));
+  const all = logs.join("\n"); assert.ok(!all.includes(token) && !all.includes(puts[0]!.input!), "neither the link's token nor SEAL_KEY is printed");
+  assert.ok(!all.includes(";"), "status lines have no semicolons");
+});
+
+test("agent setup: an existing SEAL_KEY is never replaced, and with no browser the link goes to a 600 file", async () => {
+  const { h, toml } = home(); const kvId = readFileSync(toml, "utf8").match(/id = "([0-9a-f]{32})"/)![1]!;
+  const f = fake({ kvIds: [kvId], secrets: ["SEAL_KEY"] }); const logs: string[] = [];
+  await agentSetup({ run: f.run, open: async () => false, log: (s) => logs.push(s), toml, home: h, workerName: "holdt" });
+  assert.ok(!f.calls.some((c) => c.args[2] === "SEAL_KEY"), "SEAL_KEY kept, so the sealed setup stays readable");
+  assert.ok(!f.calls.some((c) => c.args.join(" ") === "kv namespace create OAUTH_KV"), "existing storage reused");
+  const file = linkFile(h, "holdt"); assert.ok(existsSync(file)); assert.equal(statSync(file).mode & 0o777, 0o600);
+  const link = readFileSync(file, "utf8").trim(); assert.ok(!logs.join("\n").includes(link.split("#")[1]!));
+  const again = fake({ secrets: ["SEAL_KEY"] });
+  await agentSetup({ run: again.run, open: async () => true, log: () => {}, toml, home: h, workerName: "holdt" }, { newLink: true });
+  assert.ok(!again.calls.some((c) => c.args[0] === "deploy"), "a new link doesn't redeploy");
+  assert.deepEqual(again.calls.filter((c) => c.args[1] === "put").map((c) => c.args[2]), ["SETUP_TOKEN_HASH", "SETUP_TOKEN_ISSUED"]);
+});

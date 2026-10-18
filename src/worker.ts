@@ -10,6 +10,7 @@ import { authorizeHandler } from "./authorize.js";
 import { guardFor } from "./guard.js";
 import { loadPasskeys } from "./passkey.js";
 import { reviewerGrantValid } from "./reviewer.js";
+import { setupRoute, withSealed } from "./setup-web.js";
 export { Guard } from "./guard.js";
 
 export interface Env {
@@ -27,6 +28,8 @@ export interface Env {
   /** Rotated by `--reset-passkeys`: passkeys enrolled under an older value stop working. */ PASSKEY_EPOCH?: string;
   /** Reviewer test path (src/reviewer.ts, docs/reviewer-testing.md). Only a demo Worker on the test account sets REVIEWER_MODE = "on". */
   REVIEWER_MODE?: string; REVIEWER_CODE_HASH?: string; REVIEWER_CODE_ISSUED?: string;
+  /** No-terminal setup (src/setup-web.ts, docs/agent-setup.md): the 32-byte key that seals the setup, and the one-time setup link's SHA-256 and issue time. */
+  SEAL_KEY?: string; SETUP_TOKEN_HASH?: string; SETUP_TOKEN_ISSUED?: string;
   OAUTH_KV: any;
   /** Durable Object for atomic single use (confirm tokens, approval code). Optional: without it, KV plus in-isolate locks are used. */ GUARD?: any;
 }
@@ -35,7 +38,7 @@ export interface GrantProps { epoch: string; via?: "reviewer"; rc?: string; acct
 export const SEC_HEADERS = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" };
 const json = (o: unknown, status = 200, h: Record<string, string> = {}) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", ...SEC_HEADERS, ...h } });
 
-export function registerEnvSecrets(env: Partial<Env>) { for (const s of [env.ICLOUD_APP_PASSWORD, env.CONFIRM_SECRET, env.CONFIRM_SECRET_PREVIOUS, env.ICLOUD_EMAIL, env.GRANT_EPOCH, env.APPROVAL_CODE_HASH, env.ENROLL_TOKEN_HASH, env.REVIEWER_CODE_HASH]) registerSecret(s); }
+export function registerEnvSecrets(env: Partial<Env>) { for (const s of [env.ICLOUD_APP_PASSWORD, env.CONFIRM_SECRET, env.CONFIRM_SECRET_PREVIOUS, env.ICLOUD_EMAIL, env.GRANT_EPOCH, env.APPROVAL_CODE_HASH, env.ENROLL_TOKEN_HASH, env.REVIEWER_CODE_HASH, env.SEAL_KEY, env.SETUP_TOKEN_HASH]) registerSecret(s); }
 
 /** The MCP endpoint. Called only after the OAuth library has verified the access token. */
 export async function mcpEndpoint(req: Request, env: Env, props: GrantProps | undefined, fetchImpl?: typeof fetch): Promise<Response> {
@@ -155,7 +158,7 @@ export async function rateLimited(req: Request, env: Env, path: string): Promise
   // Status polls from the consent page and a new device share a roomier per-IP bucket. Every other POST that can
   // approve, create or decide something is in the tight one.
   if ((path === "/authorize/away" || path === "/pair/status") && req.method === "POST") return hit(env.RL_MCP, `poll:${ip}`);
-  if ((path === "/authorize" || path.startsWith("/authorize/") || path.startsWith("/enroll/") || path.startsWith("/ok/") || path.startsWith("/pair/") || path.startsWith("/review/")) && req.method === "POST") return hit(env.RL_APPROVE, `approve:${ip}`);
+  if ((path === "/authorize" || path.startsWith("/authorize/") || path.startsWith("/enroll/") || path.startsWith("/ok/") || path.startsWith("/pair/") || path.startsWith("/review/") || path.startsWith("/setup/")) && req.method === "POST") return hit(env.RL_APPROVE, `approve:${ip}`);
   // The OAuth library routes /mcp and every /mcp/... path to the MCP handler, so limit them all. Per caller IP first
   // (a made-up bearer token must not buy a fresh bucket), then per connection.
   if (path === "/mcp" || path.startsWith("/mcp/")) {
@@ -176,11 +179,16 @@ export function ipKey(ip: string) {
 }
 async function sha256Short(s: string) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join(""); }
 
+/** Every request. A Worker set up from the web page (src/setup-web.ts) runs with its sealed values in place. */
+export async function handleRequest(req: Request, env: Env, ctx: any, fetchImpl?: typeof fetch): Promise<Response> {
+  const url = new URL(req.url);
+  if (url.pathname === "/" || url.pathname === "/health") return json({ ok: true, name: "holdt", mcp: "/mcp" });
+  if (await rateLimited(req, env, url.pathname)) { log.warn(`rate limited ${url.pathname.slice(0, 40)}`); return json({ error: "rate_limited", error_description: "Too many requests. Wait a minute and try again." }, 429, { "Retry-After": "60" }); }
+  registerEnvSecrets(env);
+  if (url.pathname === "/setup" || url.pathname.startsWith("/setup/")) return setupRoute(req, env, url, fetchImpl);
+  return providerFor(url.origin, fetchImpl, { cimd: env.CIMD === "on" }).fetch(req, await withSealed(env), ctx);
+}
+
 export default {
-  async fetch(req: Request, env: Env, ctx: any) {
-    const url = new URL(req.url);
-    if (url.pathname === "/" || url.pathname === "/health") return json({ ok: true, name: "holdt", mcp: "/mcp" });
-    if (await rateLimited(req, env, url.pathname)) { log.warn(`rate limited ${url.pathname.slice(0, 40)}`); return json({ error: "rate_limited", error_description: "Too many requests. Wait a minute and try again." }, 429, { "Retry-After": "60" }); }
-    return providerFor(url.origin, undefined, { cimd: env.CIMD === "on" }).fetch(req, env, ctx);
-  },
+  fetch(req: Request, env: Env, ctx: any) { return handleRequest(req, env, ctx); },
 };
