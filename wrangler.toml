@@ -32,10 +32,11 @@ REDIRECT_ALLOWLIST = "https://www.cursor.com/agents/mcp/oauth/callback"
 enabled = false
 
 # OAuth grants and tokens (stored hashed by @cloudflare/workers-oauth-provider).
-# Create once with: npx wrangler kv namespace create OAUTH_KV  and paste the id here.
+# Create once with: npx wrangler kv namespace create OAUTH_KV  and paste the id it prints over the placeholder.
+# npm run agent-setup does this for you.
 [[kv_namespaces]]
 binding = "OAUTH_KV"
-id = "f9717fcde9ab4d809ead25642d5c0470"
+id = "REPLACE_WITH_YOUR_KV_ID"
 
 # One Durable Object per owner makes "only once" truly atomic: spent confirm and undo tokens, approval-code tries,
 # and the used-code marker (KV can't compare-and-set). SQLite-backed, so it works on the free plan.

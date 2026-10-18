@@ -39,7 +39,7 @@ Each fixed item has a test in test/ and a row in docs/attack-proof.md that `npm 
 | T4 rate limits | Workers Rate Limiting: DCR 10/min per IP, approval submits 10/min per IP, /mcp 120/min per connection. Residual: the 5 tries are one counter, and approval posts are limited to 10 per minute per IP, so one IP can lock the recovery code during its 15-minute life. Passkey approval is unaffected. The fix is `npm run new-code`. |
 | T5 redirect allowlist | REDIRECT_ALLOWLIST holds the one callback the live Grok Bot client registered (read from KV client records on Oct 17, 2026). OAuth error redirects use the same list. A registered address that isn't on it gets an error page on the Worker, never a redirect (test/oauth.test.ts). |
 | T6 supply chain | wrangler pinned exactly (3.114.17) and run from node_modules. CI actions pinned by SHA. `npm audit signatures` in CI. Dependabot. |
-| T7 config drift | The real wrangler.toml is committed (the KV id isn't secret). skip-worktree removed. |
+| T7 config drift | wrangler.toml is committed with a `REPLACE_WITH_YOUR_KV_ID` placeholder, which `npm run agent-setup` swaps for the owner's own KV id. skip-worktree removed. |
 | T8 crypto hygiene | Salted PBKDF2 code hash. Per-purpose derived keys. Zero-downtime rotation through CONFIRM_SECRET_PREVIOUS (docs/key-rotation.md). |
 | T9 refresh tokens | 90-day sliding expiry (`refreshTokenIdleTTL`). The OAuth library keeps the previous refresh token valid until the new one is used, and has no reuse detection that revokes a grant. We accept this: refresh tokens are stored hashed, only reach Grok Bot's servers, and `npm run setup -- --revoke-all` cuts every grant at once. |
 | T10 response size | Open. iCloud is a trusted, pinned host. |

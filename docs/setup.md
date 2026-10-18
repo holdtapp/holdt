@@ -50,7 +50,7 @@ npm run deploy
 ```
 
 - `npm run cf:login` opens your browser. Sign in to Cloudflare and press Allow.
-- `npx --no-install wrangler kv namespace create OAUTH_KV` makes Holdt's storage on your account and prints a line like `id = "0123abcd..."`. Open `wrangler.toml` in the Holdt folder, find `binding = "OAUTH_KV"`, and replace the `id` under it with yours. The id already there belongs to another account, so deploy fails until you replace it.
+- `npx --no-install wrangler kv namespace create OAUTH_KV` makes Holdt's storage on your account and prints a line like `id = "0123abcd..."`. Open `wrangler.toml` in the Holdt folder, find `binding = "OAUTH_KV"`, and paste your id over `REPLACE_WITH_YOUR_KV_ID` under it. Deploy fails until you do.
 - `npm run deploy` prints your Holdt address. It looks like `https://holdt.you.workers.dev`. Keep it handy. If it prints no `workers.dev` address, open Workers & Pages in the Cloudflare dashboard once so your account gets a `workers.dev` subdomain, then run it again.
 
 ## 3. Connect your iCloud Calendar

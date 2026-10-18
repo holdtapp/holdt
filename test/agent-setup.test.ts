@@ -23,14 +23,18 @@ function fake(o: { authed?: boolean; kvIds?: string[]; secrets?: string[] } = {}
   };
   return { run, calls };
 }
-function home() { const h = mkdtempSync(join(tmpdir(), "holdt-agent-")); const toml = join(h, "wrangler.toml"); copyFileSync(new URL("../wrangler.toml", import.meta.url), toml); return { h, toml }; }
+/** A copy of the public wrangler.toml, with its placeholder KV id or, given kvId, an install that already has its own. */
+function home(kvId?: string) { const h = mkdtempSync(join(tmpdir(), "holdt-agent-")); const toml = join(h, "wrangler.toml"); copyFileSync(new URL("../wrangler.toml", import.meta.url), toml); if (kvId) writeFileSync(toml, readFileSync(toml, "utf8").replace('id = "REPLACE_WITH_YOUR_KV_ID"', `id = "${kvId}"`)); return { h, toml }; }
+const OWN_KV = "fedcba9876543210fedcba9876543210";
 
 test("agent setup: signs in, makes storage, deploys, seals nothing in the open, opens the one-time link, prints no secret", async () => {
-  const { h, toml } = home(); const f = fake({ authed: false }); const logs: string[] = []; const tabs: string[] = [];
+  const { h, toml } = home(); assert.match(readFileSync(toml, "utf8"), /id = "REPLACE_WITH_YOUR_KV_ID"/, "the public wrangler.toml ships a placeholder, not a real id");
+  const f = fake({ authed: false }); const logs: string[] = []; const tabs: string[] = [];
   const url = await agentSetup({ run: f.run, open: async (u) => { tabs.push(u); return true; }, log: (s) => logs.push(s), toml, home: h, workerName: "holdt", now: () => 1_000 });
   assert.equal(url, "https://holdt.someone.workers.dev");
   assert.ok(f.calls.some((c) => c.args[0] === "login"));
   assert.match(readFileSync(toml, "utf8"), /id = "0123456789abcdef0123456789abcdef"/, "the user's own storage id goes in wrangler.toml");
+  assert.doesNotMatch(readFileSync(toml, "utf8"), /REPLACE_WITH_YOUR_KV_ID/, "the placeholder is swapped out");
   const puts = f.calls.filter((c) => c.args[1] === "put");
   assert.deepEqual(puts.map((c) => c.args[2]), ["SEAL_KEY", "SETUP_TOKEN_HASH", "SETUP_TOKEN_ISSUED"]);
   assert.ok(puts.every((c) => typeof c.input === "string" && !c.args.includes(c.input!)), "values only on stdin, never as arguments");
@@ -42,7 +46,7 @@ test("agent setup: signs in, makes storage, deploys, seals nothing in the open, 
 });
 
 test("agent setup: an existing SEAL_KEY is never replaced, and with no browser the link goes to a 600 file", async () => {
-  const { h, toml } = home(); const kvId = readFileSync(toml, "utf8").match(/id = "([0-9a-f]{32})"/)![1]!;
+  const kvId = OWN_KV, { h, toml } = home(kvId);
   const f = fake({ kvIds: [kvId], secrets: ["SEAL_KEY"] }); const logs: string[] = [];
   await agentSetup({ run: f.run, open: async () => false, log: (s) => logs.push(s), toml, home: h, workerName: "holdt" });
   assert.ok(!f.calls.some((c) => c.args[2] === "SEAL_KEY"), "SEAL_KEY kept, so the sealed setup stays readable");
@@ -56,7 +60,7 @@ test("agent setup: an existing SEAL_KEY is never replaced, and with no browser t
 });
 
 test("agent setup: the Apple email rides only in the link fragment, never in a log, and a bad one is dropped", async () => {
-  const { h, toml } = home(); const kvId = readFileSync(toml, "utf8").match(/id = "([0-9a-f]{32})"/)![1]!;
+  const kvId = OWN_KV, { h, toml } = home(kvId);
   const tabs: string[] = []; const logs: string[] = [];
   await agentSetup({ run: fake({ kvIds: [kvId], secrets: ["SEAL_KEY"] }).run, open: async (u) => { tabs.push(u); return true; }, log: (s) => logs.push(s), toml, home: h, workerName: "holdt", email: "test@holdt.app" });
   assert.match(tabs[0]!, /\/setup#[A-Za-z0-9_-]{43}&e=test%40holdt\.app$/);
