@@ -4,7 +4,7 @@ Holdt is maintained by Terminus X Partners, LLC. Supported version: the latest c
 
 <!-- Reporting policy: draft, not legal advice, pending attorney review. Bracketed values are pending from the owner. -->
 ## Reporting a vulnerability
-Please report privately through GitHub: open this repository's Security tab and choose Report a vulnerability. If that isn't available, email [SECURITY CONTACT EMAIL]. Please don't open a public issue.
+Please report privately through GitHub: open this repository's Security tab and choose Report a vulnerability. If that isn't available, email hello@holdt.app. Please don't open a public issue.
 
 We aim to acknowledge a report within [3] business days and to share a plan within [10] business days. We'll credit you in the advisory unless you'd rather we didn't.
 
