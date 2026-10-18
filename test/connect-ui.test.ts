@@ -160,11 +160,11 @@ test("enroll shows the true state of a checked code, and status icons hang besid
   assert.match(src, /<p id="codefact">Approval codes keep working alongside Face ID\.<\/p>/, "before any code is checked");
   // The server spends a code in /enroll/options. The moment it accepts one, the page switches to the spent state.
   assert.match(ENROLL_SCRIPT, /if\(cv\)\{kept=\{cv,r,at:Date\.now\(\)\};markSpent\(\);\}/);
-  assert.match(ENROLL_SCRIPT, /markSpent=\(\)=>\{spent=true;lede\.textContent='Your code is in\. Finish with '\+bio\+'\.';fld\.style\.display='none';factRow\.style\.display='none';\$\('codeok'\)\.hidden=false;\}/);
+  assert.match(ENROLL_SCRIPT, /markSpent=\(\)=>\{spent=true;lede\.textContent='Your code is in\. Finish with '\+bio\+'\.';fld\.style\.display='none';factRow\.style\.display='none';\$\('codeok'\)\.hidden=false;live\.textContent='Code accepted\. Your next code approval needs a new one\.';/, "spent state is announced");
   assert.match(src, /<p class="status" id="codeok" hidden>\$\{ICON\.checkCircle\}<span class="st">Code accepted\.\nYour next code approval needs a new one\.<\/span><\/p>/);
   // A timed-out kept challenge restores a true "enter a new code" state before the error shows.
-  assert.match(ENROLL_SCRIPT, /const unSpend=\(\)=>\{spent=false;kept=null;lede\.textContent=lede0;fld\.style\.display='';factRow\.style\.display='';\$\('codeok'\)\.hidden=true;\}/);
-  assert.match(ENROLL_SCRIPT, /if\(!r&&cv&&kept&&kept\.cv===cv\)\{unSpend\(\);const e=new Error\('That code timed out after Face ID started\./);
+  assert.match(ENROLL_SCRIPT, /const unSpend=\(\)=>\{clearTimeout\(kt\);spent=false;kept=null;lede\.textContent=lede0;fld\.style\.display='';factRow\.style\.display='';\$\('codeok'\)\.hidden=true;\}/);
+  assert.match(ENROLL_SCRIPT, /if\(!r&&cv&&kept&&kept\.cv===cv\)\{unSpend\(\);const e=new Error\('That code has timed out\./);
   // Not now after a spent code says it was used. A cancelled sheet with a kept code gives the time window.
   assert.match(ENROLL_SCRIPT, /if\(spent\)k\.querySelector\('\.lede'\)\.textContent='The code you entered was used for this setup\./);
   assert.match(ENROLL_SCRIPT, /kept\?'Try again within a few minutes\.'/);
@@ -174,4 +174,15 @@ test("enroll shows the true state of a checked code, and status icons hang besid
   assert.match(STYLE, /\.fielderr\{display:flex;justify-content:center;align-items:flex-start;gap:\.35rem;text-align:left;/);
   // Don't allow and Not now stand apart from the ways to allow.
   assert.match(STYLE, /\.btn\.plain\.quiet\{margin-top:\.9rem\}/);
+});
+
+test("spent-code edge cases and no-script hiding (review round 23)", async () => {
+  const { ENROLL_SCRIPT } = await import("../src/passkey.js");
+  // The window closing on its own puts the page back to entry and says so, without moving focus.
+  assert.match(ENROLL_SCRIPT, /kt=setTimeout\(\(\)=>\{if\(spent&&kept\)\{unSpend\(\);say\('That code has timed out\. Get a new one on the computer where you set up Holdt\.'\);\}\},270000\)/);
+  // Any failed finish, or a code error while spent, restores the visible field so the error is seen and announced.
+  assert.match(ENROLL_SCRIPT, /clearTimeout\(kt\);kept=null;if\(!d\.ok\)\{unSpend\(\);/);
+  assert.match(ENROLL_SCRIPT, /if\(e&&e\.field&&spent\)unSpend\(\);/);
+  // Every hidden element stays hidden even when an author rule sets display (the code switch without script).
+  assert.match(STYLE, /\[hidden\]\{display:none!important\}/);
 });

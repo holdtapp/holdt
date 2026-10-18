@@ -42,7 +42,7 @@ h1{font-size:1.62rem;line-height:1.16;font-weight:700;letter-spacing:-.021em;mar
 .facts .lock p{text-wrap:pretty}.facts .lock .sub.keep{display:block}.facts .sub.keep{display:inline;color:var(--ink);font-size:1rem;margin:0}.facts .on .ico{color:var(--green-ink)}.facts .off .ico,.facts .no .ico{color:var(--ink2)}.facts .sub{display:block;text-wrap:wrap;color:var(--ink2);font-size:.9rem;margin-top:.1rem}
 .callout{display:flex;gap:.65rem;margin:1rem 0 0;padding:.7rem .9rem;border-radius:.9rem;background:var(--warn-bg);color:var(--warn-ink);font-size:.86rem;line-height:1.38}
 .callout .ico{color:var(--warn-ink)}.callout+.callout,.callout+.facts,.callout+.owner+.facts{margin-top:.6rem}.callout+.owner{margin-top:.1rem}
-.callout p{margin:0;text-wrap:pretty}#pk[hidden]{display:none}.callout strong{font-weight:650}
+.callout p{margin:0;text-wrap:pretty}[hidden]{display:none!important}.callout strong{font-weight:650}
 .actions{margin-top:auto;padding-top:1.6rem}
 /* The buttons follow the content with at most a short gap, and spare height goes below them, never into a void mid-page. */
 .gap{flex:0 0 1.4rem}.screen:not(.msg)::after{content:"";flex:1 1 0}.gap+.actions{margin-top:0;padding-top:0}.actions.near{margin-top:0}
@@ -65,7 +65,7 @@ form.code #codepanel .field{margin-top:0}#codepanel.codebox{margin-top:0}form.co
 .btn .ico{color:currentColor;margin:0;width:1.35rem;height:1.35rem}
 .btn+.btn{margin-top:.6rem}.btn.plain{margin-top:.15rem}
 :focus-visible{outline:3px solid var(--green-ink);outline-offset:3px;border-radius:.6rem}
-.status{display:flex;justify-content:center;align-items:flex-start;gap:.35rem;margin:.45rem 0 .1rem;font-size:.9rem;color:var(--ink2);text-align:left}#msg{margin-bottom:.5rem}.status .ico{flex:none;width:1.05rem;height:1.05rem;margin:.1em 0 0;color:var(--ink2)}.status:has(.st:empty){display:none}.status .st{white-space:pre-line;max-width:19rem}.status[hidden]{display:none}#codeok{margin:0 0 .9rem}#codeok .ico{color:var(--green-ink)}
+.status{display:flex;justify-content:center;align-items:flex-start;gap:.35rem;margin:.45rem 0 .1rem;font-size:.9rem;color:var(--ink2);text-align:left}#msg{margin-bottom:.5rem}.status .ico{flex:none;width:1.05rem;height:1.05rem;margin:.1em 0 0;color:var(--ink2)}.status:has(.st:empty){display:none}.status .st{white-space:pre-line;max-width:19rem}.status[hidden]{display:none}#codeok{margin:.2rem 0 .7rem}#codeok .st,#msg .st{width:18rem;max-width:calc(100% - 1.4rem)}#codeok .ico{color:var(--green-ink)}
 details{margin-top:.35rem}
 summary{display:flex;align-items:center;justify-content:center;gap:.35rem;min-height:max(44px,2.75rem);color:var(--green-ink);font-weight:600;cursor:pointer;list-style:none;border-radius:.6rem;-webkit-tap-highlight-color:transparent}
 summary::-webkit-details-marker{display:none}
