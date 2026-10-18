@@ -2,11 +2,11 @@
 
 Holdt is maintained by Terminus X Partners, LLC. Supported version: the latest commit on the default branch.
 
-<!-- Reporting policy: draft, not legal advice, pending attorney review. Bracketed values are pending from the owner. -->
+<!-- Reporting policy: draft, not legal advice, pending attorney review. -->
 ## Reporting a vulnerability
 Please report privately through GitHub: open this repository's Security tab and choose Report a vulnerability. If that isn't available, email hello@holdt.app. Please don't open a public issue.
 
-We aim to acknowledge a report within [3] business days and to share a plan within [10] business days. We'll credit you in the advisory unless you'd rather we didn't.
+We aim to acknowledge a report within 3 business days and to share a plan within 10 business days. We'll credit you in the advisory unless you'd rather we didn't.
 
 **In scope:** the code in this repository, the Holdt demo server used for marketplace review, and holdt.app.
 **Out of scope:** anyone else's deployment of Holdt, and Apple, Cloudflare and Grok Bot services. Report those to their owners.
@@ -28,10 +28,11 @@ Ordered by how much you can trust each layer: invariants in code first, then CI 
 
 `npm run prove` switches each protection off in a scratch copy and shows its attack getting through, then back on. The table is in docs/attack-proof.md.
 
-## Red-team items (internal review, round 1) and their status
+## Security review, round 1: findings and status
+Each fixed item has a test in test/ and a row in docs/attack-proof.md that `npm run prove` checks.
 | Item | Status |
 |---|---|
-| R1 to R16, N1 | Fixed (red-team patch, rebased), each with a test and a prove row. |
+| R1 to R16, N1 | Fixed, each with a test and a prove row. |
 | T1 human gate | Open by design. The server can't see the conversation. Damage is capped as above, writes can be switched off, and every change can be taken back. MCP elicitation on commit is the next step where clients support it. |
 | T2 cross-isolate races | Fixed. Durable Object `Guard` (one per owner) holds spent tokens, code tries and the used-code marker. KV plus in-isolate locks remain only as a fallback if the binding is missing. |
 | T3 Version URLs | `preview_urls = false` in wrangler.toml. It applies on the next deploy. Older version URLs should also be checked in the dashboard. |
@@ -47,10 +48,11 @@ Ordered by how much you can trust each layer: invariants in code first, then CI 
 ## Client ID Metadata Documents: off by default
 `clientIdMetadataDocumentEnabled` follows `CIMD = "on"` and is off otherwise (attack row M1). Reason: the live Grok Bot connection was made with Dynamic Client Registration (its client record is a DCR registration, Oct 17, 2026), so nothing needs CIMD today. With it on, anyone who opens /authorize makes the Worker fetch a URL they choose before any approval, which is SSRF surface (limited to public hosts by `global_fetch_strictly_public`) and a free way to make the consent page show a publisher name. Turn it on if Grok Bot or another client you use moves to CIMD.
 
-## Red-team items (internal review, round 2) and their status
+## Security review, round 2: findings and status
+Each fixed item has a test in test/ and a row in docs/attack-proof.md that `npm run prove` checks.
 | Item | Status |
 |---|---|
-| S1 to S6, S8 | Fixed (fixes2.patch), each with a test and a prove row. S8 removed the http://localhost callback from the production allowlist. The live grant uses the https callback, so it is unaffected. |
+| S1 to S6, S8 | Fixed, each with a test and a prove row. S8 removed the http://localhost callback from the production allowlist. The live grant uses the https callback, so it is unaffected. |
 | S7 shared hosted callback | `CLIENT_ALLOWLIST` exists but stays **off**. On Oct 17, 2026, production KV held 5 client registrations. 4 carried the client name Grok Bot registers with, identical metadata, and were made within 6 minutes (Oct 16, 11:23 to 11:29 PM MDT). The live grant belongs to the last one. So Grok Bot registers a new client_id on every connect, and pinning one would lock the owner out on the next reconnect. The real defense is the human gate: approve only a connect you just started. |
 | (a) enroll root of trust | Fixed: single-use fragment link from the owner's Worker secrets, or approval from an enrolled passkey, logged, visible notice. Rows P12, N5, N8. |
 | (b) passkey store races, cap | Fixed: per-credential records in the Durable Object. Rows P9 to P11. |
