@@ -180,6 +180,11 @@ test("REDTEAM R15: a client name can't hijack the consent page's read-only notic
   const a = await consent("Grok Bot {{writes}}");
   assert.match(a.html, /Can.t add or change events/, "the real read-only notice was displaced");
   assert.doesNotMatch(a.html, /Changes are \{\{writes\}\}/);
+  // With changes on, the row still carries the writes text, so the same hijack must fail there too.
+  oenv = envOf({ WRITES_ENABLED: "true", APPROVAL_CODE_HASH: await sha256Hex(`icloud-mcp-approval:${CODE}`), APPROVAL_CODE_ISSUED: String(Date.now()) });
+  const b = await consent("Grok Bot {{writes}}");
+  assert.match(b.html, /Changes are on, and each one waits for your yes\./, "the real changes-on notice was displaced");
+  assert.doesNotMatch(b.html, /Changes are \{\{writes\}\}/);
 });
 
 test("Origin check rollout: report mode logs and lets the call through, default mode refuses", async () => {
