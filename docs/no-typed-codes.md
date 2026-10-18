@@ -1,7 +1,7 @@
-# No typed codes: one click to set up, one click to connect
+# No typed codes: one passkey approval to connect
 
 Holdt used to ask the owner to read an 8-digit approval code on the computer and type it on the phone. That step is gone.
-Owner proof is now a passkey (Face ID or Touch ID), and the only thing the owner does in the normal flow is one click.
+Owner proof is now a passkey (Face ID or Touch ID). In the normal connect flow the owner approves once with it and types nothing. Setup has one disclosed paste, the Apple app-specific password.
 
 ## Click counts (controllable actions per path)
 
@@ -39,7 +39,7 @@ What we didn't do, and why:
   Chrome's experimental "immediate" mediation isn't in Safari. The button stays the one action.
 - No second "Approved, continue" screen after the sheet. The sheet's success submits the form at once.
 
-How the one click keeps the user gesture: the setup page fetches the passkey options as it opens (a POST from its own script
+How the passkey button keeps the user gesture: the setup page fetches the passkey options as it opens (a POST from its own script
 that spends nothing), so the click goes straight to `navigator.credentials.create`. Only `/enroll/finish`, after the click and
 Face ID, spends the link. Pairing gets its options with the approval, for the same reason.
 
@@ -58,7 +58,7 @@ Face ID, spends the link. Pairing gets its options with the approval, for the sa
 
 Residual risk, in plain words: a person who is sent an approve link, ignores the warning, the device and the city, and approves
 anyway within 5 minutes gives that connect request access. That's the same class of risk as reading out a code, and it's why
-Allow with Face ID on the owner's own device (one click, origin-bound, not phishable) is the default path.
+Allow with Face ID on the owner's own device (one approval, origin-bound, not phishable) is the default path.
 
 ## Recovery
 The approval code survives only as an owner tool. `npm run new-code` on the owner's computer prints an 8-digit code that works

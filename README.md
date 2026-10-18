@@ -1,14 +1,16 @@
 # Holdt for iCloud Calendar (self-hosted)
 
+An AI shouldn't change your calendar without your yes.
+
 **Holdt, said holt.** Reads your calendar. Changes nothing until you say yes.
 
-Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. It is read-only unless you turn changes on. With changes on, every change starts as a preview. Grok Bot is told to show it to you and wait for your yes, and Holdt accepts only that previewed change, once, within 10 minutes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
+Holdt is a small MCP server that lets Grok Bot read your iCloud calendars. It runs on **your own Cloudflare account**. It is read-only unless you turn changes on. With changes on, every change starts as a preview. Grok Bot is told to show it to you and wait for your yes, and Holdt accepts only that previewed change, once, within 10 minutes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
 
 **Calendar only: Apple Reminders is not included (see below).**
 
 > **Status:** v1.0.3, self-hosted.
+> As of Oct 18, 2026: `npm test` runs 281 tests, all passing. `npm run prove` runs 110 attacks, all refused, and proves 112 protections: each one is switched off in a scratch copy, and its attack then gets through. Current table: [docs/attack-proof.md](docs/attack-proof.md).
 > Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: a repeated commit was refused, an undo after a later edit was refused, and every other event was left untouched (18 of 18 checks, [docs/live-test-2026-10-17.md](docs/live-test-2026-10-17.md)).
-> As of Oct 18, 2026: `npm test` runs 273 tests, all passing. `npm run prove` runs 110 attacks, all refused, and proves 112 protections: each one is switched off in a scratch copy, and its attack then gets through. Current table: [docs/attack-proof.md](docs/attack-proof.md).
 
 ## Setup (no Terminal)
 You need a free Cloudflare account and an Apple Account with two-factor authentication. Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Grok Bot installs Holdt on your Cloudflare account from your computer (it needs the Grok Bot desktop app). Then you:
@@ -19,7 +21,7 @@ You need a free Cloudflare account and an Apple Account with two-factor authenti
 4. Click **Save passkey** once (Touch ID or your password on a Mac). If iCloud Keychain is on, it carries the passkey to your iPhone.
 5. Add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
 
-When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (**Touch ID** on a Home-button iPhone, **Touch ID or Face ID** on an iPad), or **Allow on this Mac** on a Mac (Touch ID or your password). **Don't allow** is there too. On a device without your passkey, choose **Approve on your iPhone instead** and scan the code with your iPhone. Action counts for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
+When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (**Touch ID** on a Home-button iPhone, **Touch ID or Face ID** on an iPad), or **Allow on this Mac** on a Mac (Touch ID or your password). On a device without your passkey, choose **Approve on your iPhone instead** and scan the code with your iPhone. The steps for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
 
 ### For developers: Terminal setup
 You need Node.js and a free Cloudflare account. A step-by-step version is in [docs/setup.md](docs/setup.md).
@@ -69,7 +71,7 @@ Anything we built would read the wrong list, so v1 leaves Reminders out. You can
 Times without an offset are in your time zone (set by setup). Plain English works too: "tomorrow at 3pm", "next friday", "end of month", "the last friday of november", "in 2 weeks". "Next friday" means the Friday of next week. A clock time that falls in the spring-forward gap moves to the first valid time. Every preview spells out the date, so check it before saying yes. A date alone means that whole day in your zone, so "from 2026-10-17 to 2026-10-17" is all of Saturday Oct 17. All-day events stay on their date wherever you are. Repeating events are expanded per date, including "2nd Tuesday", "last Friday", "1st and 15th" and yearly rules like Thanksgiving. Rare rules (BYSETPOS, week numbers) show the first date with a note.
 
 ## Develop
-`npm test` (273 tests) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
+`npm test` (281 tests) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
 
 ## License, warranty and who makes Holdt
 Holdt is made by Terminus X Partners, LLC and released under the MIT License (see LICENSE). It is provided as is, without warranty of any kind. You run it on your own accounts, and you are responsible for your Cloudflare deployment and your Apple Account, including the app-specific password you create for it. Read every preview before you say yes. Security reports: docs/SECURITY.md.
