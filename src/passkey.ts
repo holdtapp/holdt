@@ -241,7 +241,7 @@ btn.setAttribute('aria-busy','true');lab.textContent='Approving';mk.classList.ad
 export const ENROLL_SCRIPT = `${CODEC}${TOUCH}
 const t=location.hash.slice(1);history.replaceState(null,'',location.pathname);
 const $=id=>document.getElementById(id),btn=$('go'),msg=$('msg').lastElementChild,code=$('code'),err=$('err');
-if(touch){btn.lastElementChild.textContent='Turn on Touch ID';$('title').textContent='Turn on Touch ID';$('face1').textContent='Your fingerprint stays on your Mac. Holdt never sees it.';$('skip').querySelector('h1').textContent='Touch ID not turned on';$('skip').querySelector('.lede').textContent='Your approval code still works. You can turn on Touch ID anytime.';}
+if(touch){btn.lastElementChild.textContent='Turn on Touch ID';$('title').textContent='Turn on Touch ID';$('face1').textContent='Your fingerprint stays on your Mac. Holdt never sees it.';$('codefact').textContent='Approval codes keep working alongside Touch ID.';$('skip').querySelector('h1').textContent='Touch ID not turned on';$('skip').querySelector('.lede').textContent='You can keep approving with a code. You can turn on Touch ID anytime.';}
 const post=(p,o)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}).then(r=>r.json()).catch(()=>({ok:false,message:'Holdt couldn’t reach your server. Check your connection and try again.'}));
 const live=$('live'),say=m=>{msg.textContent=m;live.textContent=m;};
 const clearErr=()=>{err.hidden=true;code.removeAttribute('aria-invalid');code.setAttribute('aria-describedby','codehint');};
@@ -249,7 +249,13 @@ const typo=m=>String(m).replace(/(\\w)'(\\w)/g,'$1’$2');
 const fieldErr=m=>{err.lastElementChild.textContent=typo(m);err.hidden=false;code.setAttribute('aria-invalid','true');code.setAttribute('aria-describedby','err codehint');code.value='';code.focus();};
 const dead=m=>{$('setup').hidden=true;const d=$('dead');d.hidden=false;const k=/expired/.test(m)?0:/already used/.test(m)?1:2;d.querySelector('h1').textContent=['This link expired','This link was already used','This link doesn’t work'][k];d.querySelector('.lede').textContent=['Links last 15 minutes. ','Each link adds one device. ','This link isn’t complete or isn’t current. '][k]+'Make a new one on the computer where you set up Holdt.';d.querySelector('h1').setAttribute('tabindex','-1');d.querySelector('h1').focus();};
 $('enrollf').addEventListener('submit',e=>{e.preventDefault();if(!btn.disabled)btn.click();});
-$('later').addEventListener('click',()=>{$('setup').hidden=true;const k=$('skip');k.hidden=false;const h=k.querySelector('h1');h.setAttribute('tabindex','-1');h.focus();});
+// The server spends a code the moment /enroll/options accepts it. From then on the page shows that: the field becomes a
+// read-only "Code accepted" line, the lede says what's left, and the benefit row about codes steps aside.
+// If the kept challenge times out, everything goes back to a true "enter a new code" state.
+let spent=false;const lede=document.querySelector('#setup .lede'),lede0=lede.textContent,fld=code.closest('.field'),factRow=$('codefact').closest('li');
+const markSpent=()=>{spent=true;lede.textContent='Your code is in. Finish with '+bio+'.';fld.style.display='none';factRow.style.display='none';$('codeok').hidden=false;};
+const unSpend=()=>{spent=false;kept=null;lede.textContent=lede0;fld.style.display='';factRow.style.display='';$('codeok').hidden=true;};
+$('later').addEventListener('click',()=>{$('setup').hidden=true;const k=$('skip');k.hidden=false;if(spent)k.querySelector('.lede').textContent='The code you entered was used for this setup. Next time you connect, get a new one on the computer where you set up Holdt.';const h=k.querySelector('h1');h.setAttribute('tabindex','-1');h.focus();});
 code.addEventListener('input',()=>{clearErr();const d=code.value.replace(/\\D/g,'').slice(0,8);const v=d.length>4?d.slice(0,4)+' '+d.slice(4):d;if(v!==code.value)code.value=v;});
 if(!t){btn.disabled=true;say('This link is missing its last part. Open the full link from your computer.');}
 else if(!window.PublicKeyCredential){btn.disabled=true;say('This browser can’t save '+bio+' for Holdt. Open the link in Safari.');}
@@ -258,8 +264,8 @@ btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-
 const cv=code.value.replace(/\\D/g,'');let auth;
 // A checked code is spent, so keep its challenge for a retry after a cancelled sheet (good for 5 minutes, same code only).
 let r=kept&&kept.cv===cv&&Date.now()-kept.at<270000?kept.r:null;
-if(!r&&cv&&kept&&kept.cv===cv){const e=new Error('That code already started Face ID and has now timed out. Get a new one on the computer where you set up Holdt.');e.field=1;throw e;}
-if(!r){busyAs('Checking code','Checking your code.');r=await post('/enroll/options',{token:t,code:cv});if(!r.ok){btn.removeAttribute('aria-busy');live.textContent='';if(r.field){const e=new Error(r.message);e.field=1;throw e;}return dead(r.message);}if(cv)kept={cv,r,at:Date.now()};}
+if(!r&&cv&&kept&&kept.cv===cv){unSpend();const e=new Error('That code timed out after Face ID started. Get a new one on the computer where you set up Holdt.');e.field=1;throw e;}
+if(!r){busyAs('Checking code','Checking your code.');r=await post('/enroll/options',{token:t,code:cv});if(!r.ok){btn.removeAttribute('aria-busy');live.textContent='';if(r.field){const e=new Error(r.message);e.field=1;throw e;}return dead(r.message);}if(cv){kept={cv,r,at:Date.now()};markSpent();}}
 if(!cv){if(!r.auth){const e=new Error('Enter the approval code first.');e.field=1;throw e;}
 const a=await navigator.credentials.get({publicKey:{challenge:b(r.auth.challenge),rpId:r.auth.rpId,allowCredentials:r.auth.ids.map(id=>({type:'public-key',id:b(id)})),userVerification:'required',timeout:120000}});
 auth={challenge_token:r.auth.challenge_token,id:a.id,clientDataJSON:u(a.response.clientDataJSON),authenticatorData:u(a.response.authenticatorData),signature:u(a.response.signature)};}
@@ -271,4 +277,4 @@ $('setup').hidden=true;const done=$('done');done.hidden=false;const h=done.query
 h.textContent=bio+' is on';if(touch)done.querySelector('.lede').textContent='Next time, click Allow with Touch ID. Your other Apple devices with iCloud Keychain can use it too.';
 h.setAttribute('tabindex','-1');h.focus();requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
 }catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';const m=(e&&e.message)||'That didn’t work. Try again.';
-if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again, or tap Not\u00a0now.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else if(e&&e.field)fieldErr(m);else say(typo(m));if(!(e&&e.field))btn.focus();}});`;
+if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\n'+(kept?'Try again within a few minutes.':'Try again, or tap Not\u00a0now.'));else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else if(e&&e.field)fieldErr(m);else say(typo(m));if(!(e&&e.field))btn.focus();}});`;

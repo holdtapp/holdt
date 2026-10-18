@@ -61,11 +61,11 @@ form.code #codepanel .field{margin-top:0}#codepanel.codebox{margin-top:0}form.co
 .primary{background:var(--green);color:var(--on-green)}
 .secondary{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--field-line)}
 .plain{background:transparent;color:var(--green-ink);min-height:max(44px,2.75rem);margin-top:.35rem}
-.plain.quiet{color:var(--ink);font-weight:500}
+.plain.quiet{color:var(--ink);font-weight:500}.btn.plain.quiet{margin-top:.9rem}
 .btn .ico{color:currentColor;margin:0;width:1.35rem;height:1.35rem}
 .btn+.btn{margin-top:.6rem}.btn.plain{margin-top:.15rem}
 :focus-visible{outline:3px solid var(--green-ink);outline-offset:3px;border-radius:.6rem}
-.status{display:block;margin:.45rem 0 .1rem;font-size:.9rem;color:var(--ink2);text-align:center}#msg{margin-bottom:.5rem}.status .ico{display:inline-block;vertical-align:-.2em;width:1.05rem;height:1.05rem;margin:0 .35rem 0 0;color:var(--ink2)}.status:has(.st:empty){display:none}.status .st{white-space:pre-line}
+.status{display:flex;justify-content:center;align-items:flex-start;gap:.35rem;margin:.45rem 0 .1rem;font-size:.9rem;color:var(--ink2);text-align:left}#msg{margin-bottom:.5rem}.status .ico{flex:none;width:1.05rem;height:1.05rem;margin:.1em 0 0;color:var(--ink2)}.status:has(.st:empty){display:none}.status .st{white-space:pre-line;max-width:19rem}.status[hidden]{display:none}#codeok{margin:0 0 .9rem}#codeok .ico{color:var(--green-ink)}
 details{margin-top:.35rem}
 summary{display:flex;align-items:center;justify-content:center;gap:.35rem;min-height:max(44px,2.75rem);color:var(--green-ink);font-weight:600;cursor:pointer;list-style:none;border-radius:.6rem;-webkit-tap-highlight-color:transparent}
 summary::-webkit-details-marker{display:none}
@@ -82,9 +82,9 @@ input.code:focus{border-color:var(--green-ink);outline:none;box-shadow:0 0 0 3px
 input.code::placeholder{color:var(--ink2);font-weight:400;font-size:1.05rem;letter-spacing:0;word-spacing:0;opacity:1}
 input.code::selection{background:color-mix(in srgb,var(--green) 22%,transparent)}
 input.code[aria-invalid=true]{border-color:var(--err)}input.code[aria-invalid=true]:focus{box-shadow:0 0 0 3px color-mix(in srgb,var(--err) 22%,transparent)}
-.fielderr{display:block;text-align:center;text-wrap:balance;color:var(--err);font-size:.9rem;font-weight:400;margin:.55rem 0 0}.fielderr[hidden]{display:none}.fielderr.calm:not([hidden])+.hint{display:none}
+.fielderr{display:flex;justify-content:center;align-items:flex-start;gap:.35rem;text-align:left;text-wrap:balance;color:var(--err);font-size:.9rem;font-weight:400;margin:.55rem 0 0}.fielderr[hidden]{display:none}.fielderr.calm:not([hidden])+.hint{display:none}
 .fielderr.calm{color:var(--ink2);font-weight:500}.fielderr.calm .ico{color:var(--ink2)}
-.fielderr .ico{display:inline-block;vertical-align:-.2em;color:var(--err);width:1.05rem;height:1.05rem;margin:0 .35rem 0 0}
+.fielderr .ico{flex:none;color:var(--err);width:1.05rem;height:1.05rem;margin:.1em 0 0}
 .foot .refline{display:block;margin-top:.5rem}.ref{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;user-select:all;-webkit-user-select:all}
 .foot{color:var(--ink2);font-size:.82rem;text-align:center;margin:1rem auto 0;max-width:20rem;text-wrap:pretty}
 .owner{margin-top:.5rem}.alt>.owner,form>.owner{margin-top:.5rem}.owner summary{color:var(--ink2);font-weight:500;font-size:.82rem}.owner .body{margin:.2rem 0 0;padding:.75rem;border-radius:.8rem;background:var(--secondary-bg);color:var(--ink2);font-size:.82rem;line-height:1.45}
@@ -122,6 +122,7 @@ export const ICON = {
   lock: I(`<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/>`),
   trashOff: I(`<path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.9 12.2a1.5 1.5 0 001.5 1.3h6.2a1.5 1.5 0 001.5-1.3L17.5 7M3 3l18 18"/>`),
   info: I(`<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 8h.01"/>`),
+  checkCircle: I(`<circle cx="12" cy="12" r="8.6"/><path d="M8.2 12.3l2.6 2.6 5-5.4"/>`),
   guard: I(`<path d="M12 3.5l7 2.6v5.3c0 4.4-3 7.9-7 9.1-4-1.2-7-4.7-7-9.1V6.1z"/><path d="M8.8 12.2l2.2 2.2 4.2-4.4"/>`),
   undo: I(`<path d="M9 14L4.5 9.5 9 5"/><path d="M4.5 9.5H14a5.5 5.5 0 010 11h-3"/>`),
   mailOff: I(`<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M4 7l8 6 8-6M3 3l18 18"/>`),

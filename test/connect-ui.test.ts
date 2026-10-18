@@ -151,3 +151,27 @@ test("status lines are read once, busy text only when work happens, focus surviv
   // After a cancelled or failed sheet the re-enabled button takes focus back (a field error focuses the field instead).
   assert.match(ENROLL_SCRIPT, /if\(!\(e&&e\.field\)\)btn\.focus\(\);/);
 });
+
+test("enroll shows the true state of a checked code, and status icons hang beside every line (review rounds 21 to 23)", async () => {
+  const { ENROLL_SCRIPT } = await import("../src/passkey.js");
+  const src = readFileSync(new URL("../src/authorize.ts", import.meta.url), "utf8");
+  const pk = readFileSync(new URL("../src/passkey.ts", import.meta.url), "utf8");
+  for (const [name, text] of [["authorize.ts", src], ["passkey.ts", pk]] as const) assert.doesNotMatch(text, /code still works/i, `${name}: no "code still works" claims`);
+  assert.match(src, /<p id="codefact">Approval codes keep working alongside Face ID\.<\/p>/, "before any code is checked");
+  // The server spends a code in /enroll/options. The moment it accepts one, the page switches to the spent state.
+  assert.match(ENROLL_SCRIPT, /if\(cv\)\{kept=\{cv,r,at:Date\.now\(\)\};markSpent\(\);\}/);
+  assert.match(ENROLL_SCRIPT, /markSpent=\(\)=>\{spent=true;lede\.textContent='Your code is in\. Finish with '\+bio\+'\.';fld\.style\.display='none';factRow\.style\.display='none';\$\('codeok'\)\.hidden=false;\}/);
+  assert.match(src, /<p class="status" id="codeok" hidden>\$\{ICON\.checkCircle\}<span class="st">Code accepted\.\nYour next code approval needs a new one\.<\/span><\/p>/);
+  // A timed-out kept challenge restores a true "enter a new code" state before the error shows.
+  assert.match(ENROLL_SCRIPT, /const unSpend=\(\)=>\{spent=false;kept=null;lede\.textContent=lede0;fld\.style\.display='';factRow\.style\.display='';\$\('codeok'\)\.hidden=true;\}/);
+  assert.match(ENROLL_SCRIPT, /if\(!r&&cv&&kept&&kept\.cv===cv\)\{unSpend\(\);const e=new Error\('That code timed out after Face ID started\./);
+  // Not now after a spent code says it was used. A cancelled sheet with a kept code gives the time window.
+  assert.match(ENROLL_SCRIPT, /if\(spent\)k\.querySelector\('\.lede'\)\.textContent='The code you entered was used for this setup\./);
+  assert.match(ENROLL_SCRIPT, /kept\?'Try again within a few minutes\.'/);
+  // Hanging icon: status and error lines are flex rows, so a second line starts under the text. Hidden status lines stay hidden.
+  assert.match(STYLE, /\.status\{display:flex;justify-content:center;align-items:flex-start;gap:\.35rem;[^}]*text-align:left\}/);
+  assert.match(STYLE, /\.status\[hidden\]\{display:none\}/);
+  assert.match(STYLE, /\.fielderr\{display:flex;justify-content:center;align-items:flex-start;gap:\.35rem;text-align:left;/);
+  // Don't allow and Not now stand apart from the ways to allow.
+  assert.match(STYLE, /\.btn\.plain\.quiet\{margin-top:\.9rem\}/);
+});
