@@ -12,22 +12,24 @@ Holdt is a small MCP server that runs on **your own Cloudflare account** and let
 > As of Oct 18, 2026: `npm test` runs 273 tests, all passing. `npm run prove` runs 110 attacks, all refused, and proves 112 protections: each one is switched off in a scratch copy, and its attack then gets through. Current table: [docs/attack-proof.md](docs/attack-proof.md).
 
 ## Setup (no Terminal)
-Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your free Cloudflare account from your computer (it needs the Grok Bot desktop app). Then you:
+You need a free Cloudflare account and an Apple Account with two-factor authentication. Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your Cloudflare account from your computer (it needs the Grok Bot desktop app). Then you:
 
 1. Click **Allow** on Cloudflare's page.
-2. Apple's page opens in front of the Holdt setup page. Sign in, make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars. Paste it on the Holdt page. Holdt checks it with Apple on its own and seals it in your Cloudflare account.
-3. Choose read-only (the default) or changes. Then click **Save passkey** once (Touch ID or your password on a Mac). iCloud Keychain carries it to your iPhone.
+2. Apple's page opens in front of the Holdt setup page. On the Holdt page, read-only is chosen. If you want changes, pick that before you paste. On Apple's page, sign in, make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars. Paste it on the Holdt page. Holdt checks it with Apple on its own and seals it in your Cloudflare account.
+3. Click **Save passkey** once (Touch ID or your password on a Mac). If iCloud Keychain is on, it carries the passkey to your iPhone.
 4. Add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
 
-When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone or iPad (Touch ID on models without Face ID), or **Allow on this Mac** on a Mac (Touch ID or your password). **Don't allow** is there too. Not on a device with your passkey? Choose **Approve on your iPhone instead** and scan the code with your iPhone. Action counts for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
+When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (Touch ID on an iPhone with a Home button, and an iPad names both), or **Allow on this Mac** on a Mac (Touch ID or your password). **Don't allow** is there too. Not on a device with your passkey? Choose **Approve on your iPhone instead** and scan the code with your iPhone. Action counts for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
 
 ### For developers: Terminal setup
 You need Node.js and a free Cloudflare account. A step-by-step version is in [docs/setup.md](docs/setup.md).
 
 1. `npm install`
-2. `npm run cf:login`, then `npx --no-install wrangler kv namespace create OAUTH_KV` and put the id it prints under `binding = "OAUTH_KV"` in wrangler.toml, then `npm run deploy`. Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
-3. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens on your computer. Make an app-specific password on Apple's page, paste it, enter your Apple Account email, **Test connection**, turn on **Let Grok Bot add and change events** if you want changes, then **Save and finish**.
-4. Save opens a one-time passkey link in the same browser. Click **Save passkey** (on an iPhone the button reads **Turn on Face ID**). iCloud Keychain carries the passkey to your iPhone. The last screen shows your connector address with a Copy button.
+2. `npm run cf:login`
+3. `npx --no-install wrangler kv namespace create OAUTH_KV`, and put the id it prints under `binding = "OAUTH_KV"` in wrangler.toml.
+4. `npm run deploy`. Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
+5. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens on your computer. Make an app-specific password on Apple's page, paste it, enter your Apple Account email, **Test connection**, turn on **Let Grok Bot add and change events** if you want changes, then **Save and finish**.
+6. Save opens a one-time passkey link in the same browser. Click **Save passkey** (on an iPhone the button reads **Turn on Face ID**). If iCloud Keychain is on, it carries the passkey to your iPhone. The last screen shows your connector address with a Copy button.
 
 Adding a device later: `WORKER_URL=https://holdt.<you>.workers.dev npm run add-device` opens a fresh link in your browser. Click **Save passkey** there. For a phone, `npm run add-device -- --qr` prints a QR code. Lost every device? `npm run new-code` prints a one-time recovery code, and the approval page shows a code field for 15 minutes.
 
