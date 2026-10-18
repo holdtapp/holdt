@@ -43,7 +43,7 @@ test("setup server: one-time key, live 'Found N calendars', plain-English errors
     assert.equal(saved.ENROLL_TOKEN_HASH, createHash("sha256").update(token!).digest("hex")); assert.ok(Number(saved.ENROLL_TOKEN_ISSUED) > 0);
     assert.ok(!Object.values(saved).includes(token!), "only the hash of the link's token is stored");
     const html = await (await fetch(`http://127.0.0.1:${port}/?k=${key}`)).text();
-    assert.match(html, /location\.assign\(r\.enrollUrl\)/, "the setup page opens the link itself, so the only click left is Turn on Touch ID");
+    assert.match(html, /location\.assign\(r\.enrollUrl\)/, "the setup page opens the link itself, so the only click left is Save passkey");
     assert.doesNotMatch(html, /approvalCode|Enter this code/);
     assert.match((await call("/api/save", {})).j.message, /test first/, "password forgotten after save");
     for (const v of [JSON.stringify(good.j), JSON.stringify(bad.j), stderr.join("\n")]) { assert.ok(!v.includes(PASS)); assert.ok(!v.includes("zzzz-zzzz-zzzz-zzzz")); }

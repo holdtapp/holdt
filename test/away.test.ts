@@ -184,7 +184,7 @@ test("pairing: a new device shows a QR code, the iPhone approves with Face ID, o
   assert.match(p.qr, /<svg class="qr"/);
   assert.equal((await pj("/pair/status", { claim: p.claim })).status, "pending");
   const v = await pj("/ok/view", { s: p.link.split("#")[1] });
-  assert.match(v.html, /Add a new device\?/); assert.match(v.html, /From <strong>an\u00a0iPad<\/strong>, just now\. It wants to approve Holdt connections/); assert.match(v.html, /holding right now/);
+  assert.match(v.html, /Add a new device\?/); assert.match(v.html, /From <strong>an\u00a0iPad<\/strong>, just now\.<\/p>/); assert.match(v.html, /It can approve Holdt connections\./); assert.match(v.html, /If someone asked you to add it, tap Don/); assert.match(v.html, /holding right now/);
   assert.equal((await approveOn(a, p.link.split("#")[1], { bump: 1 })).ok, true);
   const st = await pj("/pair/status", { claim: p.claim }); assert.equal(st.status, "approved"); assert.ok(st.publicKey);
   const b = await new VirtualAuthenticator(ORIGIN).init();

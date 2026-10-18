@@ -191,7 +191,7 @@ test("setup: --add-device opens the link in the browser (no code, no QR), --qr p
   const saved: Record<string, string> = {}; let out = ""; const opened: string[] = [];
   await cliAction("--add-device", async (n, v) => { saved[n] = v; }, (s) => (out += s), "https://holdt.example.workers.dev/", {}, async (u) => { opened.push(u); return true; });
   const token = opened[0]?.match(/\/enroll#([\w-]+)$/)?.[1]; assert.ok(token, opened.join());
-  assert.equal(saved.APPROVAL_CODE_HASH, undefined, "no approval code"); assert.doesNotMatch(out, /\d{4}-\d{4}|█/); assert.match(out, /Click Turn on Touch ID there\. That's the only step\./);
+  assert.equal(saved.APPROVAL_CODE_HASH, undefined, "no approval code"); assert.doesNotMatch(out, /\d{4}-\d{4}|█/); assert.match(out, /Click Save passkey there\. That's the only step\./);
   assert.ok(!out.includes(token!), "the link isn't printed when the browser opened it");
   assert.equal(saved.ENROLL_TOKEN_HASH, createHash("sha256").update(token!).digest("hex")); assert.ok(!Object.values(saved).includes(token!));
   let out2 = ""; const opened2: string[] = [];

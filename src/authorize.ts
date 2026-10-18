@@ -135,7 +135,7 @@ ${dead ? help : ""}${allow}${deny}${reviewer ? REVIEWER_HINT : ""}${dead ? "" : 
 }
 const PK_FIELDS = (pk: { token: string }) => `<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">`;
 const ADD_DEVICE = "On the computer where you set up Holdt, run this. It opens a one-time Face\u00a0ID link in that computer’s browser:<code>npm run add-device</code>";
-const ADD_DEVICE_QR = "On the computer where you set up Holdt, run this. Then scan its QR code with this phone.<code>npm run add-device -- --qr</code>";
+const ADD_DEVICE_QR = "On the computer where you set up Holdt, run this, then scan its QR code.<code>npm run add-device -- --qr</code>";
 /** The normal consent page: Allow with Face ID, or scan a QR code and approve on the iPhone. Nothing to type. */
 /** A phone can't scan its own screen, so on a phone the fallback names another device. */
 export const isPhone = (req: Request) => /iPhone|iPad|Android/.test(req.headers.get("user-agent") ?? "");
@@ -146,7 +146,7 @@ function consentFaceBody(d: any, handle: string, writes: string, pk: { token: st
   const panel = `<div class="awaybox" id="awaypanel" tabindex="-1" role="group" aria-label="Approve on ${other}" data-other="${other}"><div id="qrwrap" data-link="${esc(awayUrl)}">${qrSvg(awayUrl, phone ? "QR code. Scan it with another device’s camera to approve there." : "QR code. Scan it with your iPhone’s camera to approve there.")}</div>
 <div class="stepsw"><ol class="steps one" data-nobio><li>${phone ? "Scan with another device’s camera, then approve\u00a0there." : "Scan with your iPhone, then approve with\u00a0Face\u00a0ID."}</li></ol><p class="status wait" id="awaymsg" aria-hidden="true">${ICON.spinner}<span class="st">Waiting for ${Other}.</span></p></div>
 <button class="btn secondary" id="awaygo" name="decision" value="away">I approved on ${phone ? "another device" : "my iPhone"}</button></div>`;
-  const help = ownerNote(HELP, `<p>Face ID syncs to your Apple devices with iCloud Keychain, so most need nothing more.</p><p>For a device that doesn’t sync, <a href="/pair" target="_blank" rel="noopener">add it</a> and approve it from a device that already has Face\u00a0ID for Holdt.</p>${notice ? `<p>Didn’t add a device? Turn Face ID off everywhere, then set it up again.<code>npm run reset-passkeys</code></p>` : ""}`);
+  const help = ownerNote(HELP, `<p>Your passkey syncs to your Apple devices with iCloud Keychain, so most need nothing more.</p><p>For a device that doesn’t sync, <a href="/pair" target="_blank" rel="noopener">add it</a> and approve it from a device that already has your Holdt passkey.</p>${notice ? `<p>Didn’t add a device? Turn Face ID off everywhere, then set it up again.<code>npm run reset-passkeys</code></p>` : ""}`);
   const actions = `<form method="post" autocomplete="off"${error ? ' class="away"' : ""}>${hidden}${PK_FIELDS(pk)}
 <p class="status" id="pkmsg" aria-hidden="true">${ICON.info}<span class="st">${esc(error)}</span></p><p class="sr" id="live" role="status" aria-live="polite">${esc(error)}</p><button type="button" class="btn primary" id="pk" hidden data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">${ICON.faceId}${ICON.spinner}<span id="pklabel">Allow with Face ID</span></button>
 <p class="status ok" id="awayok" aria-hidden="true" hidden>${ICON.checkCircle}<span class="st">Approved on ${Other}. Finishing up.</span></p>
@@ -221,7 +221,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
   try {
     if (req.method === "GET") {
       const request = await oauth.parseAuthRequest(req);
-      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri) || !clientListed(env, request.clientId)) return page("Holdt: Can't connect", messageBody("This app can’t connect", `Holdt isn’t set up to send access to <strong>${esc(hostOf(request.redirectUri))}</strong>. Nothing was shared.`, { html: true, owner: `If you trust this app, on the computer where you set up Holdt:<ol><li>Add this callback to <code>REDIRECT_ALLOWLIST</code> in <code>wrangler.toml</code>.<code>${esc(request.redirectUri.slice(0, 200))}</code></li><li>Run this to deploy.<code>npm run deploy</code></li></ol>` }), 400);
+      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri) || !clientListed(env, request.clientId)) return page("Holdt: Can't connect", messageBody("This app can’t connect", `Holdt doesn’t allow <strong>${esc(hostOf(request.redirectUri))}</strong> to connect. Nothing was shared.`, { html: true, owner: `If you trust this app, on the computer where you set up Holdt:<ol><li>Add this callback to <code>REDIRECT_ALLOWLIST</code> in <code>wrangler.toml</code>.<code>${esc(request.redirectUri.slice(0, 200))}</code></li><li>Run this to deploy.<code>npm run deploy</code></li></ol>` }), 400);
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
@@ -293,7 +293,7 @@ function okPage(): Response {
   const close = `<p class="foot">You can close this page.</p>`;
   return page("Holdt: Approve", `<div id="load">${screen({ title: "Checking the request", titleId: "t-load", markState: "open", centered: true, actions: `<noscript><p class="foot">Turn on JavaScript in Safari settings to approve with Face\u00a0ID.</p></noscript>` })}</div>
 <div id="ask" hidden></div>
-${v("ok", { title: "Approved", titleId: "t-ok", lede: "The device that asked finishes when its Holdt page is open.", markState: "open", markId: "mkok", centered: true, actions: close })}
+${v("ok", { title: "Approved", titleId: "t-ok", lede: "The device that asked takes it from here. Keep its Holdt page open.", markState: "open", markId: "mkok", centered: true, actions: close })}
 ${v("no", { title: "Not allowed", titleId: "t-no", lede: "Nothing was shared.", markState: "muted", centered: true, actions: close })}
 ${v("dead", { title: "This request expired", titleId: "t-dead", lede: "Requests last 5 minutes. Start again on the device that asked.", markState: "muted", centered: true, actions: close })}
 ${v("nopk", { title: "This device can’t approve yet", titleId: "t-nopk", lede: "It doesn’t have Face ID for Holdt. Scan the code with the device where you turned it on.", markState: "muted", centered: true, actions: close + ownerNote(HELP, ADD_DEVICE_HELP_QR) })}`, 200, undefined, "", OK_SCRIPT);
@@ -305,8 +305,8 @@ export function askHtml(kind: "consent" | "pair", from: string, when: string, ap
   // Where the request came from leads, in the same words on both kinds, and never breaks across lines.
   const place = esc(from).replace(/ /g, "\u00a0");
   const asked = `From <strong>${place}</strong>, ${esc(when)}.`;
-  if (kind === "pair") return screen({ title: "Add a new device?", lede: `${asked} It wants to approve Holdt connections.`, markId: "mk",
-    body: `<div class="callout">${ICON.alert}<p>Allow this only for a device you’re holding right now. Never for one someone asked you to add.</p></div>`, actions: btns });
+  if (kind === "pair") return screen({ title: "Add a new device?", lede: asked, markId: "mk",
+    body: `<div class="callout">${ICON.alert}<p>Allow this only for a device you’re holding right now. If someone asked you to add it, tap Don’t\u00a0allow.</p></div><ul class="facts" role="list"><li>${/iPad/.test(from) ? ICON.tablet : /Mac|PC|computer/.test(from) ? ICON.laptop : /iPhone|phone|Android/.test(from) ? ICON.device : ICON.devices}<p>It can approve Holdt connections.</p></li></ul>`, actions: btns });
   const { who, body } = consentFacts(app ?? {}, writes || "off, so it can't add or change events", undefined, app?.redirectIsLoopback ? "" : `<div class="callout">${ICON.alert}<p>Approve only a request you just started yourself. Never one someone sent you.</p></div>`, true);
   // The name line keeps the same trust rule as the consent page: vouched for only on Grok Bot's exact callback.
   const trust = who.known ? `Access goes to ${esc(String(knownApp(app.redirectUri) ?? "")).replace(/ /g, "\u00a0")} alone.` : who.lede.replace(/ Allow this only if you just asked it to connect\.$/, "");
@@ -319,14 +319,15 @@ function pairPage(env: Env, url: URL): Response {
   if (!passkeysOn(env)) return page("Holdt: Face ID is off", messageBody("Face ID is off", "Face ID is turned off on this Holdt server, so a device can’t be added.", {}), 404);
   const close = `<p class="foot">You can close this page.</p>`;
   const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
-  return page("Holdt: Add this device", `<div id="ask">${screen({ title: "Add this device", lede: "Approve it from the iPhone where Face\u00a0ID for Holdt is already on.", markId: "mk",
+  return page("Holdt: Add this device", `<div id="ask">${screen({ title: "Add this device", lede: "Use an iPhone that already approves Holdt.", markId: "mk",
     body: `<div class="awaybox lone" id="awaypanel"><div id="qrwrap" class="qrwait"></div>
-<div class="stepsw"><ol class="steps one" data-nobio><li>Scan with that iPhone’s camera, then approve with Face\u00a0ID.</li></ol><p class="status wait" id="awaymsg" aria-hidden="true">${ICON.spinner}<span class="st">Waiting for your iPhone.</span></p></div><noscript><p class="foot">Turn on JavaScript to add this device.</p></noscript></div>`,
+<div class="stepsw"><ol class="steps one" data-nobio><li>Scan with its camera, then approve with Face\u00a0ID.</li></ol><p class="status wait" id="awaymsg" aria-hidden="true">${ICON.spinner}<span class="st">Waiting for your iPhone.</span></p></div><noscript><p class="foot">Turn on JavaScript to add this device.</p></noscript></div>`,
     actions: `<p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn plain quiet" id="later">Not now</button>` })}</div>
-${v("ready", { title: "Turn on Face ID", titleId: "t-ready", lede: "Your iPhone approved this device. Finish here with a glance.", markId: "mkready",
+${v("ready", { title: "Turn on Face ID", titleId: "t-ready", lede: "Approved. Finish here with a glance.", markId: "mkready",
+    body: `<ul class="facts" role="list"><li>${ICON.faceId}<p>Your face stays on your device. Holdt never sees it.</p></li></ul>`,
     actions: `<p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live2" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button><button type="button" class="btn plain quiet" id="later2">Not now</button>` })}
 ${v("done", { title: "Face ID is on", titleId: "t-done", lede: "Next time, tap Allow with Face ID on this device.", markState: "open", markId: "mkdone", centered: true, actions: close })}
-${v("no", { title: "Device not added", titleId: "t-no", lede: "Your iPhone said no. Nothing changed.", markState: "muted", centered: true, actions: close })}
+${v("no", { title: "Device not added", titleId: "t-no", lede: "It wasn’t approved. Nothing changed.", markState: "muted", centered: true, actions: close })}
 ${v("skip", { title: "Device not added", titleId: "t-skip", lede: "You can add it anytime from this page.", markState: "muted", centered: true, actions: close })}
 ${v("dead", { title: "This request expired", titleId: "t-dead", lede: "Requests last 5 minutes. Reload this page to start again.", markState: "muted", centered: true, actions: close })}
 ${v("nopk", { title: "Turn on Face ID first", titleId: "t-nopk", lede: "No device has Face ID for Holdt yet. Turn it on first with Setup help below.", markState: "muted", centered: true, actions: close + ownerNote(HELP, ADD_DEVICE_HELP_QR, true) })}`, 200, undefined, "", PAIR_SCRIPT);
@@ -426,9 +427,9 @@ function reviewerPage(env: Env): Response {
   const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
   const close = `<p class="foot">You can close this page.</p>`;
   return page("Holdt: Reviewer access", `<div id="ask">${screen({ title: "Reviewer access", lede: "Turn it on in this browser to try Holdt with a demo calendar.", markId: "mk",
-    body: `<ul class="facts" role="list"><li>${ICON.calendar}<p>A demo calendar, not a real person’s.</p></li><li>${ICON.link}<p>Any reviewer can use it for 14\u00a0days.</p></li></ul>`,
+    body: `<ul class="facts" role="list"><li>${ICON.calendar}<p>A demo calendar, not a real person’s.</p></li><li>${ICON.link}<p>Reviewer access lasts up to 14\u00a0days.</p></li></ul>`,
     actions: `<p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="go">${ICON.spinner}<span>Turn on reviewer access</span></button><p class="foot">Nothing changes until you tap.</p><noscript><p class="foot">Turn on JavaScript to use this link.</p></noscript>` })}</div>
-${v("done", { title: "Reviewer access is on", titleId: "t-done", lede: "Add this address in your assistant, then tap Allow as reviewer.", markState: "open", markId: "mkdone", body: `<div class="next"><p class="say" id="say"></p></div>`, actions: `<div id="copywrap"><button type="button" class="btn primary" id="copy">${ICON.copy}<span>Copy address</span></button><p class="foot copymsg" id="copylive" role="status" aria-live="polite"></p></div><p class="foot" id="until"></p>` })}
+${v("done", { title: "Reviewer access on", titleId: "t-done", lede: "Add this address in your assistant, then allow it when Holdt asks.", markState: "open", markId: "mkdone", body: `<div class="next"><p class="say" id="say"></p></div>`, actions: `<div id="copywrap"><button type="button" class="btn primary" id="copy">${ICON.copy}<span>Copy address</span></button><p class="foot copymsg" id="copylive" role="status" aria-live="polite"></p></div><p class="foot" id="until"></p>` })}
 ${v("dead", { title: "This reviewer link has ended", titleId: "t-dead", lede: "Ask the developer for a new one.", markState: "muted", centered: true, actions: close })}`, 200, undefined, "", REVIEW_SCRIPT);
 }
 const REVIEW_SCRIPT = `const $=id=>document.getElementById(id),VIEWS=["ask","done","dead"],show=id=>{VIEWS.forEach(x=>{$(x).hidden=x!==id;});const h=$(id).querySelector('h1');h.setAttribute('tabindex','-1');h.focus();setTimeout(()=>{document.title='Holdt: '+h.textContent.trim();},0);};
@@ -438,7 +439,7 @@ if(!code)show('dead');
 const btn=$('go'),msg=$('msg').lastElementChild,live=$('live'),lab=btn.lastElementChild;
 btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');lab.textContent='Turning on';msg.textContent='';
 const d=await fetch('/review/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}).then(r=>r.json()).catch(()=>({ok:false,message:'Holdt couldn’t reach the server. Try again.'}));
-if(d.ok){$('until').textContent='Access ends '+new Date(d.until).toLocaleDateString(undefined,{month:'long',day:'numeric'})+'.';show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));return;}
+if(d.ok){$('until').textContent='Reviewer access in this browser ends '+new Date(d.until).toLocaleDateString(undefined,{month:'long',day:'numeric'})+'.';show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));return;}
 if(d.ended){show('dead');return;}
 btn.disabled=false;btn.removeAttribute('aria-busy');lab.textContent='Turn on reviewer access';msg.textContent=d.message||'That didn’t work. Try again.';live.textContent=msg.textContent;});
 const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent.trim());cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in your assistant.';setTimeout(()=>{cl.textContent='Copy address';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy address';$('copylive').textContent='Couldn’t copy. The address is selected.';}});`;

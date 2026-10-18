@@ -124,9 +124,9 @@ async function save() {
   if (!r.ok) { b.classList.remove("busy"); b.disabled = false; $("save-label").textContent = "Save and finish"; show("bad", esc(r.message)); return; }
   pw.value = ""; email.value = "";
   const url = r.mcpUrl || "https://<your-worker>.workers.dev/mcp";
-  // One click left: the Face ID link opens here, and its Turn on Touch ID button is that click.
-  if (r.enrollUrl) { $("card").innerHTML = `<h1>Saved ✓</h1><p class="lede" role="status">Opening Touch ID setup…</p>`; location.assign(r.enrollUrl); return; }
-  $("card").innerHTML = `<h1>Saved ✓</h1><p class="lede">One step left: turn on Face ID or Touch ID. In the terminal, run <code>npm run add-device</code>. It opens a page with one button.</p>
+  // One click left: the Face ID link opens here, and its Save passkey button is that click.
+  if (r.enrollUrl) { $("card").innerHTML = `<h1>Saved ✓</h1><p class="lede" role="status">Opening passkey setup…</p>`; location.assign(r.enrollUrl); return; }
+  $("card").innerHTML = `<h1>Saved ✓</h1><p class="lede">One step left: save a passkey. In the terminal, run <code>npm run add-device</code>. It opens a page with one button.</p>
    <p class="foot">Then, in Grok Bot, say: <em>Add the MCP server at ${esc(url)}</em>. ${r.writesEnabled ? "Changes are on. Every change shows you a preview first and waits for your yes." : "Read-only for now. Run setup again anytime to allow changes."}</p>`;
 }
 email.value = ""; localCheck(); pw.focus();

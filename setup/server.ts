@@ -91,7 +91,7 @@ export function createSetupServer(deps: SetupDeps) {
       } catch (err) { console.error(redact(err)); return send(200, { ok: false, message: "Couldn't save to Cloudflare. Make sure you ran `npm run cf:login` and `npm run deploy` first, then press Save again." }); }
       lastGood = null; // forget the password in this process
       const mcpUrl = deps.workerUrl ? `${deps.workerUrl.replace(/\/+$/, "")}/mcp` : undefined;
-      // The page goes straight to the link, where one click on Turn on Touch ID (or Face ID) finishes setup.
+      // The page goes straight to the link, where one click on Save passkey (Turn on Face ID on an iPhone) finishes setup.
       const enrollUrl = deps.workerUrl ? enrollLink(deps.workerUrl, et.token, true) : undefined;
       return send(200, { ok: true, mcpUrl, enrollUrl, writesEnabled: body.allowChanges === true });
     }
@@ -128,19 +128,19 @@ export async function cliAction(flag: string, save: (n: string, v: string) => Pr
   if (flag === "--new-code") {
     const ac = newApprovalCode();
     await save("APPROVAL_CODE_HASH", ac.hash); await save("APPROVAL_CODE_ISSUED", String(Date.now()));
-    out(`\n  Recovery code (works once, for 15 minutes):  ${ac.display}\n  Only for when no device with Face ID or Touch ID is at hand. While it's live, the approval page shows a code field.\n  Type it there yourself. Never paste it into a chat.\n`);
+    out(`\n  Recovery code (works once, for 15 minutes):  ${ac.display}\n  Only for when no device with your Holdt passkey is at hand. While it's live, the approval page shows a code field.\n  Type it there yourself. Never paste it into a chat.\n`);
     return true;
   }
   if (flag === "--add-device") {
     // A one-time Face ID link. Only the token's SHA-256 goes to Cloudflare. The token itself is in the link's fragment.
-    // It opens in this computer's browser, where one click on Turn on Touch ID adds the device and iCloud Keychain
+    // It opens in this computer's browser, where one click on Save passkey adds the device and iCloud Keychain
     // carries the passkey to the owner's other Apple devices. The QR code is only for a device without that sync.
     const t = newEnrollToken();
     await save("ENROLL_TOKEN_HASH", t.hash); await save("ENROLL_TOKEN_ISSUED", String(Date.now()));
     const base = (workerUrl ?? "https://<your-worker>.workers.dev").replace(/\/+$/, ""), link = enrollLink(base, t.token);
     const wantQr = extra.includes("--qr");
     const opened = !wantQr && !!workerUrl && (await open(link));
-    if (opened) out(`\n  Opened the Face ID link in your browser. Click Turn on Touch ID there. That's the only step.\n  It works once, for 10 minutes. For a phone that doesn't sync with iCloud Keychain, run npm run add-device -- --qr.\n`);
+    if (opened) out(`\n  Opened the Face ID link in your browser. Click Save passkey there. That's the only step.\n  It works once, for 10 minutes. For a phone that doesn't sync with iCloud Keychain, run npm run add-device -- --qr.\n`);
     else out(`\n  Open this on the device you want to add (works once, for 10 minutes):\n\n    ${link}\n\n  Or point an iPhone's camera at this code:\n\n${workerUrl ? qrTerminal(link) : "  (Set WORKER_URL to print a full link and a QR code.)"}\n`);
     return true;
   }

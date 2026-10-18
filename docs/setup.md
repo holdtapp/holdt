@@ -82,14 +82,14 @@ Terminal prints a link. Open it in your browser. It only works on this computer.
 5. Choose **read-only** or **changes with my yes**. Read-only is the safe start. You can change it later.
 6. Press **Save**.
 
-Save opens a page called **Turn on Touch ID** (Face ID on an iPhone). Click the button and touch the sensor. That's the only step. Your iPhone gets it through iCloud Keychain. The next screen shows your connector address (ending in `/mcp`) with a Copy button.
+Save opens a page called **Save a passkey on this Mac** (Turn on Face ID on an iPhone). Click **Save passkey**, then use Touch ID or your Mac password when your Mac asks. That's the only step. Your iPhone gets it through iCloud Keychain. The next screen shows your connector address (ending in `/mcp`) with a Copy button.
 
 ## 4. Add Holdt to Grok Bot
 
 1. In Grok Bot, open **Connect Apps**, then **Add custom MCP server**.
 2. Paste your connector address, the one ending in `/mcp`.
 3. An approval page opens. Check that it says "Connect Grok Bot to your iCloud Calendar?"
-4. Click **Allow with Touch ID** (or Face ID). Nothing to type.
+4. Click **Allow on this Mac** (Allow with Face ID on an iPhone). Nothing to type.
 
 Not on a device with your passkey? Tap **Approve on your iPhone instead**, point your iPhone's camera at the code, tap the link and approve with Face ID. The computer finishes by itself.
 

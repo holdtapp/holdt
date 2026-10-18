@@ -12,11 +12,11 @@ and Apple need them), so they're listed separately too.
 
 | Path | Holdt actions | Apple system prompts (not ours) | Also needed, not owner proof |
 |---|---|---|---|
-| First setup on a Mac: `npm run setup`, the page opens, paste password, Test, Save. The page then opens the one-time link | **1**: Turn on Touch ID | passkey sheet: Touch ID press (plus "Continue" on some macOS versions) | paste the app password, Test connection, Save (Apple requires the password). Then tell Grok Bot the address (Copy on the last screen) |
+| First setup on a Mac: `npm run setup`, the page opens, paste password, Test, Save. The page then opens the one-time link | **1**: Save passkey | passkey sheet: Touch ID or the Mac password press (plus "Continue" on some macOS versions) | paste the app password, Test connection, Save (Apple requires the password). Then tell Grok Bot the address (Copy on the last screen) |
 | Your iPhone after setup on the Mac | **0**: iCloud Keychain syncs the passkey | none | none |
-| Connect from Grok Bot, device has the passkey | **1**: Allow with Face ID | passkey sheet: Face ID glance (or Touch ID) | none |
+| Connect from Grok Bot, device has the passkey | **1**: Allow with Face ID (Allow on this Mac) | passkey sheet: Face ID glance (or Touch ID, or the Mac password) | none |
 | Connect, passkey not on this device, browser offers "use a phone" (hybrid) | **1**: Allow with Face ID | Apple's QR in the sheet, scan with the iPhone, Face ID on the iPhone | none |
-| Add a device later: `npm run add-device` opens the link on this computer | **1**: Turn on Touch ID | passkey sheet | running the command |
+| Add a device later: `npm run add-device` opens the link on this computer | **1**: Save passkey | passkey sheet | running the command |
 | Fallback A, connect: browser can't do hybrid | **3**: Approve on your iPhone instead, then on the iPhone: tap the camera's Holdt link, Allow with Face ID. The computer finishes by itself | Face ID on the iPhone | point the iPhone camera at the QR code |
 | Fallback B, a device that doesn't sync (say an Android phone or a work Mac) | **3**: on the new device open Add this device (from Setup help), on the iPhone tap the camera's link and Allow with Face ID, then Turn on Face ID on the new device | Face ID on both | point the iPhone camera at the QR code |
 | Fallback C, no browser on the setup machine (a server over SSH) | **2**: tap the camera's link, Turn on Face ID | passkey sheet | `npm run add-device -- --qr`, point the iPhone camera at the terminal QR code |

@@ -226,21 +226,24 @@ export async function enrollApi(req: Request, env: Env, now = Date.now()): Promi
 
 // ---------- browser scripts (served with a per-response nonce, no other script may run) ----------
 const CODEC = `const b=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));const u=a=>btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');`;
-// Touch ID on a Mac, Face ID elsewhere. The lift mark's piece drops home the moment a passkey answers (src/ui.ts).
-// Which biometric to name. A Mac without touch has Touch ID (touch). An iPhone with a 667-pt screen has a Home button,
-// so Touch ID too. An iPad (Macintosh UA with touch) or anything else can't be told apart, so it gets both names.
-// Every other iPhone has Face ID. Copy written for Face ID is rewritten in place for the other two.
-const BIO_KIND = `const _ua=navigator.userAgent,_tch='ontouchend' in document,touch=/Macintosh/.test(_ua)&&!_tch,_bk=touch?'touch':/iPhone/.test(_ua)?(Math.max(screen.width,screen.height)<=667?'touchphone':'face'):'either';`;
-const BIO_WALK = `const _rw=(root)=>{if(_bk==='face')return;const one=_bk!=='either',w=document.createTreeWalker(root,4);let n;while((n=w.nextNode()))if(!/Touch|fingerprint/.test(n.nodeValue)&&!(n.parentElement&&n.parentElement.closest('[data-nobio]')))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,one?'Touch$1ID':'Touch$1ID or Face$1ID').replace('Your face stays',one?'Your fingerprint stays':'Your face or fingerprint stays').replace('with a glance',one?'with a touch':'with a glance or a touch');};`;
-const TOUCH = `${BIO_KIND}${BIO_WALK}const bio=touch||_bk==='touchphone'?'Touch ID':_bk==='either'?'Touch ID or Face ID':'Face ID';if(touch||_bk==='touchphone')document.documentElement.classList.add('touch');if(touch)document.documentElement.classList.add('mac');_rw(document.body);document.title=document.title.replace('Face ID',bio);`;
-/** Pages with no other script: on a Mac, say Touch ID inside [data-bio] and show the fingerprint glyph. */
-export const BIO_SWAP = `(()=>{${BIO_KIND}${BIO_WALK}if(touch){document.documentElement.classList.add('touch');document.querySelectorAll('[data-bio]').forEach(e=>{const w=document.createTreeWalker(e,4);let n;while((n=w.nextNode()))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,'Touch$1ID');});document.title=document.title.replace('Face ID','Touch ID');return;}if(_bk==='touchphone')document.documentElement.classList.add('touch');document.querySelectorAll('[data-bio]').forEach(_rw);document.title=document.title.replace('Face ID',_bk==='touchphone'?'Touch ID':_bk==='either'?'Touch ID or Face ID':'Face ID');})();`;
+// A Mac says Allow on this Mac, an iPhone says Face ID or Touch ID. The lift mark's piece drops home the moment a passkey answers (src/ui.ts).
+// Which biometric to name. A Mac without touch (touch=true, kind 'mac') may or may not have a Touch ID sensor (a Mac mini
+// or iMac without a Touch ID keyboard asks for the login password), so a Mac is never promised Touch ID: it says
+// "Allow on this Mac" and "Touch ID or password", which is what the system sheet itself offers. An iPhone with a 667-pt
+// screen has a Home button, so Touch ID. An iPad (Macintosh UA with touch) gets both names. Anything else (Windows,
+// Android, Linux) has neither, so it gets the Mac treatment with "this device" and "your screen lock" (gen).
+// Every other iPhone has Face ID. Copy written for Face ID is rewritten in place for the others.
+const BIO_KIND = `const _ua=navigator.userAgent,_tch='ontouchend' in document,touch=/Macintosh/.test(_ua)&&!_tch,_bk=touch?'mac':/iPhone/.test(_ua)?(Math.max(screen.width,screen.height)<=667?'touchphone':'face'):/Macintosh|iPad/.test(_ua)?'either':'other',gen=_bk==='mac'||_bk==='other',here=touch?'this Mac':'this device',lockw=touch?'Touch ID or password':'your screen lock';`;
+const BIO_WALK = `const _rw=(root)=>{if(_bk==='face')return;if(gen){const w=document.createTreeWalker(root,4);let n;while((n=w.nextNode()))if(!/Touch|password|screen lock/.test(n.nodeValue)&&!(n.parentElement&&n.parentElement.closest('[data-nobio]')))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,touch?'Touch$1ID or password':'your screen lock').replace(/^your screen lock/,'Your screen lock').replace('Your face stays',touch?'Your fingerprint or password stays':'Your screen lock stays').replace('with a glance',touch?'with Touch ID or your password':'with your screen lock');return;}const one=_bk!=='either',w=document.createTreeWalker(root,4);let n;while((n=w.nextNode()))if(!/Touch|fingerprint/.test(n.nodeValue)&&!(n.parentElement&&n.parentElement.closest('[data-nobio]')))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,one?'Touch$1ID':'Touch$1ID or Face$1ID').replace('Your face stays',one?'Your fingerprint stays':'Your face or fingerprint stays').replace('with a glance',one?'with a touch':'with a glance or a touch');};`;
+const TOUCH = `${BIO_KIND}${BIO_WALK}const bio=gen?lockw:_bk==='touchphone'?'Touch ID':_bk==='either'?'Touch ID or Face ID':'Face ID';if(_bk==='touchphone')document.documentElement.classList.add('touch');if(touch)document.documentElement.classList.add('mac');if(gen)document.documentElement.classList.add('key');_rw(document.body);document.title=document.title.replace('Face ID',bio);`;
+/** Pages with no other script: rewrite Face ID inside [data-bio] for the device (a Mac gets Touch ID or password and the passkey glyph). */
+export const BIO_SWAP = `(()=>{${BIO_KIND}${BIO_WALK}if(gen){if(touch)document.documentElement.classList.add('mac');document.documentElement.classList.add('key');document.querySelectorAll('[data-bio]').forEach(_rw);document.title=document.title.replace('Face ID',lockw);return;}if(_bk==='touchphone')document.documentElement.classList.add('touch');document.querySelectorAll('[data-bio]').forEach(_rw);document.title=document.title.replace('Face ID',_bk==='touchphone'?'Touch ID':_bk==='either'?'Touch ID or Face ID':'Face ID');})();`;
 export const LOGIN_SCRIPT = `${CODEC}${TOUCH}
 const btn=document.getElementById('pk'),f=btn.form,o=JSON.parse(btn.dataset.o),msg=document.getElementById('pkmsg').lastElementChild,mode=document.getElementById('mode'),live=document.getElementById('live'),wrap=document.getElementById('altwrap'),lab=document.getElementById('pklabel'),mk=document.getElementById('mk');
-if(touch)lab.textContent='Allow with Touch ID';
-const setMode=(on,say)=>{f.classList.toggle('code',on);if(!on){msg.parentNode.classList.remove('keep');msg.textContent='';live.textContent='';}mode.setAttribute('aria-expanded',on?'true':'false');if(say){live.textContent=on?'Approval code shown':bio+' shown';(on?document.getElementById('code'):btn).focus();}};
+if(gen)lab.textContent='Allow on '+here;
+const setMode=(on,say)=>{f.classList.toggle('code',on);if(!on){msg.parentNode.classList.remove('keep');msg.textContent='';live.textContent='';}mode.setAttribute('aria-expanded',on?'true':'false');if(say){live.textContent=on?'Approval code shown':lab.textContent+' shown';(on?document.getElementById('code'):btn).focus();}};
 f.classList.add('js');btn.hidden=false;mode.hidden=false;mode.addEventListener('click',()=>setMode(!f.classList.contains('code'),true));
-if(touch)document.getElementById('modeface').textContent='Use Touch ID instead';
+if(gen)document.getElementById('modeface').textContent='Use '+here+' instead';
 if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);msg.parentNode.classList.add('keep');msg.textContent=bio+' isn’t available in this window. Use an approval code instead.';live.textContent=msg.textContent;}
 const cf=document.getElementById('code');cf.addEventListener('input',()=>{const d=cf.value.replace(/\\D/g,'').slice(0,8),v=d.length>4?d.slice(0,4)+' '+d.slice(4):d;if(v!==cf.value)cf.value=v;});
 let busy=false,fails=0;btn.addEventListener('click',async()=>{if(busy)return;busy=true;btn.setAttribute('aria-disabled','true');msg.textContent='';try{
@@ -259,7 +262,7 @@ const typo=m=>String(m).replace(/(\\w)'(\\w)/g,'$1’$2');`;
 export const ENROLL_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["setup", "done", "skip", "dead"])}${REGISTER}
 const t=location.hash.slice(1),fromSetup=/[?&]from=setup\\b/.test(location.search);history.replaceState(null,'',location.pathname);
 const btn=$('go'),msg=$('msg').lastElementChild,live=$('live'),blab=btn.lastElementChild;
-if(touch){blab.textContent='Turn on Touch ID';$('title').textContent='Turn on Touch ID';$('face1').textContent='Your fingerprint stays on your Mac. Holdt never sees it.';$('skip').querySelector('h1').textContent='Touch ID not turned on';$('skip').querySelector('.lede').textContent='Holdt needs Touch ID to approve connections on this Mac. Turn it on whenever you’re ready.';}
+if(gen){blab.textContent='Save passkey';$('title').textContent='Save a passkey on '+here;$('face1').textContent=touch?'Your Mac asks for Touch ID or its password. Holdt never sees either.':'Your device asks for its screen lock. Holdt never sees it.';$('skip').querySelector('h1').textContent='Passkey not saved';$('skip').querySelector('.lede').textContent='Holdt needs a passkey on '+here+' to approve connections. Save one whenever you’re ready.';}
 const say=m=>{msg.textContent=m;live.textContent=m;};
 const dead=m=>{const d=$('dead'),k=/expired/.test(m)?0:/already used/.test(m)?1:2;d.querySelector('h1').textContent=['This link expired','This link was already used','This link doesn’t work'][k];d.querySelector('.lede').textContent=['Links last 10 minutes. ','Each link adds one device. ','This link isn’t complete or isn’t current. '][k]+'Make a new one on the computer where you set up Holdt.';show('dead');};
 $('later').addEventListener('click',()=>show('skip'));
@@ -277,7 +280,7 @@ if(!r.ok){if(r.net||/most it allows/.test(r.message||''))throw new Error(r.messa
 const d=await register(r,{token:t},()=>{btn.setAttribute('aria-busy','true');blab.textContent='Turning on';live.textContent='Turning on '+bio+'. One moment.';});
 if(!d.ok){if(/already used|expired/.test(d.message||''))return dead(d.message);throw new Error(d.message);}
 const h=$('done').querySelector('h1');h.textContent=bio+' is on';
-const lede=$('done').querySelector('.lede');lede.textContent=fromSetup?'Last step. Give your assistant this address.':touch?'Next time, click Allow with Touch ID. With iCloud Keychain on, your other Apple devices can use it too.':lede.textContent;if(touch)$('done').querySelector('h1').textContent='Touch ID is on';
+const lede=$('done').querySelector('.lede');lede.textContent=fromSetup?'Now give your assistant this address.':touch?'Next time, click Allow on this Mac. With iCloud Keychain on, your other Apple devices can use it too.':gen?'Next time, click Allow on this device.':lede.textContent;if(gen)$('done').querySelector('h1').textContent='Passkey saved';
 if(fromSetup){$('next').hidden=false;$('copywrap').hidden=false;$('closeline').hidden=true;const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent.trim());cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in your assistant.';setTimeout(()=>{cl.textContent='Copy address';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy address';$('copylive').textContent='Couldn’t copy. The address is selected.';}});}
 show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
 }catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';fetchOpts();
@@ -287,7 +290,7 @@ if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again when you
  * The page polls for the iPhone's answer and finishes by itself. Without script, the QR code shows with a Continue button. */
 export const CONSENT_SCRIPT = `${CODEC}${TOUCH}${POST}
 const $=id=>document.getElementById(id),btn=$('pk'),f=btn.form,o=JSON.parse(btn.dataset.o),msg=$('pkmsg').lastElementChild,mode=$('mode'),live=$('live'),wrap=$('altwrap'),lab=$('pklabel'),mk=$('mk'),panel=$('awaypanel'),am=$('awaymsg'),other=panel.dataset.other||'your iPhone',Other=other;
-if(touch){lab.textContent='Allow with Touch ID';$('modeface').textContent='Use Touch ID on this Mac';}
+if(gen){lab.textContent='Allow on '+here;$('modeface').textContent='Use '+here+' instead';}
 let timer=0,done=false,fails=0,busy=false;
 const say=m=>{msg.textContent=m;live.textContent=m;};
 const refresh=async()=>{const r=await post('/authorize/away/new',{handle:f.handle.value,ctx:f.ctx.value});if(r&&r.ok&&r.qr){const w=$('qrwrap');w.innerHTML=r.qr;w.dataset.link=r.link;}};
@@ -298,7 +301,7 @@ if(r.status==='approved')finish(true);
 else if(r.status==='denied'){done=true;clearInterval(timer);const i=document.createElement('input');i.type='hidden';i.name='decision';i.value='deny';f.appendChild(i);live.textContent='Not allowed on '+Other+'.';f.submit();}
 else if(r.status==='gone')refresh();};
 const setMode=(on,speak)=>{f.classList.toggle('away',on);if(!on){msg.parentNode.classList.remove('keep');msg.textContent='';live.textContent='';}mode.setAttribute('aria-expanded',on?'true':'false');
-if(on&&!timer)timer=setInterval(poll,2000);if(speak){live.textContent=on?(other==='your iPhone'?'QR code shown. Scan it with your iPhone’s camera.':'QR code shown. Scan it with another device’s camera.'):bio+' shown';if(on){panel.focus({preventScroll:true});$('qrwrap').scrollIntoView({block:'nearest'});}else btn.focus();}};
+if(on&&!timer)timer=setInterval(poll,2000);if(speak){live.textContent=on?(other==='your iPhone'?'QR code shown. Scan it with your iPhone’s camera.':'QR code shown. Scan it with another device’s camera.'):lab.textContent+' shown';if(on){panel.focus({preventScroll:true});$('qrwrap').scrollIntoView({block:'nearest'});}else btn.focus();}};
 f.classList.add('js');btn.hidden=false;mode.hidden=false;mode.addEventListener('click',()=>setMode(!f.classList.contains('away'),true));
 if(f.classList.contains('away'))setMode(true);
 if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);}
@@ -324,7 +327,7 @@ else if(r.gone==='invalid'||r.net){d.querySelector('h1').textContent=r.net?'Hold
 show('dead');};
 (async()=>{if(!s)return gone({gone:'invalid'});let o=await post('/ok/view',{s});if(!o.ok)return gone(o);
 $('ask').innerHTML=o.html;show('ask');$('ask').querySelector('h1').removeAttribute('tabindex');
-if(o.kind==='pair'){$('ok').querySelector('h1').textContent='Device approved';$('ok').querySelector('.lede').textContent='Go back to the new device to finish.';$('no').querySelector('h1').textContent='Device not added';$('no').querySelector('.lede').textContent='Nothing changed.';}else if(o.device&&o.device!=='device')$('ok').querySelector('.lede').textContent='Your '+o.device+' finishes when its Holdt page is open.';
+if(o.kind==='pair'){$('ok').querySelector('h1').textContent='Device approved';$('ok').querySelector('.lede').textContent='Go back to the new device to finish.';$('no').querySelector('h1').textContent='Device not added';$('no').querySelector('.lede').textContent='Nothing changed.';}else if(o.device&&o.device!=='device')$('ok').querySelector('.lede').textContent='Your '+o.device+' takes it from here. Keep its Holdt page open.';
 const yes=$('yes'),lab=$('yeslabel'),msg=$('askmsg').lastElementChild,live=$('live'),idle=()=>{lab.textContent='Allow with '+bio;};idle();
 const say=m=>{msg.textContent=m;live.textContent=m;};
 if(!window.PublicKeyCredential){yes.disabled=true;say(bio+' isn’t available in this browser. Open the link in Safari.');}
@@ -345,7 +348,7 @@ let denying=false;$('nope').addEventListener('click',async()=>{if(denying)return
  * The claim secret stays in this page's memory. It is never in the QR code, so whoever sees the code can't enroll. */
 export const PAIR_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["ask", "ready", "done", "no", "skip", "dead", "nopk"])}${REGISTER}
 let claim='',opts=null,timer=0;const live=$('live');
-if(touch){$('ready').querySelector('h1').textContent='Turn on Touch ID';$('go').lastElementChild.textContent='Turn on Touch ID';$('done').querySelector('h1').textContent='Touch ID is on';$('done').querySelector('.lede').textContent='Next time, click Allow with Touch ID on this Mac.';}
+if(gen){$('ready').querySelector('h1').textContent='Save a passkey on '+here;$('go').lastElementChild.textContent='Save passkey';$('done').querySelector('h1').textContent='Passkey saved';$('done').querySelector('.lede').textContent='Next time, click Allow on '+here+'.';}
 const stop=()=>{clearInterval(timer);timer=0;};
 const poll=async()=>{if(document.hidden||!claim)return;const r=await post('/pair/status',{claim});if(!r||!r.ok||!timer)return;
 if(r.status==='approved'&&r.publicKey){stop();opts=r;show('ready');}else if(r.status==='denied'){stop();show('no');}else if(r.status==='gone'){stop();show('dead');}};
