@@ -18,7 +18,7 @@ You need a free Cloudflare account and an Apple Account with two-factor authenti
 1. Click **Allow** on Cloudflare's page.
 2. Apple's page opens in front of the Holdt setup page. Sign in, make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars.
 3. On the Holdt page, read-only is chosen. Pick changes if you want them, then enter your Apple Account email and paste the password. Holdt checks it with Apple and seals it in your Cloudflare account.
-4. Click **Save passkey** once (Touch ID or your password on a Mac, your screen lock on other computers). If iCloud Keychain is on, it carries the passkey to your iPhone.
+4. Click **Save passkey** once (Touch ID or your password on a Mac, your screen lock on other computers). On a Mac, if iCloud Keychain is on, your iPhone gets the passkey too.
 5. Add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
 
 When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (**Touch ID** on a Home-button iPhone, **Touch ID or Face ID** on an iPad), or **Allow on this Mac** on a Mac (Touch ID or your password). On a device without your passkey, choose **Approve on your iPhone instead** and scan the code with your iPhone. The steps for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
@@ -31,7 +31,7 @@ You need Node.js and a free Cloudflare account. A step-by-step version is in [do
 3. `npx --no-install wrangler kv namespace create OAUTH_KV`, and paste the id it prints over `REPLACE_WITH_YOUR_KV_ID` under `binding = "OAUTH_KV"` in wrangler.toml.
 4. `npm run deploy`. Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
 5. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens on your computer. Make an app-specific password on Apple's page, paste it, enter your Apple Account email, **Test connection**, turn on **Let Grok Bot add and change events** if you want changes, then **Save and finish**.
-6. Save opens a one-time passkey link in the same browser. Click **Save passkey** (on an iPhone it reads **Turn on Face ID**, **Turn on Touch ID** on a Home-button iPhone, or **Turn on Touch ID or Face ID** on an iPad). If iCloud Keychain is on, it carries the passkey to your iPhone. The last screen shows your connector address with a Copy button.
+6. Save opens a one-time passkey link in the same browser. Click **Save passkey** (on an iPhone it reads **Turn on Face ID**, **Turn on Touch ID** on a Home-button iPhone, or **Turn on Touch ID or Face ID** on an iPad). On a Mac, if iCloud Keychain is on, your iPhone gets the passkey too. The last screen shows your connector address with a Copy button.
 
 Adding a device later: `WORKER_URL=https://holdt.<you>.workers.dev npm run add-device` opens a fresh link in your browser. Click **Save passkey** there. For a phone, `npm run add-device -- --qr` prints a QR code. Lost every device? `npm run new-code` prints a one-time recovery code, and the approval page shows a code field for 15 minutes.
 
