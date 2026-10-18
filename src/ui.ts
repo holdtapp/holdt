@@ -93,7 +93,7 @@ input.code[aria-invalid=true]{border-color:var(--err)}input.code[aria-invalid=tr
 .owner{margin-top:.5rem}.alt>.owner,form>.owner{margin-top:.5rem}.owner summary{color:var(--ink2);font-weight:400;font-size:.765rem;letter-spacing:-.005em}.owner .body{margin:.2rem 0 0;padding:.75rem;border-radius:.62rem;background:var(--secondary-bg);color:var(--ink2);font-size:.765rem;line-height:1.4;letter-spacing:-.005em}
 .owner ol{margin:0;padding-left:1.2rem}.owner li+li{margin-top:.3rem}
 .owner.dead .body{color:var(--ink)}.owner.dead+.btn{margin-top:1rem}.factdest{display:flex;gap:.6rem;align-items:center;justify-content:center;margin:1.1rem 0 0;font-size:.94rem}.factdest .ico{color:var(--ink2);margin:0}.factdest+.facts{margin-top:.7rem}
-.owner code{border-radius:.5rem;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line);display:block;width:max-content;max-width:100%;overflow-x:auto;white-space:nowrap;margin:.35rem 0;padding:.4rem .55rem}
+.owner code{border-radius:.5rem;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line);display:block;width:max-content;max-width:100%;overflow-x:auto;white-space:nowrap;margin:.35rem 0;padding:.4rem .55rem}@supports (corner-shape:squircle){.owner code{corner-shape:squircle}}
 code{font:.8rem ui-monospace,"SF Mono",Menlo,monospace;background:var(--secondary-bg);color:var(--ink);padding:.12rem .35rem;border-radius:.35rem;white-space:nowrap}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .in{animation:rise .55s var(--spring) both}.in.d1{animation-delay:.04s}.in.d2{animation-delay:.08s}.in.d3{animation-delay:.12s}
@@ -122,7 +122,7 @@ form.away #mode .off{display:none}form.away #mode .on{display:inline-flex}form.a
 .next{margin:1.2rem 0 0;text-align:center}.next p{margin:0;color:var(--ink2)}.next .say{margin:.6rem 0 0;padding:.8rem 1rem;border-radius:.62rem;background:var(--surface);color:var(--ink);font-weight:500;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.drop .piece{transform:translateY(14px)}.drop .whole{opacity:1}}
 /* Continuous (squircle) corners where the engine draws them, at the radius iOS uses for the same element. */
-@supports (corner-shape:squircle){.btn,.facts,.awaybox,.callout,.owner .body,.next .say,.owner code{corner-shape:squircle}.btn{border-radius:1.5rem}.facts,.awaybox,.callout,.owner .body,.next .say{border-radius:1.15rem}}
+@supports (corner-shape:squircle){.btn,.facts,.awaybox,.callout,.owner .body,.next .say{corner-shape:squircle}.btn{border-radius:1.5rem}.facts,.awaybox,.callout,.owner .body,.next .say{border-radius:1.15rem}}
 @media (prefers-contrast:more){:root{--ink2:var(--ink);--line:var(--ink2)}}`;
 
 /** The Holdt lift mark, inline. Open = waiting for your yes. `closed` draws the piece home (approved). */
