@@ -48,7 +48,11 @@ test("consent copy: locked line verbatim, read-only and changes-on wording, and 
   assert.ok(ro.includes(LOCKED)); assert.match(ro, /Changes are off, so it can’t add or change events\./); assert.match(ro, /Never sends invitations\./);
   await fresh({ WRITES_ENABLED: "true" }); const rw = visible((await consentHtml("Cursor", GROK)).html);
   assert.ok(rw.includes(LOCKED)); assert.match(rw, /Changes are on, and each one waits for your yes\./);
-  const pages = [ro, rw, visible((await consentHtml("Calendar Helper", "https://app.example/cb")).html), visible(await (await call("/enroll")).text())];
+  const pages = [ro, rw, visible((await consentHtml("Calendar Helper", "https://app.example/cb")).html), visible(await (await call("/enroll")).text()), visible(await (await call("/ok")).text()), visible(await (await call("/pair")).text())];
+  await fresh({ APPROVAL_CODE_HASH: undefined }); pages.push(visible((await consentHtml("Cursor", GROK)).html)); // no device yet
+  await addPasskey(env, { id: "cred-a" + "x".repeat(20), jwk: {}, alg: -7, signCount: 0, createdAt: Date.now() - 30 * 86400_000 } as any); pages.push(visible((await consentHtml("Cursor", GROK)).html)); // the normal page
+  const { askHtml } = await import("../src/authorize.js");
+  pages.push(visible(askHtml("consent", "a Mac near Denver, CO", "just now", { clientName: "Cursor", redirectUri: GROK }, "off, so it can't add or change events")), visible(askHtml("pair", "an iPad", "1 minute ago", {}, "")));
   await fresh({ PASSKEYS: "off" }); pages.push(visible(await (await call("/enroll")).text()));
   for (const p of pages) { assert.doesNotMatch(p, /;/, p.slice(0, 80)); assert.doesNotMatch(p, /\b(unlock|elevate|seamless|powerful)\b/i); }
 });
@@ -75,8 +79,8 @@ test("new-device note: plain words, who and when, and the one thing to do", () =
 });
 
 test("browser scripts parse, and the consent page puts the reset command only behind setup help", async () => {
-  const { LOGIN_SCRIPT, ENROLL_SCRIPT } = await import("../src/passkey.js");
-  for (const sc of [LOGIN_SCRIPT, ENROLL_SCRIPT]) assert.doesNotThrow(() => new Function(sc));
+  const { LOGIN_SCRIPT, ENROLL_SCRIPT, CONSENT_SCRIPT, READY_SCRIPT, OK_SCRIPT, PAIR_SCRIPT } = await import("../src/passkey.js");
+  for (const sc of [LOGIN_SCRIPT, ENROLL_SCRIPT, CONSENT_SCRIPT, READY_SCRIPT, OK_SCRIPT, PAIR_SCRIPT]) assert.doesNotThrow(() => new Function(sc));
 });
 
 test("passkey sheet names: Holdt and iCloud Calendar, never an owner label", async () => {
@@ -124,8 +128,8 @@ test("connect: every app gets the safety line, a wrong code comes back empty and
   // Every owner disclosure carries one label
   const labels = [...wrong.matchAll(/<details class="owner[^"]*"[^>]*><summary>([^<]*)/g)].map((m) => m[1]!.trim());
   assert.deepEqual([...new Set(labels)], ["Setup help"]);
-  await fresh({ PASSKEYS: "off", APPROVAL_CODE_ISSUED: String(Date.now() - 20 * 60_000) });
-  const exp = await (async () => { const { html: h } = await consentHtml("Cursor", GROK); return (await call("/authorize", { method: "POST", body: new URLSearchParams({ handle: field(h, "handle").replace(/&#(\d+);/g, (_, x) => String.fromCharCode(+x)), ctx: field(h, "ctx").replace(/&#(\d+);/g, (_, x) => String.fromCharCode(+x)), code: CODE, decision: "approve" }) })).text(); })();
+  await fresh({ PASSKEYS: "off" });
+  const exp = await (async () => { const { html: h } = await consentHtml("Cursor", GROK); env.APPROVAL_CODE_ISSUED = String(Date.now() - 20 * 60_000); return (await call("/authorize", { method: "POST", body: new URLSearchParams({ handle: field(h, "handle").replace(/&#(\d+);/g, (_, x) => String.fromCharCode(+x)), ctx: field(h, "ctx").replace(/&#(\d+);/g, (_, x) => String.fromCharCode(+x)), code: CODE, decision: "approve" }) })).text(); })();
   assert.match(exp, /<details class="owner dead" open><summary>Setup help/);
   assert.ok(exp.indexOf("<details class=\"owner dead\" open>") < exp.indexOf('value="approve">Allow with code'), "help opens right under the message, above the button");
   assert.match(exp, /class="btn secondary" name="decision" value="approve"/);
@@ -136,53 +140,43 @@ test("look: input and secondary-button borders meet 3:1 non-text contrast (WCAG 
   assert.match(STYLE, /input\.code\{[^}]*border:1\.5px solid var\(--field-line\)/);
 });
 
-test("status lines are read once, busy text only when work happens, focus survives a failed sheet (review round 20)", async () => {
-  const { LOGIN_SCRIPT, ENROLL_SCRIPT } = await import("../src/passkey.js");
-  // Each visible status line is mirrored into one live region, so the visible copy is hidden from VoiceOver (no double read).
+test("no typed codes: every page in the normal flow has nothing to type and never mentions a code", async () => {
+  await fresh({ APPROVAL_CODE_HASH: undefined, APPROVAL_CODE_ISSUED: undefined });
+  const html: string[] = [(await consentHtml("Cursor", GROK)).html];
+  await addPasskey(env, { id: "cred-a" + "x".repeat(20), jwk: {}, alg: -7, signCount: 0, createdAt: Date.now() - 30 * 86400_000 } as any);
+  html.push((await consentHtml("Cursor", GROK)).html, await (await call("/enroll")).text(), await (await call("/ok")).text(), await (await call("/pair")).text());
+  const { askHtml } = await import("../src/authorize.js"); html.push(askHtml("consent", "a Mac", "just now", { redirectUri: GROK }, ""), askHtml("pair", "an iPad", "just now", {}, ""));
+  const { CONSENT_SCRIPT, ENROLL_SCRIPT, OK_SCRIPT, PAIR_SCRIPT, READY_SCRIPT } = await import("../src/passkey.js");
+  for (const h of html) { assert.doesNotMatch(h, /<input(?![^>]*type="hidden")/, "no visible input"); assert.doesNotMatch(visible(h), /approval code|recovery code|8 digits|enter (the|a|your) code/i); }
+  for (const sc of [CONSENT_SCRIPT, ENROLL_SCRIPT, OK_SCRIPT, PAIR_SCRIPT, READY_SCRIPT]) assert.doesNotMatch(sc, /approval code|8 digits/i);
+});
+
+test("one click: the setup link's button goes straight to the passkey sheet, and the consent button finishes the grant", async () => {
+  const { ENROLL_SCRIPT, CONSENT_SCRIPT, PAIR_SCRIPT } = await import("../src/passkey.js");
+  // Options are fetched as the page opens (spends nothing), so the click keeps Safari's user gesture for credentials.create.
+  assert.match(ENROLL_SCRIPT, /else fetchOpts\(\)\.then\(/);
+  assert.match(ENROLL_SCRIPT, /let r=await\(Date\.now\(\)-preAt<240000&&pre\?pre:fetchOpts\(\)\)/);
+  assert.match(ENROLL_SCRIPT, /navigator\.credentials\.create/); assert.doesNotMatch(ENROLL_SCRIPT, /confirm\(|Continue/);
+  // The consent button's sheet result submits the form at once. There is no second confirm step.
+  assert.match(CONSENT_SCRIPT, /lab\.textContent='Approving';live\.textContent='Approving\. One moment\.';finish\(false\);/);
+  assert.match(CONSENT_SCRIPT, /transports:\['internal','hybrid'\]/, "the sheet can offer a nearby iPhone by itself");
+  // Pairing options arrive with the approval, so Turn on Face ID there is also a direct click to the sheet.
+  assert.match(PAIR_SCRIPT, /if\(r\.status==='approved'&&r\.publicKey\)\{stop\(\);opts=r;show\('ready'\);\}/);
+});
+
+test("status lines are read once, focus survives a failed sheet, and icons hang beside every line", async () => {
+  const { CONSENT_SCRIPT, ENROLL_SCRIPT } = await import("../src/passkey.js");
   const src = readFileSync(new URL("../src/authorize.ts", import.meta.url), "utf8");
   assert.match(src, /<p class="status" id="msg" aria-hidden="true">\$\{ICON\.info\}<span class="st"><\/span><\/p><p class="sr" id="live" role="status" aria-live="polite"><\/p>/, "enroll");
-  assert.match(src, /<p class="status" id="pkmsg" aria-hidden="true">.*<p class="sr" id="live" role="status" aria-live="polite">\$\{esc\(pkErr\)\}<\/p>/, "a server-side Face ID error is in the live region too");
-  assert.match(LOGIN_SCRIPT, /isn’t available in this window\. Use an approval code instead\.';live\.textContent=msg\.textContent;/);
-  // Switching back to Face ID clears the "Enter your approval code below" line and its mirror.
-  assert.match(LOGIN_SCRIPT, /if\(!on\)\{msg\.parentNode\.classList\.remove\('keep'\);msg\.textContent='';live\.textContent='';\}/);
-  // "Checking code" is announced only when /enroll/options is actually called, not when a kept challenge is reused.
-  assert.doesNotMatch(ENROLL_SCRIPT, /clearErr\(\);busyAs\(/);
-  assert.match(ENROLL_SCRIPT, /if\(!r\)\{busyAs\('Checking code','Checking your code\.'\);r=await post\('\/enroll\/options'/);
-  // After a cancelled or failed sheet the re-enabled button takes focus back (a field error focuses the field instead).
-  assert.match(ENROLL_SCRIPT, /if\(!\(e&&e\.field\)\)btn\.focus\(\);/);
-});
-
-test("enroll shows the true state of a checked code, and status icons hang beside every line (review rounds 21 to 23)", async () => {
-  const { ENROLL_SCRIPT } = await import("../src/passkey.js");
-  const src = readFileSync(new URL("../src/authorize.ts", import.meta.url), "utf8");
-  const pk = readFileSync(new URL("../src/passkey.ts", import.meta.url), "utf8");
-  for (const [name, text] of [["authorize.ts", src], ["passkey.ts", pk]] as const) assert.doesNotMatch(text, /code still works/i, `${name}: no "code still works" claims`);
-  assert.match(src, /<p id="codefact">Approval codes keep working alongside Face ID\.<\/p>/, "before any code is checked");
-  // The server spends a code in /enroll/options. The moment it accepts one, the page switches to the spent state.
-  assert.match(ENROLL_SCRIPT, /if\(cv\)\{kept=\{cv,r,at:Date\.now\(\)\};markSpent\(\);\}/);
-  assert.match(ENROLL_SCRIPT, /markSpent=\(\)=>\{spent=true;lede\.textContent='Your code is in\. Finish with '\+bio\+'\.';fld\.style\.display='none';factRow\.style\.display='none';\$\('codeok'\)\.hidden=false;live\.textContent='Code accepted\. Your next code approval needs a new one\.';/, "spent state is announced");
-  assert.match(src, /<p class="status" id="codeok" hidden>\$\{ICON\.checkCircle\}<span class="st">Code accepted\.\nYour next code approval needs a new one\.<\/span><\/p>/);
-  // A timed-out kept challenge restores a true "enter a new code" state before the error shows.
-  assert.match(ENROLL_SCRIPT, /const unSpend=\(\)=>\{clearTimeout\(kt\);spent=false;kept=null;lede\.textContent=lede0;fld\.style\.display='';factRow\.style\.display='';\$\('codeok'\)\.hidden=true;\}/);
-  assert.match(ENROLL_SCRIPT, /if\(!r&&cv&&kept&&kept\.cv===cv\)\{unSpend\(\);const e=new Error\('That code has timed out\./);
-  // Not now after a spent code says it was used. A cancelled sheet with a kept code gives the time window.
-  assert.match(ENROLL_SCRIPT, /if\(spent\)k\.querySelector\('\.lede'\)\.textContent='The code you entered was used for this setup\./);
-  assert.match(ENROLL_SCRIPT, /kept\?'Try again within a few minutes\.'/);
-  // Hanging icon: status and error lines are flex rows, so a second line starts under the text. Hidden status lines stay hidden.
+  assert.match(src, /<p class="status" id="pkmsg" aria-hidden="true">\$\{ICON\.info\}<span class="st">\$\{esc\(error\)\}<\/span><\/p><p class="sr" id="live" role="status" aria-live="polite">\$\{esc\(error\)\}<\/p>/, "a server-side error is in the live region too");
+  assert.match(CONSENT_SCRIPT, /if\(!on\)\{msg\.parentNode\.classList\.remove\('keep'\);msg\.textContent='';live\.textContent='';\}/);
+  assert.match(CONSENT_SCRIPT, /fails>1\)\{setMode\(true\);msg\.parentNode\.classList\.add\('keep'\);say\(bio\+' didn’t finish\.\\nScan the QR code with your iPhone instead\.'\)/);
+  assert.match(ENROLL_SCRIPT, /btn\.focus\(\);\}\}\);$/);
+  for (const t of [src, readFileSync(new URL("../src/passkey.ts", import.meta.url), "utf8")]) assert.doesNotMatch(t, /code still works/i);
   assert.match(STYLE, /\.status\{display:flex;justify-content:center;align-items:flex-start;gap:\.35rem;[^}]*text-align:left\}/);
   assert.match(STYLE, /\.status\[hidden\]\{display:none\}/);
-  assert.match(STYLE, /\.fielderr\{display:flex;justify-content:center;align-items:flex-start;gap:\.35rem;text-align:left;/);
-  // Don't allow and Not now stand apart from the ways to allow.
   assert.match(STYLE, /\.btn\.plain\.quiet\{margin-top:\.9rem\}/);
-});
-
-test("spent-code edge cases and no-script hiding (review round 23)", async () => {
-  const { ENROLL_SCRIPT } = await import("../src/passkey.js");
-  // The window closing on its own puts the page back to entry and says so, without moving focus.
-  assert.match(ENROLL_SCRIPT, /kt=setTimeout\(\(\)=>\{if\(spent&&kept\)\{unSpend\(\);say\('That code has timed out\. Get a new one on the computer where you set up Holdt\.'\);\}\},270000\)/);
-  // Any failed finish, or a code error while spent, restores the visible field so the error is seen and announced.
-  assert.match(ENROLL_SCRIPT, /clearTimeout\(kt\);kept=null;if\(!d\.ok\)\{unSpend\(\);/);
-  assert.match(ENROLL_SCRIPT, /if\(e&&e\.field&&spent\)unSpend\(\);/);
-  // Every hidden element stays hidden even when an author rule sets display (the code switch without script).
   assert.match(STYLE, /\[hidden\]\{display:none!important\}/);
+  // The QR code stays black on white in dark mode, so a camera reads it.
+  const { qrSvg } = await import("../src/qr.js"); assert.match(qrSvg("https://x.example/ok#a", "QR"), /<rect width="\d+" height="\d+" fill="#fff"\/><path d="[^"]+" fill="#000"\/>/);
 });

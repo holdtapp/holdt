@@ -26,6 +26,7 @@
     "wrangler": "3.114.17"
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^1.2.3"
+    "@cloudflare/workers-oauth-provider": "^1.2.3",
+    "qrcode-generator": "2.0.4"
   }
 }

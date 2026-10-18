@@ -1,12 +1,16 @@
-// The owner's approval page. Grok Bot opens it during sign-in. The owner proves it's them with the
-// one-time code that `npm run setup` showed on their own computer: single use, 15 minutes, 5 tries.
+// The owner's approval page. Grok Bot opens it during sign-in. The owner proves it's them with Face ID: on this device,
+// or on their iPhone by scanning a QR code (src/away.ts). Nobody types a code in the normal flow (docs/no-typed-codes.md).
+// The approval code survives only as an owner recovery tool: `npm run new-code` on the owner's computer turns on a
+// one-time code field for 15 minutes (single use, 5 tries). The demo Worker's reviewer code uses the same field.
 import { AuthorizationError } from "@cloudflare/workers-oauth-provider";
 import type { Env } from "./worker.js";
 import { registerEnvSecrets, SEC_HEADERS } from "./worker.js";
 import { log } from "./redact.js";
 import { guardFor } from "./guard.js";
 import { reviewerState, checkReviewerCode, looksLikeReviewerCode } from "./reviewer.js";
-import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, loadPasskeys, deviceNotice, usableHere, LOGIN_SCRIPT, ENROLL_SCRIPT } from "./passkey.js";
+import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, loadPasskeys, deviceNotice, usableHere, json, sameOriginJson, readJson, LOGIN_SCRIPT, ENROLL_SCRIPT, CONSENT_SCRIPT, READY_SCRIPT, OK_SCRIPT, PAIR_SCRIPT } from "./passkey.js";
+import { awayApi, createConsentAway, takeConsentAway, whereFrom } from "./away.js";
+import { qrSvg } from "./qr.js";
 import { esc, screen, documentHtml, ICON, ownerNote, endScreen } from "./ui.js";
 
 const CODE_TTL_MS = 15 * 60_000, MAX_TRIES = 5;
@@ -37,7 +41,7 @@ export function redirectListed(env: Pick<Env, "REDIRECT_ALLOWLIST">, uri: string
 export function formActionFor(uri: string) {
   try { const u = new URL(uri); if (u.username || u.password || u.hash) return false; return u.protocol === "https:" || u.protocol === "http:" ? u.origin : u.protocol; } catch { return ""; }
 }
-function page(title: string, body: string, status = 200, headers?: Headers, redirectUri = "", script = "") {
+export function page(title: string, body: string, status = 200, headers?: Headers, redirectUri = "", script = "") {
   const h = headers ?? new Headers();
   h.set("Content-Type", "text/html; charset=utf-8"); for (const [k, v] of Object.entries(SEC_HEADERS)) h.set(k, v);
   // A script runs only on the passkey pages, and only the one carrying this response's nonce.
@@ -75,7 +79,8 @@ const BOTH_CMDS = "On the computer where you set up Holdt:<ol><li>Turn Face ID o
 const HELP = "Setup help";
 const REVIEWER_HINT = `<p class="foot">Reviewing Holdt? Enter the reviewer code from the testing instructions. It starts with RVW.</p>`;
 /** The consent page. `errorFrom` says which control the error belongs to, so it shows beside that control. */
-function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }, notice?: string, reviewer = false, errorFrom: "code" | "pk" = "code", reason = "", typed = "") {
+/** What the app gets, and the security notices that come before it. Shared by the consent page and the iPhone approve page. */
+export function consentFacts(d: any, writes: string, notice?: string, extra = "", remote = false) {
   const who = clientLine(d);
   const facts = `<ul class="facts" role="list">
 
@@ -85,8 +90,12 @@ function consentBody(d: any, handle: string, writes: string, error?: string, pk?
 <li class="no">${ICON.mailOff}<p>Never sends invitations.</p></li></ul>`;
   // Security notices come first, before the summary of what the app gets.
   const dest = who.known ? "" : `<p class="factdest">${ICON.globe}<span>Access goes to <strong>${esc(d.redirectHost || "an unknown address")}</strong></span></p>`;
-  const callouts = (d.redirectIsLoopback ? `<div class="callout">${ICON.alert}<p>This sends access to an app on this computer. Continue only if you just started connecting from it.</p></div>` : "")
-    + (notice ? `<div class="callout">${ICON.device}<p><span class="sr">Security notice: </span>${esc(notice)}</p></div>` : "");
+  const callouts = (d.redirectIsLoopback ? `<div class="callout">${ICON.alert}<p>${remote ? "This sends access to an app on the computer that asked. Approve only if you just started connecting from it." : "This sends access to an app on this computer. Continue only if you just started connecting from it."}</p></div>` : "")
+    + (notice ? `<div class="callout">${ICON.device}<p><span class="sr">Security notice: </span>${esc(notice)}</p></div>` : "") + extra;
+  return { who, body: callouts + dest + facts };
+}
+function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }, notice?: string, reviewer = false, errorFrom: "code" | "pk" = "code", reason = "", typed = "") {
+  const { who, body } = consentFacts(d, writes, notice);
   const dead = DEAD.has(reason);
   const codeErr: FieldErr | undefined = error && (!pk || errorFrom === "code") ? { text: reason === "expired" ? "That code expired. Get a new one on the computer where you set up Holdt." : error, dead } : undefined; // the open help carries where to get a new one
   const pkErr = error && pk && errorFrom === "pk" ? error : "";
@@ -109,7 +118,59 @@ ${FIELD_CODE({ reviewer, error: codeErr })}${inPanel}${reviewer ? REVIEWER_HINT 
 ${deny}${atEnd}</div></form>`
     : `<form method="post" autocomplete="off">${hidden}${FIELD_CODE({ reviewer, error: codeErr })}
 ${dead ? help : ""}${allow}${deny}${reviewer ? REVIEWER_HINT : ""}${dead ? "" : help}</form>`;
-  return screen({ title: who.title, lede: who.lede, markId: "mk", body: callouts + dest + facts, actions });
+  return screen({ title: who.title, lede: who.lede, markId: "mk", body, actions });
+}
+const PK_FIELDS = (pk: { token: string }) => `<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">`;
+const ADD_DEVICE = "On the computer where you set up Holdt, run this, then scan the QR code it shows with this device:<code>npm run add-device</code>";
+/** The normal consent page: Allow with Face ID, or scan a QR code and approve on the iPhone. Nothing to type. */
+function consentFaceBody(d: any, handle: string, writes: string, pk: { token: string; challenge: string; rpId: string; ids: string[] }, awayUrl: string, notice?: string, error = "") {
+  const { who, body } = consentFacts(d, writes, notice);
+  const hidden = `<input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="ctx" value="${esc(d.__ctx ?? "")}"><input type="hidden" name="away">`;
+  const panel = `<div class="awaybox" id="awaypanel" tabindex="-1" role="group" aria-label="Approve on your iPhone"><div id="qrwrap" data-link="${esc(awayUrl)}">${qrSvg(awayUrl, "QR code. Scan it with your iPhone’s camera to approve there.")}</div>
+<ol class="steps"><li>Point your iPhone’s camera at this code.</li><li>Tap the Holdt link, then approve with Face\u00a0ID.</li></ol>
+<p class="status wait" id="awaymsg">${ICON.spinner}<span class="st">Waiting for your iPhone</span></p>
+<button class="btn secondary" id="awaygo" name="decision" value="away">I approved on my iPhone</button></div>`;
+  const help = ownerNote(HELP, `<p>Face ID syncs to your Apple devices with iCloud Keychain, so most need nothing more.</p><p>For a device that doesn’t sync, <a href="/pair" target="_blank" rel="noopener">add it</a> and approve it from your iPhone.</p>${notice ? `<p>Didn’t add a device? Turn Face ID off everywhere, then set it up again.<code>npm run reset-passkeys</code></p>` : ""}`);
+  const actions = `<form method="post" autocomplete="off"${error ? ' class="away"' : ""}>${hidden}${PK_FIELDS(pk)}
+<button type="button" class="btn primary" id="pk" hidden data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">${ICON.faceId}${ICON.spinner}<span id="pklabel">Allow with Face ID</span></button>
+<p class="status" id="pkmsg" aria-hidden="true">${ICON.info}<span class="st">${esc(error)}</span></p><p class="sr" id="live" role="status" aria-live="polite">${esc(error)}</p>
+<div class="alt" id="altwrap">${panel}
+<button type="button" class="btn plain" id="mode" aria-controls="awaypanel" aria-expanded="${error ? "true" : "false"}" hidden><span class="off">${ICON.device}Approve on your iPhone instead</span><span class="on">${ICON.faceId}<span id="modeface">Use Face ID on this device</span></span></button>
+<button class="btn plain quiet" name="decision" value="deny" formnovalidate>Don’t allow</button>${help}</div></form>`;
+  return screen({ title: who.title, lede: who.lede, markId: "mk", body, actions });
+}
+/** Face ID isn't set up on any device yet. The page waits and carries on by itself once it is. */
+function noDeviceBody(d: any, handle: string, writes: string, error = "") {
+  const { who, body } = consentFacts(d, writes);
+  const actions = `<form method="post" autocomplete="off"><input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="ctx" value="${esc(d.__ctx ?? "")}">
+<div class="awaybox setup"><p class="awayh">${ICON.faceId}<span>Turn on Face ID to approve</span></p><p>Holdt approves connections with Face\u00a0ID on your iPhone. Set it up from your computer, then come back here.</p>
+<p class="status wait" id="readymsg" hidden>${ICON.spinner}<span class="st">This page continues once it’s on</span></p></div>${error ? `<p class="status keep" role="alert">${ICON.info}<span class="st">${esc(error)}</span></p>` : ""}
+<button class="btn plain quiet" name="decision" value="deny" formnovalidate>Don’t allow</button>${ownerNote(HELP, ADD_DEVICE, true)}</form>`;
+  return screen({ title: who.title, lede: who.lede, markId: "mk", body, actions });
+}
+/** Has the owner turned on a recovery code with `npm run new-code`, and is it still usable? Only then does a code field show. */
+async function recoveryLive(env: Env, now = Date.now()) {
+  if (!env.APPROVAL_CODE_HASH || !env.APPROVAL_CODE_ISSUED || now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return false;
+  if (await env.OAUTH_KV.get(`approval-used:${env.APPROVAL_CODE_HASH}`)) return false;
+  if (Number((await env.OAUTH_KV.get(`approval-fail:${env.APPROVAL_CODE_HASH}`)) ?? 0) >= MAX_TRIES) return false;
+  const g = guardFor(env); if (g && (await g.codeState(env.APPROVAL_CODE_HASH, MAX_TRIES)) !== "open") return false;
+  return true;
+}
+const CONSENT_TITLE = "Holdt: Connect your iCloud Calendar";
+const writesFor = (env: Env) => env.WRITES_ENABLED === "true" ? "on, and each one waits for your yes" : "off, so it can't add or change events";
+/** Picks the consent page for the server's state. `error` is shown beside the control it belongs to. */
+async function renderConsent(env: Env, req: Request, url: URL, details: any, handle: string, o: { status?: number; headers?: Headers; redirectUri: string; error?: string; errorFrom?: "code" | "pk"; reason?: string; typed?: string } ) {
+  const writes = writesFor(env), notice = await noticeFor(env), reviewer = (await reviewerState(env)).active;
+  const pk = await loginOptions(env, url, handle);
+  // Recovery (an owner-issued code is live) and the demo Worker's reviewer mode keep the code field.
+  if (reviewer || (await recoveryLive(env)) || (o.error && o.errorFrom === "code"))
+    return page(CONSENT_TITLE, consentBody(details, handle, writes, o.error, pk, notice, reviewer, o.errorFrom ?? "code", o.reason ?? "", o.typed ?? ""), o.status ?? 200, o.headers, o.redirectUri, pk ? LOGIN_SCRIPT : "");
+  if (!passkeysOn(env)) return page("Holdt: Face ID is off", messageBody("Face ID is off", "Holdt can’t approve connections until Face ID is turned on. Nothing was shared.", { owner: '<ol><li>On the computer where you set up Holdt, set <code>PASSKEYS = "on"</code> in <code>wrangler.toml</code>.</li><li>Run this to deploy:<code>npm run deploy</code></li><li>Run this and scan its QR code with your iPhone:<code>npm run add-device</code></li></ol>' }), 400, o.headers);
+  if (!pk) return page(CONSENT_TITLE, noDeviceBody(details, handle, writes, o.error ?? ""), o.status ?? 200, o.headers, o.redirectUri, READY_SCRIPT);
+  const from = whereFrom(req);
+  const app = { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: details.redirectUri ?? o.redirectUri };
+  const away = await createConsentAway(env, handle, from, app, writes);
+  return page(CONSENT_TITLE, consentFaceBody(details, handle, writes, pk, `${url.origin}/ok#${away.secret}`, notice, o.error ?? ""), o.status ?? 200, o.headers, o.redirectUri, CONSENT_SCRIPT);
 }
 /** A plain message screen for end states (see endScreen in ui.ts). */
 export const messageBody = endScreen;
@@ -119,9 +180,13 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
   const url = new URL(req.url);
   if (url.pathname === "/enroll" && req.method === "GET") return enrollPage(env, url);
   if (url.pathname.startsWith("/enroll/")) return enrollApi(req, env);
+  // GETs here are static pages: nothing is read, spent or decided until our own script POSTs after a tap.
+  if (url.pathname === "/ok" && req.method === "GET") return okPage();
+  if (url.pathname === "/pair" && req.method === "GET") return pairPage(env, url);
+  if (url.pathname.startsWith("/ok/") || url.pathname.startsWith("/pair/") || url.pathname === "/authorize/away") return awayApi(req, env);
+  if (url.pathname === "/authorize/away/new" || url.pathname === "/authorize/ready") return consentApi(req, env, url);
   if (url.pathname !== "/authorize") return new Response("Not found", { status: 404, headers: SEC_HEADERS });
   const oauth = (env as any).OAUTH_PROVIDER;
-  const writes = env.WRITES_ENABLED === "true" ? "on, and each one waits for your yes" : "off, so it can't add or change events";
   try {
     if (req.method === "GET") {
       const request = await oauth.parseAuthRequest(req);
@@ -129,39 +194,40 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
-      const pk = await loginOptions(env, url, consent.handle);
-      const reviewer = (await reviewerState(env)).active;
-      return page("Holdt: Connect your iCloud Calendar", consentBody(details, consent.handle, writes, undefined, pk, await noticeFor(env), reviewer), 200, consent.headers, request.redirectUri, pk ? LOGIN_SCRIPT : "");
+      (details as any).redirectUri = request.redirectUri;
+      return renderConsent(env, req, url, details, consent.handle, { headers: consent.headers, redirectUri: request.redirectUri });
     }
     if (req.method !== "POST") return new Response(null, { status: 405, headers: SEC_HEADERS });
     const form = await req.formData();
     const handle = String(form.get("handle") ?? "");
-    // The Face ID button submits from script, so no button value comes with it. A clicked Don't allow always wins.
+    // The Face ID button and the iPhone approval submit from script, so no button value comes with them. A clicked Don't allow always wins.
+    // Without script, "I approved on my iPhone" sends decision=away.
     const viaPasskey = !form.get("decision") && !!form.get("pk_sig");
-    if (!viaPasskey && form.get("decision") !== "approve") {
+    const viaAway = !viaPasskey && (form.get("decision") === "away" || (!form.get("decision") && form.get("away") === "1"));
+    if (!viaPasskey && !viaAway && form.get("decision") !== "approve") {
       const denied = await oauth.denyConsent(req, handle);
       return new Response(null, { status: 302, headers: denied.headers });
     }
     const f = (k: string) => String(form.get(k) ?? "");
     // A reviewer code (RVW...) is checked on its own path: multi-use, and it never charges the owner's code tries.
-    const viaReviewer = !viaPasskey && looksLikeReviewerCode(f("code"));
+    const viaReviewer = !viaPasskey && !viaAway && looksLikeReviewerCode(f("code"));
     const rv = viaReviewer ? await checkReviewerCode(env, f("code")) : undefined;
-    const verdict = viaPasskey ? await checkPasskeyLogin(env, url, handle, { token: f("pk_token"), id: f("pk_id"), clientDataJSON: f("pk_cdj"), authenticatorData: f("pk_ad"), signature: f("pk_sig") }) : rv ? (rv.ok ? { ok: true as const, hash: "" } : rv) : await checkCode(env, f("code"));
+    const verdict = viaAway ? await takeConsentAway(env, handle) : viaPasskey ? await checkPasskeyLogin(env, url, handle, { token: f("pk_token"), id: f("pk_id"), clientDataJSON: f("pk_cdj"), authenticatorData: f("pk_ad"), signature: f("pk_sig") }) : rv ? (rv.ok ? { ok: true as const, hash: "" } : rv) : await checkCode(env, f("code"));
     if (!verdict.ok) {
-      log.warn(`${viaPasskey ? "passkey" : viaReviewer ? "reviewer code" : "approval code"} rejected: ${verdict.reason.slice(0, 80)}`);
+      log.warn(`${viaAway ? "iPhone approval" : viaPasskey ? "passkey" : viaReviewer ? "reviewer code" : "approval code"} rejected: ${verdict.reason.slice(0, 80)}`);
       const ctxRaw = String(form.get("ctx") ?? "");
       const details: any = (await readCtx(env, ctxRaw)) ?? { clientName: "the app", redirectHost: "" };
       details.__ctx = ctxRaw;
-      if (!viaPasskey && verdict.reason === "used") { const known = details.redirectUri ? knownApp(details.redirectUri) : undefined; return page("Holdt: Already connected", messageBody(known ? `${known} is already connected` : "You’re already connected", known ? `You said yes earlier. Close this page to go back to ${known}.` : "You said yes earlier. Close this page to go back to your assistant.", { mark: "closed", noClose: true }), 400); }
-      // A fresh challenge for the retry: the old one is spent, whether or not it verified.
-      const pk = await loginOptions(env, url, handle);
-      return page("Holdt: Connect your iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk, await noticeFor(env), (await reviewerState(env)).active, viaPasskey ? "pk" : "code", verdict.reason, f("code")), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
+      if (!viaPasskey && !viaAway && verdict.reason === "used") { const known = details.redirectUri ? knownApp(details.redirectUri) : undefined; return page("Holdt: Already connected", messageBody(known ? `${known} is already connected` : "You’re already connected", known ? `You said yes earlier. Close this page to go back to ${known}.` : "You said yes earlier. Close this page to go back to your assistant.", { mark: "closed", noClose: true }), 400); }
+      // A fresh challenge (and a fresh QR code) for the retry: the old ones are spent, whether or not they verified.
+      const pkError = viaAway ? (verdict.reason === "pending" ? "Not approved yet.\nScan the code with your iPhone, then approve with Face\u00a0ID." : verdict.reason === "denied" ? "Your iPhone said no.\nScan the new code to try again." : "That approval expired.\nScan the new code with your iPhone.") : verdict.message;
+      return renderConsent(env, req, url, details, handle, { status: 400, redirectUri: details.redirectUri ?? "", error: pkError, errorFrom: viaPasskey || viaAway ? "pk" : "code", reason: verdict.reason, typed: f("code") });
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
     if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri) || !clientListed(env, approved.request.clientId)) return page("Holdt: Can't connect", messageBody("This app can’t connect", "Nothing was shared."), 400);
     const props = rv?.ok ? { epoch: env.GRANT_EPOCH, ...rv.props } : { epoch: env.GRANT_EPOCH };
     const { redirectTo } = await oauth.completeAuthorization({ request: approved.request, userId: rv?.ok ? "reviewer" : "owner", metadata: { label: rv?.ok ? "Grok Bot (reviewer)" : "Grok Bot" }, scope: approved.request.scope, props });
-    log.info(rv?.ok ? "connection approved (reviewer code)" : "connection approved");
+    log.info(rv?.ok ? "connection approved (reviewer code)" : viaAway ? "connection approved (on another device)" : "connection approved");
     approved.headers.set("Location", redirectTo);
     return new Response(null, { status: 302, headers: approved.headers });
   } catch (e) {
@@ -174,21 +240,76 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
 }
 
 async function noticeFor(env: Env) { try { return passkeysOn(env) ? deviceNotice(await loadPasskeys(env), env.TIMEZONE || "UTC") : undefined; } catch { return undefined; } }
+const ADD_DEVICE_HELP = "On the computer where you set up Holdt, run this, then scan the QR code it shows:<code>npm run add-device</code>";
 async function enrollPage(env: Env, url: URL): Promise<Response> {
-  if (!passkeysOn(env)) return page("Holdt: Face ID is off", messageBody("Face ID is off", "Holdt is set up for approval codes only, so you can connect with a code.", { owner: '<ol><li>On the computer where you set up Holdt, set <code>PASSKEYS = "on"</code> in <code>wrangler.toml</code>.</li><li>Run this to deploy:<code>npm run deploy</code></li><li>Run this, then open the new link on this device:<code>npm run add-device</code></li></ol>' }), 404);
-  // Offer "skip the code" only when a passkey for this host already exists to confirm with instead.
-  let hasOther = false; try { hasOther = usableHere(await loadPasskeys(env), url).length > 0; } catch { /* the code path still works */ }
-  const setup = screen({ title: "Turn on Face ID", lede: "Enter your approval code once, then approve with a glance.", markId: "mk",
-    body: `<ul class="facts" role="list"><li>${ICON.faceId}<p id="face1">Your face stays on your device. Holdt never sees it.</p></li><li>${ICON.devices}<p>Syncs to your other Apple devices with iCloud\u00a0Keychain.</p></li><li>${ICON.keypad}<p id="codefact">Approval codes keep working alongside Face ID.</p></li></ul>`,
-    actions: `<form id="enrollf" novalidate><div class="field"><label class="lbl" for="code">Approval code</label><input class="code" id="code" inputmode="numeric" placeholder="8 digits" maxlength="12" autocomplete="one-time-code" enterkeyhint="go" aria-describedby="codehint"><span class="fielderr" id="err" role="alert" hidden>${ICON.alert}<span></span></span><span class="hint" id="codehint">${HINT}</span></div><p class="status" id="codeok" hidden>${ICON.checkCircle}<span class="st">Code accepted.
-Your next code approval needs a new one.</span></p>
-<button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button></form><p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
-<button type="button" class="btn plain quiet" id="later">Not now</button>${ownerNote(HELP, NEW_CODE_CMD)}
-${hasOther ? `<p class="foot">Set up Face ID on another device already? You can skip the code.</p>` : ""}` }).replace('<div class="actions in d3">', '<div class="actions near in d3">');
+  if (!passkeysOn(env)) return page("Holdt: Face ID is off", messageBody("Face ID is off", "Face ID is turned off on this Holdt server, so this link can’t turn it on.", { owner: '<ol><li>On the computer where you set up Holdt, set <code>PASSKEYS = "on"</code> in <code>wrangler.toml</code>.</li><li>Run this to deploy:<code>npm run deploy</code></li><li>Run this and scan its QR code with this device:<code>npm run add-device</code></li></ol>' }), 404);
+  const setup = screen({ title: "Turn on Face ID", lede: "Approve Holdt connections with a glance. There’s nothing to type.", markId: "mk",
+    body: `<ul class="facts" role="list"><li>${ICON.faceId}<p id="face1">Your face stays on your device. Holdt never sees it.</p></li><li>${ICON.devices}<p>Syncs to your other Apple devices with iCloud\u00a0Keychain.</p></li><li>${ICON.link}<p>This link works once, for 10\u00a0minutes.</p></li></ul>`,
+    actions: `<button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button><p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
+<button type="button" class="btn plain quiet" id="later">Not now</button>` });
   return page("Holdt: Turn on Face ID", `<div id="setup">${setup}</div>
-<div id="done" hidden>${screen({ title: "Face ID is on", titleId: "title-done", lede: "Next time, tap Allow with Face ID. Your other Apple devices with iCloud Keychain can use it too.", markState: "open", markId: "mkdone", centered: true, actions: `<p class="foot">You can close this page.</p>` })}</div>
-<div id="skip" hidden>${screen({ title: "Face ID not turned on", titleId: "title-skip", lede: "You can keep approving with a code. You can turn on Face ID anytime.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, "On the computer where you set up Holdt, run this, then open the new link on this device:<code>npm run add-device</code>")}` })}</div>
-<div id="dead" hidden>${screen({ title: "This link expired", titleId: "title-dead", lede: "Links last 15 minutes. Make a new one on the computer where you set up Holdt.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, "On the computer where you set up Holdt, run this, then open the new link on this device:<code>npm run add-device</code>")}` })}</div>`, 200, undefined, "", ENROLL_SCRIPT);
+<div id="done" hidden>${screen({ title: "Face ID is on", titleId: "title-done", lede: "Next time, tap Allow with Face ID. Your other Apple devices with iCloud Keychain can use it too.", markState: "open", markId: "mkdone", centered: true, actions: `<div class="next" id="next" hidden><p>Last step. In Grok Bot, say:</p><p class="say" id="say">Add the MCP server at ${esc(url.origin)}/mcp</p><button type="button" class="btn secondary" id="copy">Copy</button></div><p class="foot" id="closeline">You can close this page.</p>` })}</div>
+<div id="skip" hidden>${screen({ title: "Face ID not turned on", titleId: "title-skip", lede: "Holdt needs Face ID to approve connections. Turn it on whenever you’re ready.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, ADD_DEVICE_HELP)}` })}</div>
+<div id="dead" hidden>${screen({ title: "This link expired", titleId: "title-dead", lede: "Links last 10 minutes. Make a new one on the computer where you set up Holdt.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, ADD_DEVICE_HELP)}` })}</div>`, 200, undefined, "", ENROLL_SCRIPT);
+}
+
+/** The approving device (an iPhone with Holdt's passkey) opens /ok#<secret>. The page is the same for everyone and
+ * changes nothing: the script reads the request with a POST, and only a tap plus Face ID approves it. */
+function okPage(): Response {
+  const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
+  const close = `<p class="foot">You can close this page.</p>`;
+  return page("Holdt: Approve", `<div id="load">${screen({ title: "Checking the request", titleId: "t-load", markState: "open", centered: true, actions: `<noscript><p class="foot">Turn on JavaScript in Safari settings to approve with Face\u00a0ID.</p></noscript>` })}</div>
+<div id="ask" hidden></div>
+${v("ok", { title: "Approved", titleId: "t-ok", lede: "Your computer is finishing up. There’s nothing more to do here.", markState: "open", markId: "mkok", centered: true, actions: close })}
+${v("no", { title: "Not allowed", titleId: "t-no", lede: "Nothing was shared.", markState: "muted", centered: true, actions: close })}
+${v("dead", { title: "This request expired", titleId: "t-dead", lede: "Requests last 5 minutes. Start again on your computer.", markState: "muted", centered: true, actions: close })}
+${v("nopk", { title: "This device can’t approve yet", titleId: "t-nopk", lede: "It doesn’t have Face ID for Holdt. Scan the code with the iPhone where you turned it on.", markState: "muted", centered: true, actions: close + ownerNote(HELP, ADD_DEVICE_HELP) })}`, 200, undefined, "", OK_SCRIPT);
+}
+/** What the approving device shows, built on the server from the stored request (every value escaped). */
+export function askHtml(kind: "consent" | "pair", from: string, when: string, app: any, writes: string) {
+  const btns = `<button type="button" class="btn primary" id="yes">${ICON.faceId}${ICON.spinner}<span id="yeslabel">Allow with Face ID</span></button>
+<p class="status" id="askmsg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
+<button type="button" class="btn plain quiet" id="nope">Don’t allow</button>`;
+  const asked = `Asked ${esc(when)} from <strong>${esc(from)}</strong>.`;
+  if (kind === "pair") return screen({ title: "Add a new device?", lede: `${asked} It will approve Holdt connections with Face\u00a0ID.`, markId: "mk",
+    body: `<div class="callout">${ICON.alert}<p>Allow this only for a device you’re holding right now. Never for one someone asked you to add.</p></div>`, actions: btns });
+  const { who, body } = consentFacts(app ?? {}, writes || "off, so it can't add or change events", undefined, app?.redirectIsLoopback ? "" : `<div class="callout">${ICON.alert}<p>Approve only a request you just started yourself. Never one someone sent you.</p></div>`, true);
+  // The name line keeps the same trust rule as the consent page: vouched for only on Grok Bot's exact callback.
+  const trust = who.known ? `Access goes to ${esc(String(knownApp(app.redirectUri) ?? ""))} alone.` : who.lede.replace(/ Allow this only if you just asked it to connect\.$/, "");
+  return screen({ title: who.title, lede: `${asked} ${trust}`, markId: "mk", body, actions: btns });
+}
+
+/** A new device asks to be added. It shows a QR code for an enrolled device to approve, then makes its own passkey. */
+function pairPage(env: Env, url: URL): Response {
+  void url;
+  if (!passkeysOn(env)) return page("Holdt: Face ID is off", messageBody("Face ID is off", "Face ID is turned off on this Holdt server, so a device can’t be added.", {}), 404);
+  const close = `<p class="foot">You can close this page.</p>`;
+  const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
+  return page("Holdt: Add this device", `<div id="ask">${screen({ title: "Add this device", lede: "Approve it from your iPhone, where Face\u00a0ID for Holdt is already on.", markId: "mk",
+    body: `<div class="awaybox" id="awaypanel"><div id="qrwrap" class="qrwait"></div>
+<ol class="steps"><li>Point your iPhone’s camera at this code.</li><li>Tap the Holdt link, then approve with Face\u00a0ID.</li></ol>
+<p class="status wait" id="awaymsg">${ICON.spinner}<span class="st">Waiting for your iPhone</span></p><noscript><p class="foot">Turn on JavaScript to add this device.</p></noscript></div>
+<p class="foot">Signed in with the same Apple Account? iCloud Keychain may have added Face\u00a0ID here already.</p>`,
+    actions: `<p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn plain quiet" id="later">Not now</button>` })}</div>
+${v("ready", { title: "Turn on Face ID", titleId: "t-ready", lede: "Your iPhone approved this device. Finish here with a glance.", markId: "mkready",
+    actions: `<button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button><p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live2" role="status" aria-live="polite"></p><button type="button" class="btn plain quiet" id="later2">Not now</button>` })}
+${v("done", { title: "Face ID is on", titleId: "t-done", lede: "Next time, tap Allow with Face ID on this device.", markState: "open", markId: "mkdone", centered: true, actions: close })}
+${v("no", { title: "Device not added", titleId: "t-no", lede: "Your iPhone said no. Nothing changed.", markState: "muted", centered: true, actions: close })}
+${v("skip", { title: "Device not added", titleId: "t-skip", lede: "You can add it anytime from this page.", markState: "muted", centered: true, actions: close })}
+${v("dead", { title: "This request expired", titleId: "t-dead", lede: "Requests last 5 minutes. Reload this page to start again.", markState: "muted", centered: true, actions: close })}
+${v("nopk", { title: "Turn on Face ID first", titleId: "t-nopk", lede: "No device has Face ID for Holdt yet. Set it up from your computer.", markState: "muted", centered: true, actions: close + ownerNote(HELP, ADD_DEVICE_HELP, true) })}`, 200, undefined, "", PAIR_SCRIPT);
+}
+
+/** The consent page's own calls: a fresh QR code when the old one ran out, and "is Face ID on yet". Same-origin JSON only. */
+async function consentApi(req: Request, env: Env, url: URL): Promise<Response> {
+  const bad = sameOriginJson(req, url); if (bad) return bad;
+  let b: any; try { b = await readJson(req); } catch { return json({ ok: false }, 400); }
+  if (url.pathname === "/authorize/ready") { let ready = false; try { ready = passkeysOn(env) && usableHere(await loadPasskeys(env), url).length > 0; } catch { /* not yet */ } return json({ ok: true, ready }); }
+  const handle = String(b?.handle ?? ""), d = await readCtx(env, String(b?.ctx ?? ""));
+  if (!handle || !d || !passkeysOn(env)) return json({ ok: false }, 400);
+  const away = await createConsentAway(env, handle, whereFrom(req), d, writesFor(env));
+  const link = `${url.origin}/ok#${away.secret}`;
+  return json({ ok: true, link, qr: qrSvg(link, "QR code. Scan it with your iPhone’s camera to approve there.") });
 }
 
 type Verdict = { ok: true; hash: string } | { ok: false; reason: string; message: string };

@@ -20,7 +20,7 @@ test("password format check: auto-formats, catches main passwords and wrong leng
 
 test("setup server: one-time key, live 'Found N calendars', plain-English errors, secrets only to the saver", async () => {
   const saved: Record<string, string> = {}; const stderr: string[] = []; const origErr = console.error; console.error = (s: string) => stderr.push(String(s));
-  const { server, key } = createSetupServer({ caldavUrl: mock.base, workerName: "w", saveSecret: async (n, v) => { saved[n] = v; } });
+  const { server, key } = createSetupServer({ caldavUrl: mock.base, workerName: "w", workerUrl: "https://holdt.example.workers.dev", saveSecret: async (n, v) => { saved[n] = v; } });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r())); const port = (server.address() as any).port;
   const call = (path: string, body: unknown, k = key) => fetch(`http://127.0.0.1:${port}${path}?k=${k}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, j: await r.json() as any }));
   try {
@@ -33,14 +33,18 @@ test("setup server: one-time key, live 'Found N calendars', plain-English errors
     const good = await call("/api/test", { email: USER.toUpperCase(), password: "QWERTYUIOPASDFGH", timezone: "America/Denver" });
     assert.equal(good.j.ok, true); assert.deepEqual(good.j.calendars, ["Home", "Work", "US Holidays"]); assert.equal(good.j.reminderLists, undefined);
     const s = await call("/api/save", { allowChanges: false });
-    assert.equal(s.j.ok, true); assert.match(s.j.approvalCode, /^\d{4}-\d{4}$/); assert.equal(s.j.mcpToken, undefined);
+    assert.equal(s.j.ok, true); assert.equal(s.j.approvalCode, undefined, "no code to type"); assert.equal(s.j.mcpToken, undefined);
+    // The page goes straight to the one-time Face ID link: the token in the fragment, only its hash at Cloudflare.
+    const token = s.j.enrollUrl.match(/^https:\/\/holdt\.example\.workers\.dev\/enroll\?from=setup#([\w-]{43})$/)?.[1]; assert.ok(token, s.j.enrollUrl);
     assert.equal(saved.ICLOUD_APP_PASSWORD, PASS); assert.equal(saved.ICLOUD_EMAIL, USER); assert.equal(saved.WRITES_ENABLED, "false"); assert.equal(saved.TIMEZONE, "America/Denver");
     assert.ok(saved.GRANT_EPOCH.length >= 30); assert.ok(saved.CONFIRM_SECRET.length >= 40); assert.equal(saved.MCP_TOKEN, undefined);
     const { createHash } = await import("node:crypto");
-    assert.match(saved.APPROVAL_CODE_HASH, /^pbkdf2\$20000\$[A-Za-z0-9_-]{22}\$[0-9a-f]{64}$/, "salted PBKDF2, never a bare hash");
-    assert.equal(await codeMatches(saved.APPROVAL_CODE_HASH, s.j.approvalCode.replace("-", "")), true);
-    assert.equal(await codeMatches(saved.APPROVAL_CODE_HASH, "00000000"), false);
-    assert.ok(!Object.values(saved).includes(s.j.approvalCode.replace("-", "")), "only the hash of the code is stored");
+    assert.equal(saved.APPROVAL_CODE_HASH, undefined);
+    assert.equal(saved.ENROLL_TOKEN_HASH, createHash("sha256").update(token!).digest("hex")); assert.ok(Number(saved.ENROLL_TOKEN_ISSUED) > 0);
+    assert.ok(!Object.values(saved).includes(token!), "only the hash of the link's token is stored");
+    const html = await (await fetch(`http://127.0.0.1:${port}/?k=${key}`)).text();
+    assert.match(html, /location\.assign\(r\.enrollUrl\)/, "the setup page opens the link itself, so the only click left is Turn on Touch ID");
+    assert.doesNotMatch(html, /approvalCode|Enter this code/);
     assert.match((await call("/api/save", {})).j.message, /test first/, "password forgotten after save");
     for (const v of [JSON.stringify(good.j), JSON.stringify(bad.j), stderr.join("\n")]) { assert.ok(!v.includes(PASS)); assert.ok(!v.includes("zzzz-zzzz-zzzz-zzzz")); }
   } finally { console.error = origErr; server.close(); }

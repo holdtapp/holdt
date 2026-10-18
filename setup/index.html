@@ -124,13 +124,10 @@ async function save() {
   if (!r.ok) { b.classList.remove("busy"); b.disabled = false; $("save-label").textContent = "Save and finish"; show("bad", esc(r.message)); return; }
   pw.value = ""; email.value = "";
   const url = r.mcpUrl || "https://<your-worker>.workers.dev/mcp";
-  $("card").innerHTML = `<h1>You're connected ✓</h1><p class="lede">Now connect it in Grok Bot. Nothing here is a password, so it's safe to paste in chat.</p>
-   <ol class="steps">
-    <li><div>In Grok Bot, say:<code class="tok" id="tok">Add the MCP server at ${esc(url)}</code><button class="btn primary" id="copy">Copy</button></div></li>
-    <li><div>An approval page opens. Enter this code:<div class="code" aria-label="Approval code">${esc(r.approvalCode)}</div><span class="hint">Works once, for 15 minutes. Need another? Run <code>npm run setup -- --new-code</code>.</span></div></li>
-    <li><div>Then ask: <em>"What's on my calendar this week?"</em></div></li></ol>
-   <p class="foot">${r.writesEnabled ? "Changes are on. Every change shows you a preview first and waits for your yes." : "Read-only for now. Run setup again anytime to allow changes."} To disconnect everything: run <code>npm run setup -- --revoke-all</code>, or remove the password at account.apple.com (Sign-In and Security, App-Specific Passwords).</p>`;
-  $("copy").addEventListener("click", async () => { await navigator.clipboard.writeText($("tok").textContent); $("copy").textContent = "Copied ✓"; });
+  // One click left: the Face ID link opens here, and its Turn on Touch ID button is that click.
+  if (r.enrollUrl) { $("card").innerHTML = `<h1>Saved ✓</h1><p class="lede" role="status">Opening Touch ID setup…</p>`; location.assign(r.enrollUrl); return; }
+  $("card").innerHTML = `<h1>Saved ✓</h1><p class="lede">One step left: turn on Face ID or Touch ID. In the terminal, run <code>npm run add-device</code>. It opens a page with one button.</p>
+   <p class="foot">Then, in Grok Bot, say: <em>Add the MCP server at ${esc(url)}</em>. ${r.writesEnabled ? "Changes are on. Every change shows you a preview first and waits for your yes." : "Read-only for now. Run setup again anytime to allow changes."}</p>`;
 }
 email.value = ""; localCheck(); pw.focus();
 </script>

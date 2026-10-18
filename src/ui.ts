@@ -107,6 +107,16 @@ code{font:.8rem ui-monospace,"SF Mono",Menlo,monospace;background:var(--secondar
  84%{transform:translateY(14px) scale(1.05,.92);animation-timing-function:cubic-bezier(.3,.7,.4,1)}
  100%{transform:translateY(14px) scale(1,1)}}
 @keyframes pulse{0%,100%{transform:scale(1)}45%{transform:scale(1.02)}}
+/* Approve on your iPhone: a QR code card, the fallback when Face ID isn't on this device. Black on white in both modes so cameras read it. */
+.awaybox{margin:0 0 .2rem;padding:1rem 1rem .8rem;background:var(--surface);border-radius:1rem;box-shadow:0 0 0 1px var(--line);text-align:center}
+.awaybox:focus{outline:none}.awaybox:focus-visible{outline:3px solid var(--green-ink);outline-offset:3px}
+#qrwrap{display:flex;justify-content:center}.qr{display:block;width:min(10.5rem,56vw);height:auto;border-radius:.45rem}.qrwait{width:min(10.5rem,56vw);aspect-ratio:1;margin:0 auto;border-radius:.45rem;background:var(--secondary-bg)}
+.steps{text-align:left;margin:.85rem auto 0;padding-left:1.3rem;max-width:19rem;font-size:.94rem}.steps li+li{margin-top:.25rem}
+.awaybox .status{margin:.6rem 0 0}.status.wait .ico{animation:spin .9s linear infinite}.status.wait .ico.spin{display:block}
+.awaybox.setup{text-align:left}.awaybox.setup p{margin:0}.awayh{display:flex;gap:.55rem;align-items:center;font-weight:600;margin-bottom:.35rem!important}.awayh .ico{margin:0}.awaybox.setup .status{justify-content:flex-start}
+form.js:not(.away) #awaypanel{display:none}form.away #pk,form.away #pkmsg:not(.keep){display:none}form.js #awaygo{display:none}#awaygo{margin-top:.8rem}
+form.away #mode .off{display:none}form.away #mode .on{display:inline-flex}form.away #awaypanel{animation:rise .28s cubic-bezier(.2,.8,.3,1) both}
+.next{margin:0 0 .6rem}.next p{margin:0;color:var(--ink2)}.next .say{margin:.4rem 0 .7rem;padding:.6rem .8rem;border-radius:.8rem;background:var(--surface);box-shadow:0 0 0 1px var(--line);color:var(--ink);font-weight:600;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.drop .piece{transform:translateY(14px)}.drop .whole{opacity:1}}
 @media (prefers-contrast:more){:root{--ink2:var(--ink);--line:var(--ink2)}}`;
 

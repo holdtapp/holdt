@@ -152,7 +152,10 @@ export async function rateLimited(req: Request, env: Env, path: string): Promise
   const ip = ipKey(req.headers.get("cf-connecting-ip") ?? "unknown");
   const hit = async (rl: RateLimiter | undefined, key: string) => { if (!rl) return false; try { return !(await rl.limit({ key })).success; } catch (e) { log.warn(`rate limiter unavailable: ${(e as any)?.name ?? "error"}`); return false; } };
   if (path === "/oauth/register") return hit(env.RL_REGISTER, `reg:${ip}`);
-  if ((path === "/authorize" || path.startsWith("/enroll/")) && req.method === "POST") return hit(env.RL_APPROVE, `approve:${ip}`);
+  // Status polls from the consent page and a new device share a roomier per-IP bucket. Every other POST that can
+  // approve, create or decide something is in the tight one.
+  if ((path === "/authorize/away" || path === "/pair/status") && req.method === "POST") return hit(env.RL_MCP, `poll:${ip}`);
+  if ((path === "/authorize" || path.startsWith("/authorize/") || path.startsWith("/enroll/") || path.startsWith("/ok/") || path.startsWith("/pair/")) && req.method === "POST") return hit(env.RL_APPROVE, `approve:${ip}`);
   // The OAuth library routes /mcp and every /mcp/... path to the MCP handler, so limit them all. Per caller IP first
   // (a made-up bearer token must not buy a fresh bucket), then per connection.
   if (path === "/mcp" || path.startsWith("/mcp/")) {

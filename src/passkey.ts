@@ -1,6 +1,9 @@
-// Passkey one-tap connect (docs/SECURITY.md, "Passkeys"). Behind PASSKEYS = "on". The approval code stays as the fallback.
-//   Enroll: `npm run setup -- --add-device` prints https://<worker>/enroll#<token>. The token is single use, 15 minutes,
-//           only its SHA-256 is a Worker secret, and it rides in the fragment so it never reaches a log or a Referer.
+// Passkey one-tap connect (docs/SECURITY.md, "Passkeys", and docs/no-typed-codes.md). Nobody types a code in the normal flow.
+//   Enroll: `npm run setup` and `npm run add-device` print https://<worker>/enroll#<token> and a QR code. The token is single use,
+//           10 minutes, only its SHA-256 is a Worker secret, and it rides in the fragment so it never reaches a log, a Referer or
+//           a link-preview fetch. Owner proof is control of the Worker's secrets (only the owner's wrangler login can set them).
+//           It is spent by POST /enroll/finish, never by opening the page.
+//   Pair:   a new device can also be approved from a device that already has a passkey (src/away.ts).
 //   Connect: the consent page offers "Allow with Face ID". The challenge is an HMAC-signed, 5-minute, single-use token
 //            bound to this consent handle, so an assertion can't be replayed or moved to another app's request.
 //   Reset:   `npm run setup -- --reset-passkeys` rotates PASSKEY_EPOCH, which orphans every stored passkey at once.
@@ -9,13 +12,13 @@ import { issue, verify, UsedStore, NO_SPEND } from "./confirm.js";
 import { guardFor } from "./guard.js";
 import { verifyRegistration, verifyAssertion, StoredCredential, WebAuthnError, b64u } from "./webauthn.js";
 import { log } from "./redact.js";
-import { checkCode } from "./authorize.js";
+import { pairForEnroll, spendPair } from "./away.js";
 
 const enc = new TextEncoder();
-export const ENROLL_TTL_MS = 15 * 60_000, CHALLENGE_TTL_MS = 5 * 60_000, MAX_PASSKEYS = 10;
+export const ENROLL_TTL_MS = 10 * 60_000, CHALLENGE_TTL_MS = 5 * 60_000, MAX_PASSKEYS = 10;
 const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
 const sha = async (s: string) => new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s)));
-const safeEq = (a: string, b: string) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
+export const safeEq = (a: string, b: string) => { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
 
 export const passkeysOn = (env: Partial<Env>) => env.PASSKEYS === "on";
 /** One record per credential, keyed by the SHA-256 of its id, under the current PASSKEY_EPOCH.
@@ -54,7 +57,7 @@ export async function bumpPasskey(env: Env, cred: StoredCredential, count: numbe
 }
 
 /** A separate key for WebAuthn challenges, derived from CONFIRM_SECRET and the grant epoch, so a calendar confirm token never verifies here. */
-async function challengeKey(env: Env) {
+export async function challengeKey(env: Env) {
   const k = await crypto.subtle.importKey("raw", enc.encode(`${env.CONFIRM_SECRET}\n${env.GRANT_EPOCH}`), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   return hex(await crypto.subtle.sign("HMAC", k, enc.encode("holdt/webauthn-challenge/v1")));
 }
@@ -64,12 +67,13 @@ function usedStore(env: Env): UsedStore {
   if (g) return { has: () => false, add: () => undefined, spend: (n, exp) => g.spend(`webauthn:${n}`, exp) };
   return { has: async (n) => !!(await env.OAUTH_KV.get(`webauthn-used:${n}`)), add: (n) => env.OAUTH_KV.put(`webauthn-used:${n}`, "1", { expirationTtl: 900 }) };
 }
-async function newChallenge(env: Env, purpose: "login" | "enroll" | "enroll_code" | "enroll_auth", bind: string, now = Date.now()) {
+export type Purpose = "login" | "enroll" | "enroll_pair" | "away";
+export async function newChallenge(env: Env, purpose: Purpose, bind: string, now = Date.now()) {
   const token = await issue(await challengeKey(env), `webauthn_${purpose}`, { bind }, CHALLENGE_TTL_MS, now);
   return { token, challenge: b64u(await sha(token)) };
 }
 /** Checks the signed challenge token and spends it. Returns the challenge bytes the browser must have signed. */
-async function takeChallenge(env: Env, purpose: "login" | "enroll" | "enroll_code" | "enroll_auth", bind: string, token: string, now = Date.now()) {
+export async function takeChallenge(env: Env, purpose: Purpose, bind: string, token: string, now = Date.now()) {
   const key = await challengeKey(env), expired = "The Face ID request expired. Reload the page and try again.";
   // Check the binding before spending, so a challenge pasted into another request can't burn the real one.
   const peek = await verify<{ bind: string }>(key, String(token ?? ""), `webauthn_${purpose}`, NO_SPEND, now, expired);
@@ -78,7 +82,7 @@ async function takeChallenge(env: Env, purpose: "login" | "enroll" | "enroll_cod
   if (!v.ok) throw new WebAuthnError(/already/.test(v.reason) ? "That Face ID approval was already used. Reload the page and try again." : v.reason);
   return sha(token);
 }
-const rp = (url: URL) => ({ rpId: url.hostname, origin: url.origin });
+export const rp = (url: URL) => ({ rpId: url.hostname, origin: url.origin });
 /** A passkey works only on the host it was made for. After a move (say workers.dev to connect.holdt.app) the old ones
  * can't sign in here, so they're left out instead of offered to a sheet that would find nothing. Records from before
  * rpId was stored count as this host's, which is true for every server that never moved. */
@@ -94,17 +98,17 @@ export async function loginOptions(env: Env, url: URL, handle: string) {
   const c = await newChallenge(env, "login", await bindHandle(handle));
   return { token: c.token, challenge: c.challenge, rpId: url.hostname, ids: creds.map((x) => x.id) };
 }
-const bindHandle = async (handle: string) => b64u(await sha(`consent:${handle}`));
+export const bindHandle = async (handle: string) => b64u(await sha(`consent:${handle}`));
 export type PasskeyVerdict = { ok: true } | { ok: false; reason: string; message: string };
 export async function checkPasskeyLogin(env: Env, url: URL, handle: string, f: { token: string; id: string; clientDataJSON: string; authenticatorData: string; signature: string }, now = Date.now()): Promise<PasskeyVerdict> {
-  const no = (reason: string, message = "Face ID didn't confirm it's you. Try again, or use an approval code instead.") => ({ ok: false as const, reason, message });
-  if (!passkeysOn(env)) return no("off", "Face ID sign-in is turned off. Use an approval code instead.");
+  const no = (reason: string, message = "Face ID didn't confirm it's you.\nTry again, or approve on your iPhone.") => ({ ok: false as const, reason, message });
+  if (!passkeysOn(env)) return no("off", "Face ID sign-in is turned off on this server.");
   try {
     const creds = await loadPasskeys(env);
     // Fail closed if the store somehow holds more than the cap: something wrote around enrollment.
-    if (creds.length > MAX_PASSKEYS) return no("over cap", "Face ID sign-in is paused on this server. Use an approval code instead. The person who set up Holdt can reset Face ID from their computer.");
+    if (creds.length > MAX_PASSKEYS) return no("over cap", "Face ID sign-in is paused on this server. The person who set up Holdt can reset Face ID from their computer.");
     const cred = usableHere(creds, url).find((c) => safeEq(c.id, String(f.id ?? "")));
-    if (!cred) return no("unknown passkey", "This device isn't set up for Face ID with Holdt. Use an approval code instead.");
+    if (!cred) return no("unknown passkey", "This device isn't set up for Face ID with Holdt.\nApprove on your iPhone instead.");
     const challenge = await takeChallenge(env, "login", await bindHandle(handle), f.token, now);
     const { signCount } = await verifyAssertion(f, cred, { ...rp(url), challenge });
     if (!(await bumpPasskey(env, cred, signCount))) throw new WebAuthnError("signature counter went backwards");
@@ -120,7 +124,7 @@ async function enrollTokenProblem(env: Env, token: string, now: number): Promise
   if (!passkeysOn(env)) return "Face ID sign-in is turned off on this server.";
   if (!env.ENROLL_TOKEN_HASH || !env.ENROLL_TOKEN_ISSUED) return "This link isn't active. Make a new one on the computer where you set up Holdt.";
   if (!safeEq(hex(await crypto.subtle.digest("SHA-256", enc.encode(String(token ?? "")))), env.ENROLL_TOKEN_HASH)) return "This link isn't valid. Open the newest link from your computer.";
-  if (now - Number(env.ENROLL_TOKEN_ISSUED) > ENROLL_TTL_MS) return "This link expired. Links last 15 minutes. Make a new one on your computer.";
+  if (now - Number(env.ENROLL_TOKEN_ISSUED) > ENROLL_TTL_MS) return "This link expired. Links last 10 minutes. Make a new one on your computer.";
   if (await env.OAUTH_KV.get(`enroll-used:${env.ENROLL_TOKEN_HASH}`)) return "This link was already used. Make a new one on your computer to add another device.";
   return undefined;
 }
@@ -156,60 +160,58 @@ export function deviceNotice(creds: StoredCredential[], tz: string, now = Date.n
   const joined = list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
   return `Face ID was turned on for ${joined}. Not you? Tap\u00a0Don't\u00a0allow.`;
 }
-const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
+export const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
+
+/** Registration options for this host. Shared by the setup link and by pairing. */
+export async function createOptions(env: Env, url: URL, creds: StoredCredential[], purpose: "enroll" | "enroll_pair", bind: string, now: number) {
+  const c = await newChallenge(env, purpose, bind, now);
+  return { challenge_token: c.token, publicKey: {
+    rp: { id: url.hostname, name: PASSKEY_NAMES.rp }, user: { id: b64u(await sha(`holdt-owner:${url.hostname}`)), name: PASSKEY_NAMES.user, displayName: PASSKEY_NAMES.user },
+    challenge: c.challenge, pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }], timeout: 120000, attestation: "none",
+    authenticatorSelection: { residentKey: "preferred", userVerification: "required" }, excludeCredentials: creds.map((x) => ({ type: "public-key", id: x.id })) } };
+}
+const FULL = `Holdt already has ${MAX_PASSKEYS} Face ID devices, the most it allows. Reset Face ID from your computer to start over.`;
+/** Same-origin JSON only. A form on another site can't send application/json without a preflight we never answer,
+ * and a missing or foreign Origin is refused, so no page elsewhere can drive these endpoints (CSRF). */
+export function sameOriginJson(req: Request, url: URL): Response | undefined {
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  if (req.headers.get("origin") !== url.origin) return json({ error: "origin not allowed" }, 403);
+  if (!/^application\/json\b/i.test(req.headers.get("content-type") ?? "")) return json({ error: "content type not allowed" }, 415);
+  return undefined;
+}
+export async function readJson(req: Request): Promise<any> { const t = await req.text(); if (t.length > 20000) throw new Error("too large"); return JSON.parse(t); }
 
 export async function enrollApi(req: Request, env: Env, now = Date.now()): Promise<Response> {
   const url = new URL(req.url);
-  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
-  // Same-origin only: the enroll page is ours, and nothing else has a reason to call this.
-  const origin = req.headers.get("origin"); if (origin && origin !== url.origin) return json({ error: "origin not allowed" }, 403);
-  let b: any; try { const t = await req.text(); if (t.length > 20000) return json({ error: "too large" }, 413); b = JSON.parse(t); } catch { return json({ ok: false, message: "Bad request." }, 400); }
-  const problem = await enrollTokenProblem(env, b?.token, now);
-  if (problem) return json({ ok: false, message: problem }, 400);
-  const bind = env.ENROLL_TOKEN_HASH!;
+  const bad = sameOriginJson(req, url); if (bad) return bad;
+  let b: any; try { b = await readJson(req); } catch { return json({ ok: false, message: "Bad request." }, 400); }
+  if (!passkeysOn(env)) return json({ ok: false, message: "Face ID sign-in is turned off on this server." }, 400);
+  // Two ways in: the setup link from the owner's computer (token), or a pairing an enrolled device approved (pair).
+  const viaPair = typeof b?.pair === "string" && !b?.token;
+  const pair = viaPair ? await pairForEnroll(env, b.pair, now) : undefined;
+  if (viaPair && !pair!.ok) return json({ ok: false, message: pair!.message }, 400);
+  if (!viaPair) { const problem = await enrollTokenProblem(env, b?.token, now); if (problem) return json({ ok: false, message: problem }, 400); }
+  const pairId = pair && pair.ok ? pair.id : "";
+  const bind = viaPair ? `pair:${pairId}` : env.ENROLL_TOKEN_HASH!;
   const creds = await loadPasskeys(env);
   if (url.pathname === "/enroll/options") {
-    if (creds.length >= MAX_PASSKEYS) return json({ ok: false, message: `Holdt already has ${MAX_PASSKEYS} Face ID devices, the most it allows. Reset Face ID from your computer to start over.` }, 400);
-    // Adding a device needs proof it's the owner: the current approval code, or a sign-in with a passkey already here.
-    // The code is checked here, before the browser creates anything, so a typo never leaves an orphan passkey in iCloud Keychain.
-    // A good code earns an "enroll_code" challenge, which /enroll/finish accepts as that proof.
-    const given = String(b.code ?? "").replace(/\D/g, "");
-    if (given) {
-      const v = await checkCode(env, given, now);
-      if (!v.ok) { log.warn(`enroll refused: approval code ${v.reason}`); return json({ ok: false, field: "code", message: v.message }, 400); }
-    }
-    const c = await newChallenge(env, given ? "enroll_code" : "enroll", bind, now);
-    const here = usableHere(creds, url), auth = !given && here.length ? await newChallenge(env, "enroll_auth", bind, now) : undefined;
-    return json({ ok: true, challenge_token: c.token, auth: auth ? { challenge_token: auth.token, challenge: auth.challenge, rpId: url.hostname, ids: here.map((x) => x.id) } : undefined, publicKey: {
-      rp: { id: url.hostname, name: PASSKEY_NAMES.rp }, user: { id: b64u(await sha(`holdt-owner:${url.hostname}`)), name: PASSKEY_NAMES.user, displayName: PASSKEY_NAMES.user },
-      challenge: c.challenge, pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }], timeout: 120000, attestation: "none",
-      authenticatorSelection: { residentKey: "preferred", userVerification: "required" }, excludeCredentials: creds.map((x) => ({ type: "public-key", id: x.id })) } });
+    if (creds.length >= MAX_PASSKEYS) return json({ ok: false, message: FULL }, 400);
+    return json({ ok: true, ...(await createOptions(env, url, creds, viaPair ? "enroll_pair" : "enroll", bind, now)) });
   }
   if (url.pathname === "/enroll/finish") {
     try {
-      const byPasskey = !!(b.auth && typeof b.auth === "object");
-      // Code path: the challenge itself proves the code passed in /enroll/options. Passkey path: proven below.
-      if (!byPasskey && (await verify(await challengeKey(env), String(b.challenge_token ?? ""), "webauthn_enroll", NO_SPEND, now, "")).ok)
-        return json({ ok: false, field: "code", message: "Enter the approval code first." }, 400); // no code and no passkey proof
-      const challenge = await takeChallenge(env, byPasskey ? "enroll" : "enroll_code", bind, b.challenge_token, now);
+      const challenge = await takeChallenge(env, viaPair ? "enroll_pair" : "enroll", bind, b.challenge_token, now);
       const cred = await verifyRegistration({ clientDataJSON: b.clientDataJSON, attestationObject: b.attestationObject }, { ...rp(url), challenge }, now);
       if (creds.some((c) => c.id === cred.id)) return json({ ok: false, message: "This device already uses Face ID with Holdt." }, 400);
-      if (creds.length >= MAX_PASSKEYS) return json({ ok: false, message: `Holdt already has ${MAX_PASSKEYS} Face ID devices, the most it allows. Reset Face ID from your computer to start over.` }, 400);
-      // The link alone is never enough: whoever opens a leaked link still needs the owner's code or passkey.
-      let via: "approval code" | "existing passkey";
-      if (byPasskey) {
-        const old = usableHere(creds, url).find((c) => safeEq(c.id, String(b.auth.id ?? "")));
-        if (!old) return json({ ok: false, message: "This device isn't set up for Face ID with Holdt. Enter the approval code instead." }, 400);
-        const ac = await takeChallenge(env, "enroll_auth", bind, b.auth.challenge_token, now);
-        const { signCount } = await verifyAssertion(b.auth, old, { ...rp(url), challenge: ac });
-        if (!(await bumpPasskey(env, old, signCount))) throw new WebAuthnError("signature counter went backwards");
-        via = "existing passkey";
-      } else via = "approval code";
+      if (creds.length >= MAX_PASSKEYS) return json({ ok: false, message: FULL }, 400);
+      const via = viaPair ? "approved on another device" : "setup link";
       cred.via = via; cred.rpId = url.hostname;
-      if (!(await spendEnrollToken(env, now))) return json({ ok: false, message: "This link was already used. Make a new one on your computer to add another device." }, 400);
+      // Spent here, after Face ID made a real passkey, never on opening the page (a link preview can't burn it).
+      if (viaPair ? !(await spendPair(env, pairId, now)) : !(await spendEnrollToken(env, now)))
+        return json({ ok: false, message: viaPair ? "This approval was already used. Start again on this device." : "This link was already used. Make a new one on your computer to add another device." }, 400);
       cred.label = typeof b.label === "string" ? b.label.replace(/[^\w .'-]/g, "").slice(0, 40) : undefined;
       const added = await addPasskey(env, cred);
-      if (added !== "ok") return json({ ok: false, message: added === "dup" ? "This device already uses Face ID with Holdt." : `Holdt already has ${MAX_PASSKEYS} Face ID devices, the most it allows. Reset Face ID from your computer to start over.` }, 400);
+      if (added !== "ok") return json({ ok: false, message: added === "dup" ? "This device already uses Face ID with Holdt." : FULL }, 400);
       // Visible in `npm run tail`, on the next consent pages and in connection_status (deviceNotice).
       log.info(`passkey enrolled: device "${cred.label || "unnamed"}" via ${via}, ${creds.length + 1} on this server`);
       return json({ ok: true, count: creds.length + 1 });
@@ -234,49 +236,118 @@ if(touch)document.getElementById('modeface').textContent='Use Touch ID instead';
 if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);msg.parentNode.classList.add('keep');msg.textContent=bio+' isn’t available in this window. Use an approval code instead.';live.textContent=msg.textContent;}
 const cf=document.getElementById('code');cf.addEventListener('input',()=>{const d=cf.value.replace(/\\D/g,'').slice(0,8),v=d.length>4?d.slice(0,4)+' '+d.slice(4):d;if(v!==cf.value)cf.value=v;});
 let busy=false,fails=0;btn.addEventListener('click',async()=>{if(busy)return;busy=true;btn.setAttribute('aria-disabled','true');msg.textContent='';try{
-const c=await navigator.credentials.get({publicKey:{challenge:b(o.challenge),rpId:o.rpId,allowCredentials:o.ids.map(id=>({type:'public-key',id:b(id)})),userVerification:'required',timeout:120000}});
+const c=await navigator.credentials.get({publicKey:{challenge:b(o.challenge),rpId:o.rpId,allowCredentials:o.ids.map(id=>({type:'public-key',id:b(id),transports:['internal','hybrid']})),userVerification:'required',timeout:120000}});
 f.pk_id.value=c.id;f.pk_cdj.value=u(c.response.clientDataJSON);f.pk_ad.value=u(c.response.authenticatorData);f.pk_sig.value=u(c.response.signature);
 btn.setAttribute('aria-busy','true');lab.textContent='Approving';mk.classList.add('drop');wrap.inert=true;f.classList.add('busy');live.textContent='Approving. One moment.';f.submit();
 }catch(e){busy=false;btn.removeAttribute('aria-disabled');fails++;msg.textContent=fails>1?bio+' didn’t finish.\\nEnter your approval code below.':bio+' didn’t finish.\\nTry again or use a\u00a0code.';if(fails>1){setMode(true);msg.parentNode.classList.add('keep');document.getElementById('code').focus();live.textContent=msg.textContent+' Approval code shown.';}else live.textContent=msg.textContent;}});`;
-export const ENROLL_SCRIPT = `${CODEC}${TOUCH}
-const t=location.hash.slice(1);history.replaceState(null,'',location.pathname);
-const $=id=>document.getElementById(id),btn=$('go'),msg=$('msg').lastElementChild,code=$('code'),err=$('err');
-if(touch){btn.lastElementChild.textContent='Turn on Touch ID';$('title').textContent='Turn on Touch ID';$('face1').textContent='Your fingerprint stays on your Mac. Holdt never sees it.';$('codefact').textContent='Approval codes keep working alongside Touch ID.';$('skip').querySelector('h1').textContent='Touch ID not turned on';$('skip').querySelector('.lede').textContent='You can keep approving with a code. You can turn on Touch ID anytime.';}
-const post=(p,o)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}).then(r=>r.json()).catch(()=>({ok:false,message:'Holdt couldn’t reach your server. Check your connection and try again.'}));
-const live=$('live'),say=m=>{msg.textContent=m;live.textContent=m;};
-const clearErr=()=>{err.hidden=true;code.removeAttribute('aria-invalid');code.setAttribute('aria-describedby','codehint');};
-const typo=m=>String(m).replace(/(\\w)'(\\w)/g,'$1’$2');
-const fieldErr=m=>{err.lastElementChild.textContent=typo(m);err.hidden=false;code.setAttribute('aria-invalid','true');code.setAttribute('aria-describedby','err codehint');code.value='';code.focus();};
-const dead=m=>{$('setup').hidden=true;const d=$('dead');d.hidden=false;const k=/expired/.test(m)?0:/already used/.test(m)?1:2;d.querySelector('h1').textContent=['This link expired','This link was already used','This link doesn’t work'][k];d.querySelector('.lede').textContent=['Links last 15 minutes. ','Each link adds one device. ','This link isn’t complete or isn’t current. '][k]+'Make a new one on the computer where you set up Holdt.';d.querySelector('h1').setAttribute('tabindex','-1');d.querySelector('h1').focus();};
-$('enrollf').addEventListener('submit',e=>{e.preventDefault();if(!btn.disabled)btn.click();});
-// The server spends a code the moment /enroll/options accepts it. From then on the page shows that: the field becomes a
-// read-only "Code accepted" line, the lede says what's left, and the benefit row about codes steps aside.
-// If the kept challenge times out, everything goes back to a true "enter a new code" state.
-let spent=false;const lede=document.querySelector('#setup .lede'),lede0=lede.textContent,fld=code.closest('.field'),factRow=$('codefact').closest('li');
-let kt=0;const markSpent=()=>{spent=true;lede.textContent='Your code is in. Finish with '+bio+'.';fld.style.display='none';factRow.style.display='none';$('codeok').hidden=false;live.textContent='Code accepted. Your next code approval needs a new one.';
-// When the checked challenge expires, go back to entry on its own (no focus move), so no line outlives the window.
-clearTimeout(kt);kt=setTimeout(()=>{if(spent&&kept){unSpend();say('That code has timed out. Get a new one on the computer where you set up Holdt.');}},270000);};
-const unSpend=()=>{clearTimeout(kt);spent=false;kept=null;lede.textContent=lede0;fld.style.display='';factRow.style.display='';$('codeok').hidden=true;};
-$('later').addEventListener('click',()=>{$('setup').hidden=true;const k=$('skip');k.hidden=false;if(spent)k.querySelector('.lede').textContent='The code you entered was used for this setup. Next time you connect, get a new one on the computer where you set up Holdt.';const h=k.querySelector('h1');h.setAttribute('tabindex','-1');h.focus();});
-code.addEventListener('input',()=>{clearErr();const d=code.value.replace(/\\D/g,'').slice(0,8);const v=d.length>4?d.slice(0,4)+' '+d.slice(4):d;if(v!==code.value)code.value=v;});
-if(!t){btn.disabled=true;say('This link is missing its last part. Open the full link from your computer.');}
+// Shared by the pages below: same-origin JSON POST, the views, and making a passkey.
+const POST = `const post=(p,o)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}).then(r=>r.json()).catch(()=>({ok:false,net:1,message:'Holdt couldn’t reach your server. Check your connection and try again.'}));`;
+const VIEWS = (ids: string[]) => `const $=id=>document.getElementById(id),VIEWS=${JSON.stringify(ids)},show=id=>{VIEWS.forEach(x=>{const e=$(x);if(e)e.hidden=x!==id;});const h=$(id)&&$(id).querySelector('h1');if(h){h.setAttribute('tabindex','-1');h.focus();}};`;
+const REGISTER = `const register=async(r,extra,onBusy)=>{const p=JSON.parse(JSON.stringify(r.publicKey));p.challenge=b(p.challenge);p.user.id=b(p.user.id);p.excludeCredentials=p.excludeCredentials.map(x=>({type:x.type,id:b(x.id)}));
+const c=await navigator.credentials.create({publicKey:p});onBusy();
+return post('/enroll/finish',Object.assign({challenge_token:r.challenge_token,clientDataJSON:u(c.response.clientDataJSON),attestationObject:u(c.response.attestationObject),label:navigator.platform||''},extra));};
+const typo=m=>String(m).replace(/(\\w)'(\\w)/g,'$1’$2');`;
+/** The setup link. Tap Turn on Face ID, look at the phone, done. The token leaves the address bar at once. */
+export const ENROLL_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["setup", "done", "skip", "dead"])}${REGISTER}
+const t=location.hash.slice(1),fromSetup=/[?&]from=setup\b/.test(location.search);history.replaceState(null,'',location.pathname);
+const btn=$('go'),msg=$('msg').lastElementChild,live=$('live'),blab=btn.lastElementChild;
+if(touch){blab.textContent='Turn on Touch ID';$('title').textContent='Turn on Touch ID';$('face1').textContent='Your fingerprint stays on your Mac. Holdt never sees it.';$('skip').querySelector('h1').textContent='Touch ID not turned on';$('skip').querySelector('.lede').textContent='Holdt needs Touch ID to approve connections on this Mac. Turn it on whenever you’re ready.';}
+const say=m=>{msg.textContent=m;live.textContent=m;};
+const dead=m=>{const d=$('dead'),k=/expired/.test(m)?0:/already used/.test(m)?1:2;d.querySelector('h1').textContent=['This link expired','This link was already used','This link doesn’t work'][k];d.querySelector('.lede').textContent=['Links last 10 minutes. ','Each link adds one device. ','This link isn’t complete or isn’t current. '][k]+'Make a new one on the computer where you set up Holdt.';show('dead');};
+$('later').addEventListener('click',()=>show('skip'));
+// The options are fetched as the page opens (a POST from this script, which spends nothing), so the one click goes
+// straight to the passkey sheet with the browser's user gesture intact. Only /enroll/finish, after that click and
+// Touch ID or Face ID, spends the link.
+let pre=null,preAt=0;const fetchOpts=()=>{preAt=Date.now();pre=post('/enroll/options',{token:t});return pre;};
+if(!t){btn.disabled=true;say('This link is missing its last part. Open the newest link from your computer.');}
 else if(!window.PublicKeyCredential){btn.disabled=true;say('This browser can’t save '+bio+' for Holdt. Open the link in Safari.');}
-let kept=null;const blab=btn.lastElementChild,idle=()=>{blab.textContent=touch?'Turn on Touch ID':'Turn on Face ID';},busyAs=(l,m)=>{blab.textContent=l;live.textContent=m;};
-btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');say('');clearErr();try{
-const cv=code.value.replace(/\\D/g,'');let auth;
-// A checked code is spent, so keep its challenge for a retry after a cancelled sheet (good for 5 minutes, same code only).
-let r=kept&&kept.cv===cv&&Date.now()-kept.at<270000?kept.r:null;
-if(!r&&cv&&kept&&kept.cv===cv){unSpend();const e=new Error('That code has timed out. Get a new one on the computer where you set up Holdt.');e.field=1;throw e;}
-if(!r){busyAs('Checking code','Checking your code.');r=await post('/enroll/options',{token:t,code:cv});if(!r.ok){btn.removeAttribute('aria-busy');live.textContent='';if(r.field){const e=new Error(r.message);e.field=1;throw e;}return dead(r.message);}if(cv){kept={cv,r,at:Date.now()};markSpent();}}
-if(!cv){if(!r.auth){const e=new Error('Enter the approval code first.');e.field=1;throw e;}
-const a=await navigator.credentials.get({publicKey:{challenge:b(r.auth.challenge),rpId:r.auth.rpId,allowCredentials:r.auth.ids.map(id=>({type:'public-key',id:b(id)})),userVerification:'required',timeout:120000}});
-auth={challenge_token:r.auth.challenge_token,id:a.id,clientDataJSON:u(a.response.clientDataJSON),authenticatorData:u(a.response.authenticatorData),signature:u(a.response.signature)};}
-const p=JSON.parse(JSON.stringify(r.publicKey));p.challenge=b(p.challenge);p.user.id=b(p.user.id);p.excludeCredentials=p.excludeCredentials.map(x=>({type:x.type,id:b(x.id)}));
-idle();const c=await navigator.credentials.create({publicKey:p});busyAs('Turning on','Turning on '+bio+'. One moment.');
-const d=await post('/enroll/finish',{token:t,auth,challenge_token:r.challenge_token,clientDataJSON:u(c.response.clientDataJSON),attestationObject:u(c.response.attestationObject),label:navigator.platform||''});
-clearTimeout(kt);kept=null;if(!d.ok){unSpend();const e=new Error(d.message);e.field=d.field==='code';throw e;}
-$('setup').hidden=true;const done=$('done');done.hidden=false;const h=done.querySelector('h1');
-h.textContent=bio+' is on';if(touch)done.querySelector('.lede').textContent='Next time, click Allow with Touch ID. Your other Apple devices with iCloud Keychain can use it too.';
-h.setAttribute('tabindex','-1');h.focus();requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
-}catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';if(e&&e.field&&spent)unSpend();const m=(e&&e.message)||'That didn’t work. Try again.';
-if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\n'+(kept?'Try again within a few minutes.':'Try again, or tap Not\u00a0now.'));else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else if(e&&e.field)fieldErr(m);else say(typo(m));if(!(e&&e.field))btn.focus();}});`;
+else fetchOpts().then(r=>{if(!r.ok&&!r.net&&!/most it allows/.test(r.message||''))dead(r.message);});
+const idle=()=>{blab.textContent='Turn on '+bio;};
+btn.addEventListener('click',async()=>{btn.disabled=true;say('');try{
+let r=await(Date.now()-preAt<240000&&pre?pre:fetchOpts());if(!r.ok&&r.net)r=await fetchOpts();
+if(!r.ok){if(r.net||/most it allows/.test(r.message||''))throw new Error(r.message);return dead(r.message);}
+const d=await register(r,{token:t},()=>{btn.setAttribute('aria-busy','true');blab.textContent='Turning on';live.textContent='Turning on '+bio+'. One moment.';});
+if(!d.ok){if(/already used|expired/.test(d.message||''))return dead(d.message);throw new Error(d.message);}
+const h=$('done').querySelector('h1');h.textContent=bio+' is on';
+const lede=$('done').querySelector('.lede');lede.textContent=fromSetup?'Holdt is ready. Your iPhone gets it through iCloud Keychain too.':touch?'Next time, click Allow with Touch ID. Your other Apple devices with iCloud Keychain can use it too.':lede.textContent;
+if(fromSetup){$('next').hidden=false;$('closeline').hidden=true;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent);$('copy').textContent='Copied';}catch(e){}});}
+show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
+}catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';fetchOpts();
+if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again, or tap Not\u00a0now.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else say(typo((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;
+
+/** The consent page: Face ID here (the sheet can also offer a nearby phone), or scan the QR code and approve on the iPhone.
+ * The page polls for the iPhone's answer and finishes by itself. Without script, the QR code shows with a Continue button. */
+export const CONSENT_SCRIPT = `${CODEC}${TOUCH}${POST}
+const $=id=>document.getElementById(id),btn=$('pk'),f=btn.form,o=JSON.parse(btn.dataset.o),msg=$('pkmsg').lastElementChild,mode=$('mode'),live=$('live'),wrap=$('altwrap'),lab=$('pklabel'),mk=$('mk'),panel=$('awaypanel'),am=$('awaymsg');
+if(touch){lab.textContent='Allow with Touch ID';$('modeface').textContent='Use Touch ID on this Mac';}
+let timer=0,done=false,fails=0,busy=false;
+const say=m=>{msg.textContent=m;live.textContent=m;};
+const refresh=async()=>{const r=await post('/authorize/away/new',{handle:f.handle.value,ctx:f.ctx.value});if(r&&r.ok&&r.qr){const w=$('qrwrap');w.innerHTML=r.qr;w.dataset.link=r.link;}};
+const finish=(away)=>{done=true;clearInterval(timer);if(away){am.lastElementChild.textContent='Approved on your iPhone';am.classList.remove('wait');live.textContent='Approved on your iPhone. Finishing.';f.away.value='1';}
+mk.classList.add('drop');wrap.inert=true;f.classList.add('busy');setTimeout(()=>f.submit(),away?500:0);};
+const poll=async()=>{if(done||document.hidden)return;const r=await post('/authorize/away',{handle:f.handle.value});if(done||!r||!r.ok)return;
+if(r.status==='approved')finish(true);
+else if(r.status==='denied'){done=true;clearInterval(timer);const i=document.createElement('input');i.type='hidden';i.name='decision';i.value='deny';f.appendChild(i);live.textContent='Not allowed on your iPhone.';f.submit();}
+else if(r.status==='gone')refresh();};
+const setMode=(on,speak)=>{f.classList.toggle('away',on);if(!on){msg.parentNode.classList.remove('keep');msg.textContent='';live.textContent='';}mode.setAttribute('aria-expanded',on?'true':'false');
+if(on&&!timer)timer=setInterval(poll,2000);if(speak){live.textContent=on?'QR code shown. Scan it with your iPhone’s camera.':bio+' shown';(on?panel:btn).focus();}};
+f.classList.add('js');btn.hidden=false;mode.hidden=false;mode.addEventListener('click',()=>setMode(!f.classList.contains('away'),true));
+if(f.classList.contains('away'))setMode(true);
+if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);}
+btn.addEventListener('click',async()=>{if(busy||done)return;busy=true;btn.setAttribute('aria-disabled','true');msg.textContent='';try{
+const c=await navigator.credentials.get({publicKey:{challenge:b(o.challenge),rpId:o.rpId,allowCredentials:o.ids.map(id=>({type:'public-key',id:b(id),transports:['internal','hybrid']})),userVerification:'required',timeout:120000}});
+if(done)return;f.pk_id.value=c.id;f.pk_cdj.value=u(c.response.clientDataJSON);f.pk_ad.value=u(c.response.authenticatorData);f.pk_sig.value=u(c.response.signature);
+btn.setAttribute('aria-busy','true');lab.textContent='Approving';live.textContent='Approving. One moment.';finish(false);
+}catch(e){busy=false;btn.removeAttribute('aria-disabled');if(done)return;fails++;
+if(fails>1){setMode(true);msg.parentNode.classList.add('keep');say(bio+' didn’t finish.\\nScan the QR code with your iPhone instead.');}else say(bio+' didn’t finish.\\nTry again, or approve on your\u00a0iPhone.');}});`;
+
+/** Consent page before any device has Face ID: wait, and carry on by itself once one does. */
+export const READY_SCRIPT = `${POST}
+const m=document.getElementById('readymsg');m.hidden=false;
+const t=setInterval(async()=>{if(document.hidden)return;const r=await post('/authorize/ready',{});if(r&&r.ready){clearInterval(t);location.reload();}},3000);`;
+
+/** The approving iPhone. The secret leaves the address bar at once. Reading the request is a POST, so a link preview
+ * that fetches the page learns and changes nothing. Approving needs a tap and Face ID. */
+export const OK_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["load", "ask", "ok", "no", "dead", "nopk"])}
+const s=location.hash.slice(1);history.replaceState(null,'',location.pathname);
+const gone=r=>{if(r.gone==='nopk')return show('nopk');const d=$('dead');
+if(r.gone==='decided'){d.querySelector('h1').textContent='Already answered';d.querySelector('.lede').textContent='This request already has an answer. There’s nothing more to do here.';}
+else if(r.gone==='invalid'||r.net){d.querySelector('h1').textContent=r.net?'Holdt couldn’t reach your server':'This link doesn’t work';d.querySelector('.lede').textContent=r.net?'Check your connection, then scan the code again.':'Scan the newest code on your computer.';}
+show('dead');};
+(async()=>{if(!s)return gone({gone:'invalid'});let o=await post('/ok/view',{s});if(!o.ok)return gone(o);
+$('ask').innerHTML=o.html;show('ask');$('ask').querySelector('h1').removeAttribute('tabindex');
+if(o.kind==='pair'){$('ok').querySelector('h1').textContent='Device approved';$('ok').querySelector('.lede').textContent='Go back to the new device to finish.';$('no').querySelector('h1').textContent='Device not added';$('no').querySelector('.lede').textContent='Nothing changed.';}
+const yes=$('yes'),lab=$('yeslabel'),msg=$('askmsg').lastElementChild,live=$('live'),idle=()=>{lab.textContent='Allow with '+bio;};idle();
+const say=m=>{msg.textContent=m;live.textContent=m;};
+if(!window.PublicKeyCredential){yes.disabled=true;say(bio+' isn’t available in this browser. Open the link in Safari.');}
+let busy=false;
+yes.addEventListener('click',async()=>{if(busy)return;busy=true;yes.setAttribute('aria-disabled','true');say('');try{
+const c=await navigator.credentials.get({publicKey:{challenge:b(o.challenge),rpId:o.rpId,allowCredentials:o.ids.map(id=>({type:'public-key',id:b(id),transports:['internal','hybrid']})),userVerification:'required',timeout:120000}});
+yes.setAttribute('aria-busy','true');lab.textContent='Approving';live.textContent='Approving. One moment.';
+const d=await post('/ok/approve',{s,challenge_token:o.challenge_token,id:c.id,clientDataJSON:u(c.response.clientDataJSON),authenticatorData:u(c.response.authenticatorData),signature:u(c.response.signature)});
+if(d.ok){show('ok');requestAnimationFrame(()=>$('mkok').classList.add('drop'));return;}
+if(d.gone)return gone(d);
+const n=await post('/ok/view',{s});if(n.ok)o=n;else return gone(n);throw new Error(d.message);
+}catch(e){busy=false;yes.removeAttribute('aria-disabled');yes.removeAttribute('aria-busy');idle();
+say(e&&e.name==='NotAllowedError'?bio+' didn’t finish.\\nTry again, or tap Don’t\u00a0allow.':String((e&&e.message)||'That didn’t work. Try again.'));yes.focus();}});
+$('nope').addEventListener('click',async()=>{const d=await post('/ok/deny',{s});if(d.ok)show('no');else gone(d);});
+})();`;
+
+/** A new device: show a QR code, wait for the iPhone's yes, then make this device's own passkey on a tap.
+ * The claim secret stays in this page's memory. It is never in the QR code, so whoever sees the code can't enroll. */
+export const PAIR_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["ask", "ready", "done", "no", "skip", "dead", "nopk"])}${REGISTER}
+let claim='',opts=null,timer=0;const live=$('live');
+if(touch){$('ready').querySelector('h1').textContent='Turn on Touch ID';$('go').lastElementChild.textContent='Turn on Touch ID';$('done').querySelector('h1').textContent='Touch ID is on';$('done').querySelector('.lede').textContent='Next time, click Allow with Touch ID on this Mac.';}
+const stop=()=>{clearInterval(timer);timer=0;};
+const poll=async()=>{if(document.hidden||!claim)return;const r=await post('/pair/status',{claim});if(!r||!r.ok||!timer)return;
+if(r.status==='approved'&&r.publicKey){stop();opts=r;show('ready');}else if(r.status==='denied'){stop();show('no');}else if(r.status==='gone'){stop();show('dead');}};
+(async()=>{const r=await post('/pair/new',{});if(!r.ok)return show(/yet/.test(r.message||'')?'nopk':'dead');claim=r.claim;const w=$('qrwrap');w.innerHTML=r.qr;w.classList.remove('qrwait');live.textContent='QR code shown. Scan it with your iPhone’s camera.';timer=setInterval(poll,2000);})();
+$('later').addEventListener('click',()=>{stop();show('skip');});$('later2').addEventListener('click',()=>show('skip'));
+const btn=$('go'),msg=$('msg').lastElementChild,live2=$('live2'),blab=btn.lastElementChild,idle=()=>{blab.textContent='Turn on '+bio;};
+const say=m=>{msg.textContent=m;live2.textContent=m;};
+btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');say('');try{
+const d=await register(opts,{pair:claim},()=>{blab.textContent='Turning on';live2.textContent='Turning on '+bio+'. One moment.';});
+if(!d.ok){if(/expired|already used/.test(d.message||'')){show('dead');return;}throw new Error(d.message);}
+show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
+}catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();
+if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again, or tap Not\u00a0now.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else say(typo((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;

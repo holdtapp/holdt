@@ -22,7 +22,6 @@ let env: any; let kv: MockKV; const ENROLL = "enroll-token-" + "t".repeat(30);
 async function freshEnv(over: Record<string, unknown> = {}) {
   kv = new MockKV();
   env = { ICLOUD_EMAIL: USER, ICLOUD_APP_PASSWORD: PASS, CONFIRM_SECRET: "k".repeat(43), GRANT_EPOCH: "epoch-1-" + "e".repeat(30), TIMEZONE: "America/Denver", WRITES_ENABLED: "false", CALDAV_URL: cal.base, OAUTH_KV: kv,
-    APPROVAL_CODE_HASH: await sha256Hex(`icloud-mcp-approval:${CODE}`), APPROVAL_CODE_ISSUED: String(Date.now()),
     PASSKEYS: "on", ENROLL_TOKEN_HASH: createHash("sha256").update(ENROLL).digest("hex"), ENROLL_TOKEN_ISSUED: String(Date.now()), ...over };
 }
 const ctx = () => ({ waitUntil() {}, passThroughOnException() {}, props: undefined });
@@ -31,17 +30,14 @@ const post = (path: string, o: unknown) => call(path, { method: "POST", headers:
 const unesc = (s: string) => s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n));
 const b64u = (b: Buffer) => b.toString("base64url");
 
-/** Enroll with the approval code (the default) or with a passkey already on the server (`by`). Afterwards the code is
- * made fresh again, as `npm run setup -- --new-code` would, so a test can still connect with CODE. */
-async function enroll(a: VirtualAuthenticator, token = ENROLL, o2: { code?: string; by?: VirtualAuthenticator } = {}) {
-  // The code is checked in /enroll/options, before the authenticator creates anything (no orphan passkeys on a typo).
-  const o: any = await (await post("/enroll/options", { token, code: o2.by ? "" : (o2.code ?? CODE) })).json(); if (!o.ok) return o;
+/** Enroll the way the page does: options as the page opens, then the one click (create) and finish. Nothing typed. */
+async function enroll(a: VirtualAuthenticator, token = ENROLL) {
+  const o: any = await (await post("/enroll/options", { token })).json(); if (!o.ok) return o;
   const r = await a.create(o.publicKey.challenge);
-  const auth = o2.by && o.auth ? { challenge_token: o.auth.challenge_token, ...(await o2.by.get(o.auth.challenge)) } : undefined;
-  const out: any = await (await post("/enroll/finish", { token, challenge_token: o.challenge_token, ...r, auth })).json();
-  await kv.delete(`approval-used:${env.APPROVAL_CODE_HASH}`); await kv.delete(`approval-fail:${env.APPROVAL_CODE_HASH}`);
-  return out;
+  return (await post("/enroll/finish", { token, challenge_token: o.challenge_token, ...r })).json() as Promise<any>;
 }
+/** Turns on an owner recovery code, as `npm run new-code` would. */
+const recovery = async () => { env.APPROVAL_CODE_HASH = await sha256Hex(`icloud-mcp-approval:${CODE}`); env.APPROVAL_CODE_ISSUED = String(Date.now()); };
 async function consent() {
   const reg: any = await (await call("/oauth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_name: "Grok Bot", redirect_uris: [CB], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }) })).json();
   const verifier = b64u(randomBytes(32));
@@ -96,7 +92,7 @@ test("enroll: page carries a nonce CSP, the token works once and expires, and is
   assert.deepEqual(await enroll(a), { ok: true, count: 1 });
   assert.match((await enroll(await new VirtualAuthenticator(ORIGIN).init())).message, /already used/);
   assert.equal((await call("/enroll/finish", { method: "POST", headers: { Origin: "https://evil.example" }, body: "{}" })).status, 403);
-  await freshEnv({ ENROLL_TOKEN_ISSUED: String(Date.now() - 16 * 60_000) });
+  await freshEnv({ ENROLL_TOKEN_ISSUED: String(Date.now() - 11 * 60_000) });
   assert.match((await enroll(a)).message, /expired/);
   await freshEnv({ PASSKEYS: undefined });
   assert.equal((await call("/enroll")).status, 404); assert.match((await enroll(a)).message, /turned off/);
@@ -105,32 +101,32 @@ test("enroll: page carries a nonce CSP, the token works once and expires, and is
 test("enroll: a challenge is single use and bound to the enroll token, and a wrong-origin passkey is refused", async () => {
   await freshEnv();
   const a = await new VirtualAuthenticator(ORIGIN).init();
-  const o: any = await (await post("/enroll/options", { token: ENROLL, code: CODE })).json();
+  const o: any = await (await post("/enroll/options", { token: ENROLL })).json();
   const bad = await a.create(o.publicKey.challenge, { origin: "https://evil.example" });
   assert.match((await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...bad })).json() as any).message, /wasn't saved/);
   // that challenge is spent even though it failed
   const good = await a.create(o.publicKey.challenge);
   assert.equal((await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...good })).json() as any).ok, false);
-  await kv.delete(`approval-used:${env.APPROVAL_CODE_HASH}`); // the code was spent in /enroll/options, as a new code would
-  assert.equal((await enroll(a)).ok, true);
+  assert.equal((await enroll(a)).ok, true, "the link itself is still unused");
 });
 
-test("enroll: a wrong code is refused before the authenticator runs, and a code-less finish is refused", async () => {
+test("ATTACK N2: opening the setup link, previews and repeated options spend nothing. Only the one click's finish does", async () => {
   await freshEnv();
-  const wrong: any = await (await post("/enroll/options", { token: ENROLL, code: "11112222" })).json();
-  assert.equal(wrong.ok, false); assert.equal(wrong.field, "code"); assert.equal(wrong.publicKey, undefined, "no creation options, so no passkey can be made");
+  const before = [...kv.m.keys()].sort().join();
+  for (const path of ["/enroll", `/enroll?t=${ENROLL}`, "/enroll?from=setup"]) assert.equal((await call(path)).status, 200);
+  assert.equal([...kv.m.keys()].sort().join(), before, "a GET (a messaging app's link preview) changes nothing");
+  for (let i = 0; i < 3; i++) assert.equal(((await (await post("/enroll/options", { token: ENROLL })).json()) as any).ok, true);
   const a = await new VirtualAuthenticator(ORIGIN).init();
-  const o: any = await (await post("/enroll/options", { token: ENROLL })).json();
-  const r = await a.create(o.publicKey.challenge);
-  const out: any = await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...r })).json();
-  assert.equal(out.ok, false); assert.match(out.message, /approval code/);
-  assert.equal((await loadPasskeys(env)).length, 0);
+  assert.equal((await enroll(a)).ok, true, "the link still works after the page opened and fetched options");
+  assert.match((await enroll(await new VirtualAuthenticator(ORIGIN).init())).message, /already used/);
+  assert.ok(logs.some((l) => /passkey enrolled: device "unnamed" via setup link, 1 on this server/.test(l)), "each enroll is logged");
 });
 
 test("connect: Allow with Face ID approves with no code typed, and the token works", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
   const c = await consent();
-  assert.match(c.html, /Allow with Face ID/); assert.match(c.html, /Use an approval code/); assert.equal(c.o.rpId, "localhost"); assert.deepEqual(c.o.ids, [a.credId]);
+  assert.match(c.html, /Allow with Face ID/); assert.match(c.html, /Approve on your iPhone instead/); assert.equal(c.o.rpId, "localhost"); assert.deepEqual(c.o.ids, [a.credId]);
+  assert.doesNotMatch(c.html, /name="code"|approval code/i, "nothing to type in the normal flow");
   const nonce = c.page.headers.get("content-security-policy")!.match(/'nonce-([a-f0-9]+)'/)?.[1]; assert.ok(nonce); assert.match(c.html, new RegExp(`<script nonce="${nonce}">`));
   assert.match(c.page.headers.get("content-security-policy")!, /form-action 'self' cursor:/);
   const r = await c.viaPasskey(a); assert.equal(r.status, 302, await r.clone().text());
@@ -179,24 +175,36 @@ test("ATTACK P8: Don't allow wins even when the form also carries a valid Face I
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
   const d = await (await consent()).viaPasskey(a, {}, { decision: "deny" }); assert.equal(d.status, 302); assert.equal(new URL(d.headers.get("location")!).searchParams.get("error"), "access_denied");
 });
-test("connect: the code fallback still works with passkeys on, and off means no button and no script", async () => {
+test("connect: a code field shows only while an owner recovery code is live, off means no button and no script", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
-  const c2 = await consent(); assert.equal((await c2.submit({ code: CODE, decision: "approve" })).status, 302);
+  assert.doesNotMatch((await consent()).html, /name="code"/);
+  await recovery(); const c2 = await consent(); assert.match(c2.html, /name="code"/); assert.equal((await c2.submit({ code: CODE, decision: "approve" })).status, 302);
+  assert.doesNotMatch((await consent()).html, /name="code"/, "a used recovery code takes the field away again");
   await freshEnv({ PASSKEYS: "off" }); kv.m.clear();
-  const c3 = await consent(); assert.doesNotMatch(c3.html, /Face ID|<script/); assert.doesNotMatch(c3.page.headers.get("content-security-policy")!, /script-src/);
-  await freshEnv(); const c4 = await consent(); assert.doesNotMatch(c4.html, /Face ID/, "nothing enrolled yet: code only");
+  const c3 = await consent(); assert.doesNotMatch(c3.html, /<script|name="code"/); assert.match(c3.html, /Face ID is off/); assert.doesNotMatch(c3.page.headers.get("content-security-policy")!, /script-src/);
+  await freshEnv(); const c4 = await consent(); assert.doesNotMatch(c4.html, /id="pk"|name="code"/, "nothing enrolled yet: no button and no code");
+  assert.match(c4.html, /Turn on Face ID to approve/); assert.match(c4.html, /npm run add-device/);
+  assert.match(c4.html, /<details class="owner" open>/, "the command sits in Setup help, not the main copy");
 });
 
-test("setup: --add-device saves only the token's hash and prints a fragment link, --reset-passkeys orphans every passkey", async () => {
-  const saved: Record<string, string> = {}; let out = "";
-  await cliAction("--add-device", async (n, v) => { saved[n] = v; }, (s) => (out += s), "https://holdt.example.workers.dev/");
-  const token = out.match(/\/enroll#([\w-]+)/)?.[1]; assert.ok(token, out);
-  assert.match(out, /asks for this approval code.*\d{4}-\d{4}/); assert.match(saved.APPROVAL_CODE_HASH!, /^pbkdf2\$/);
+test("setup: --add-device opens the link in the browser (no code, no QR), --qr prints the fallback, --reset-passkeys orphans every passkey", async () => {
+  const saved: Record<string, string> = {}; let out = ""; const opened: string[] = [];
+  await cliAction("--add-device", async (n, v) => { saved[n] = v; }, (s) => (out += s), "https://holdt.example.workers.dev/", {}, async (u) => { opened.push(u); return true; });
+  const token = opened[0]?.match(/\/enroll#([\w-]+)$/)?.[1]; assert.ok(token, opened.join());
+  assert.equal(saved.APPROVAL_CODE_HASH, undefined, "no approval code"); assert.doesNotMatch(out, /\d{4}-\d{4}|█/); assert.match(out, /Click Turn on Touch ID there\. That's the only step\./);
+  assert.ok(!out.includes(token!), "the link isn't printed when the browser opened it");
   assert.equal(saved.ENROLL_TOKEN_HASH, createHash("sha256").update(token!).digest("hex")); assert.ok(!Object.values(saved).includes(token!));
+  let out2 = ""; const opened2: string[] = [];
+  await cliAction("--add-device", async (n, v) => { saved[n] = v; }, (s) => (out2 += s), "https://holdt.example.workers.dev/", {}, async (u) => { opened2.push(u); return true; }, ["--qr"]);
+  assert.equal(opened2.length, 0); assert.match(out2, /\/enroll#[\w-]+/); assert.match(out2, /█/, "a terminal QR code for a phone");
+  let out3 = "";
+  await cliAction("--add-device", async (n, v) => { saved[n] = v; }, (s) => (out3 += s), "https://holdt.example.workers.dev/", {}, async () => false);
+  assert.match(out3, /\/enroll#[\w-]+/, "no browser on this machine: the link and QR print instead"); assert.match(out3, /█/);
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
-  assert.match((await consent()).html, /Face ID/);
+  assert.match((await consent()).html, /Allow with Face ID/);
   await cliAction("--reset-passkeys", async (n, v) => { saved[n] = v; }, (s) => (out += s));
-  env.PASSKEY_EPOCH = saved.PASSKEY_EPOCH; assert.doesNotMatch((await consent()).html, /Face ID/);
+  env.PASSKEY_EPOCH = saved.PASSKEY_EPOCH; assert.doesNotMatch((await consent()).html, /Allow with Face ID/);
+  assert.doesNotMatch(out, /Approval codes still work/);
 });
 
 const fakeCred = (i: number) => ({ id: `cred-${i}-` + "x".repeat(20), jwk: { kty: "EC" }, alg: -7 as const, signCount: 0, createdAt: Date.now() });
@@ -226,30 +234,20 @@ test("ATTACK P11: a store holding more than 10 passkeys turns one-tap off instea
   assert.equal(r.status, 400); assert.match(await r.text(), /paused on this server/);
 });
 
-test("ATTACK P12: a leaked enroll link alone can't add a device: it needs the approval code", async () => {
+test("ATTACK P12: the setup link is the owner's proof: hash only, fragment only, 10 minutes, once", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init();
-  const none = await enroll(a, ENROLL, { code: "" }); assert.equal(none.ok, false); assert.match(none.message, /code/);
-  const wrong = await enroll(a, ENROLL, { code: "11112222" }); assert.equal(wrong.ok, false); assert.match(wrong.message, /doesn't match/);
-  assert.equal((await loadPasskeys(env)).length, 0);
-  assert.equal((await enroll(a)).ok, true, "the right code works, and the link was still unused");
-  assert.ok(logs.some((l) => /passkey enrolled: device "unnamed" via approval code, 1 on this server/.test(l)), "each enroll is logged");
-});
-test("ATTACK P13: a second device can be added with an existing passkey, but not with a stranger's", async () => {
-  await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); assert.equal((await enroll(a)).ok, true);
-  env.ENROLL_TOKEN_HASH = createHash("sha256").update(ENROLL + "2").digest("hex");
-  const stranger = await new VirtualAuthenticator(ORIGIN).init(); stranger.id = a.id;
-  const b = await new VirtualAuthenticator(ORIGIN).init();
-  assert.equal((await enroll(b, ENROLL + "2", { by: stranger })).ok, false);
-  env.ENROLL_TOKEN_HASH = createHash("sha256").update(ENROLL + "3").digest("hex");
-  assert.equal((await enroll(b, ENROLL + "3", { by: a })).ok, true);
-  assert.ok(logs.some((l) => /via existing passkey, 2 on this server/.test(l)));
+  assert.ok(![...kv.m.values()].some((v) => String(v).includes(ENROLL)) && !Object.values(env).includes(ENROLL), "only the hash is stored");
+  assert.match((await enroll(a, "x" + ENROLL)).message, /isn't valid/);
+  assert.equal((await enroll(a)).ok, true);
+  assert.match((await enroll(await new VirtualAuthenticator(ORIGIN).init())).message, /already used/);
+  assert.ok(!logs.some((l) => l.includes(ENROLL)), "never logged");
 });
 test("a new device shows on the next consent pages and in connection_status for 7 days", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
   assert.match((await consent()).html, /Face ID was turned on for a new device today at \d+:\d\d[\s\u00a0][AP]M\. Not you\? Tap[\s\u00a0]Don’t[\s\u00a0]allow\./);
   const { mcpEndpoint } = await import("../src/worker.js");
   const st = async () => (await (await mcpEndpoint(new Request(ORIGIN + "/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "connection_status", arguments: {} } }) }), env, { epoch: env.GRANT_EPOCH }, fetch)).json() as any).result.structuredContent;
-  const s1 = await st(); assert.equal(s1.passkeys.length, 1); assert.equal(s1.passkeys[0].added_with, "approval code"); assert.match(s1.device_notice, /New device added .*reset-passkeys/);
+  const s1 = await st(); assert.equal(s1.passkeys.length, 1); assert.equal(s1.passkeys[0].added_with, "setup link"); assert.match(s1.device_notice, /New device added .*reset-passkeys/);
   const recs = await kv.list({ prefix: "passkey:" }); for (const k of recs.keys) { const c = JSON.parse((await kv.get(k.name))!); c.createdAt -= 8 * 86400_000; await kv.put(k.name, JSON.stringify(c)); }
   assert.doesNotMatch((await consent()).html, /was turned on for/); const s2 = await st(); assert.equal(s2.device_notice, undefined); assert.equal(s2.passkeys.length, 1);
 });
