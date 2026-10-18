@@ -45,7 +45,7 @@ test("ATTACK CF1: naming, Grok Bot only for Grok Bot's exact callback, never fro
 
 test("consent copy: locked line verbatim, read-only and changes-on wording, and no semicolons anywhere a person reads", async () => {
   await fresh(); const ro = visible((await consentHtml("Cursor", GROK)).html);
-  assert.ok(ro.includes(LOCKED)); assert.match(ro, /Changes are off, so it can’t add or change events\./); assert.match(ro, /Never sends invitations\./);
+  assert.ok(ro.includes(LOCKED)); assert.match(ro, /Can’t add or change events\./); assert.match(ro, /Never sends invitations\./);
   await fresh({ WRITES_ENABLED: "true" }); const rw = visible((await consentHtml("Cursor", GROK)).html);
   assert.ok(rw.includes(LOCKED)); assert.match(rw, /Changes are on, and each one waits for your yes\./);
   const pages = [ro, rw, visible((await consentHtml("Calendar Helper", "https://app.example/cb")).html), visible(await (await call("/enroll")).text()), visible(await (await call("/ok")).text()), visible(await (await call("/pair")).text())];
@@ -188,7 +188,7 @@ test("pages that also open on a computer never say tap (R44): no-device consent,
   for (const p of pages) assert.doesNotMatch(p, /\btap\b/i, p.slice(0, 80));
   assert.match(pages[0], /Access goes to Grok Bot alone\. Allow this only if you just asked it to connect\./);
   assert.match(pages[1], /Approve from the iPhone you already use with Holdt\./);
-  assert.match(pages[2], /Nothing changes until you turn it on\./);
+  assert.match(pages[2], /Demo events only\./);
 });
 
 test("Mac Safari keeps a 17 px base: -apple-system-body only where touch-callout exists (iOS, iPadOS), and the new-device notice says Choose", async () => {

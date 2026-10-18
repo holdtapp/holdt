@@ -12,7 +12,7 @@ export const esc = (v: string) => String(v).replace(/[&<>"']/g, (c) => `&#${c.ch
 export const TOKENS = {
   // iOS grouped materials: systemGroupedBackground, secondarySystemGroupedBackground, label, and a secondary label kept at AA.
   light: { bg: "#F2F2F7", surface: "#FFFFFF", ink: "#000000", ink2: "#5B5B60", line: "#D1D1D6", green: "#0F7B53", greenInk: "#0B6A47", onGreen: "#FFFFFF", warnBg: "#FFF4E0", warnInk: "#6E4700", err: "#C4281C", secondaryBg: "#E5E5EA", mute: "#36383C", fieldLine: "#8A8A8E" },
-  dark: { bg: "#000000", surface: "#1C1C1E", ink: "#FFFFFF", ink2: "#AEAEB2", line: "#38383A", green: "#0F7B53", greenInk: "#5FCF9C", onGreen: "#FFFFFF", warnBg: "#2E2410", warnInk: "#FFD27A", err: "#FF8A80", secondaryBg: "#2C2C2E", mute: "#3A3C40", fieldLine: "#6C6C70" },
+  dark: { bg: "#000000", surface: "#1C1C1E", ink: "#FFFFFF", ink2: "#AEAEB2", line: "#38383A", green: "#0F7B53", greenInk: "#4FC08A", onGreen: "#FFFFFF", warnBg: "#2E2410", warnInk: "#FFD27A", err: "#FF8A80", secondaryBg: "#2C2C2E", mute: "#3A3C40", fieldLine: "#6C6C70" },
 } as const;
 const vars = (t: Record<string, string>) => Object.entries(t).map(([k, v]) => `--${k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())}:${v}`).join(";");
 
@@ -36,7 +36,7 @@ body{margin:0;background:var(--bg);color:var(--ink);line-height:1.29;letter-spac
 .mark.muted .piece{opacity:.45}
 h1{font-size:2rem;line-height:1.2;font-weight:700;letter-spacing:.011em;margin:0 0 .55rem;text-wrap:balance}h1.long{font-size:1.65rem;line-height:1.21;letter-spacing:.013em}
 .lede{color:var(--ink2);margin:0 auto;max-width:21rem;text-wrap:balance}
-.lede strong{color:var(--ink);font-weight:600}
+.lede strong{color:var(--ink);font-weight:600}.lede .ask{display:block}
 .facts{list-style:none;margin:1.6rem 0 0;padding:0;background:var(--surface);border-radius:.62rem}
 .facts li{display:flex;gap:.85rem;align-items:flex-start;padding:.66rem 1rem;min-height:2.6rem}
 .facts li{position:relative}.facts li+li::before{content:"";position:absolute;top:0;left:3.1rem;right:0;border-top:.5px solid var(--line)}
@@ -59,7 +59,7 @@ form{margin:0}
 form.busy .alt{opacity:0;transition:opacity .2s}
 form.code #pk,form.code #pkmsg:not(.keep){display:none}form.js:not(.code) #codepanel{display:none}
 #mode .on,form.code #mode .off{display:none}form.code #mode .on{display:inline-flex}
-#mode{font-weight:400;font-size:1rem;color:var(--green-ink)}#mode .ico{color:var(--green-ink)}#pkmsg,#msg,#askmsg{margin:0 0 .75rem}/* Failure lines sit above the button, so the button never moves under the thumb. */html.touch .ico.bio-face{display:none}html:not(.touch) .ico.bio-touch{display:none}html.key .ico.bio-face{display:none}html:not(.key) .ico.bio-key{display:none}#mode span{display:inline-flex;align-items:center;gap:.4rem}#mode .ico{width:1.1rem;height:1.1rem;margin:0}
+#mode{font-weight:400;font-size:.882rem;color:var(--green-ink)}#mode .ico{color:var(--green-ink)}#pkmsg,#msg,#askmsg{margin:0 0 .75rem}#pkmsg{font-size:.882rem;letter-spacing:0;margin-bottom:1.5rem}/* Failure lines sit above the button, so the button never moves under the thumb. */html.touch .ico.bio-face{display:none}html:not(.touch) .ico.bio-touch{display:none}html.key .ico.bio-face{display:none}html:not(.key) .ico.bio-key{display:none}#mode span{display:inline-flex;align-items:center;gap:.4rem}#mode .ico{width:1.1rem;height:1.1rem;margin:0}
 form.code #codepanel .field{margin-top:0}#codepanel.codebox{margin-top:0}form.code #codepanel{animation:rise .28s cubic-bezier(.2,.8,.3,1) both}
 .primary{background:var(--green);color:var(--on-green)}
 .secondary{background:var(--surface);color:var(--ink);box-shadow:inset 0 0 0 1px var(--field-line)}

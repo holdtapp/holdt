@@ -61,7 +61,7 @@ test("discovery: unauthenticated /mcp challenges with resource metadata; AS meta
 test("full flow: register with the legacy cursor:// callback, approve with the one-time code, use the token", async () => {
   await freshEnv();
   const c = await connect();
-  assert.match(c.html, /Connect an app to your iCloud Calendar\?/); assert.match(c.html, /calls itself “Grok Bot,” but Holdt can’t verify that/); assert.match(c.html, /Access goes to <strong>anysphere\.cursor-mcp<\/strong>|Access goes to <strong>/); assert.match(c.html, /Changes are off/);
+  assert.match(c.html, /Connect an app to your iCloud Calendar\?/); assert.match(c.html, /calls itself “Grok Bot,” but Holdt can’t verify that/); assert.match(c.html, /Access goes to <strong>anysphere\.cursor-mcp<\/strong>|Access goes to <strong>/); assert.match(c.html, /Can’t add or change events/);
   assert.doesNotMatch(c.html, new RegExp(CODE)); // the page never shows the code
   const ok = await c.submit("4829-1376"); assert.equal(ok.status, 302);
   const loc = ok.headers.get("location")!; assert.ok(loc.startsWith(CB + "?"), loc);

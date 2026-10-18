@@ -60,12 +60,14 @@ export function knownApp(uri: string): string | undefined {
   try { const h = new URL(uri).href; for (const [k, v] of Object.entries(KNOWN_CALLBACKS)) if (new URL(k).href === h) return v; } catch { /* not a URL */ }
   return undefined;
 }
+/** The closing sentence of every consent lede, on its own line so "Allow" never ends a line. */
+const ASK = `<span class="ask">Allow this only if you just asked it to connect.</span>`;
 /** Who is asking, in words a person can trust. Exported for the tests. */
 export function clientLine(d: { clientName?: string; clientDomain?: string; redirectHost?: string; redirectUri?: string }) {
   const known = d.redirectUri ? knownApp(d.redirectUri) : undefined;
-  if (known) return { known: true, title: `Connect ${known} to your iCloud Calendar?`, lede: `Access goes to ${esc(known)} alone. Allow this only if you just asked it to connect.` };
-  if (d.clientDomain) return { known: false, title: `Connect ${d.clientName || d.clientDomain} to your iCloud Calendar?`, lede: `Published by <strong>${esc(d.clientDomain)}</strong>. Allow this only if you just asked it to connect.` };
-  return { known: false, title: "Connect an app to your iCloud Calendar?", lede: d.clientName ? `It calls itself “${esc(d.clientName)},” but Holdt can't verify that. Allow this only if you just asked it to connect.` : "It didn't give a name, and Holdt can't verify where it's from. Allow this only if you just asked it to connect." };
+  if (known) return { known: true, title: `Connect ${known} to your iCloud Calendar?`, lede: `Access goes to ${esc(known)} alone. ${ASK}` };
+  if (d.clientDomain) return { known: false, title: `Connect ${d.clientName || d.clientDomain} to your iCloud Calendar?`, lede: `Published by <strong>${esc(d.clientDomain)}</strong>. ${ASK}` };
+  return { known: false, title: "Connect an app to your iCloud Calendar?", lede: d.clientName ? `It calls itself “${esc(d.clientName)},” but Holdt can't verify that. ${ASK}` : `It didn't give a name, and Holdt can't verify where it's from. ${ASK}` };
 }
 const HINT = "8 digits, shown on the computer where you set up Holdt.";
 /** A code that's spent, expired or blocked isn't a typing mistake: calm grey with the way forward, not red. */
@@ -99,7 +101,7 @@ export function consentFacts(d: any, writes: string, notice?: string, extra = ""
   const facts = `<ul class="facts" role="list">
 
 <li>${ICON.calendar}<p>Reads your calendars and events.</p></li>
-<li class="${writes.startsWith("off") ? "off" : "on"}">${writes.startsWith("off") ? ICON.pencilOff : ICON.pencil}<p>Changes are ${esc(writes)}.</p></li>
+<li class="${writes.startsWith("off") ? "off" : "on"}">${writes.startsWith("off") ? ICON.pencilOff : ICON.pencil}<p>${writes.startsWith("off") ? "Can’t add or change events." : `Changes are ${esc(writes)}.`}</p></li>
 <li class="lock">${ICON.guard}<p>Never deletes your events.<span class="sub keep"> It can only take back its own, on\u00a0your\u00a0yes.</span></p></li>
 <li class="no">${ICON.mailOff}<p>Never sends invitations.</p></li></ul>`;
   // Security notices come first, before the summary of what the app gets.
@@ -134,7 +136,7 @@ ${dead ? help : ""}${allow}${deny}${reviewer ? REVIEWER_HINT : ""}${dead ? "" : 
   return screen({ title: who.title, lede: who.lede, markId: "mk", body, actions });
 }
 const PK_FIELDS = (pk: { token: string }) => `<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">`;
-const ADD_DEVICE = "Run this on the computer where you set up Holdt. It opens a one-time setup link in that computer’s browser:<code>npm run add-device</code>";
+const ADD_DEVICE = "Run this in Terminal on the computer where you set up Holdt. It opens a one-time setup link in its browser:<code>npm run add-device</code>";
 const ADD_DEVICE_QR = "Run this on the computer where you set up Holdt, then scan its QR code with this device:<code>npm run add-device -- --qr</code>";
 /** The normal consent page: Allow with Face ID, or scan a QR code and approve on the iPhone. Nothing to type. */
 /** A phone can't scan its own screen, so on a phone the fallback names another device. */
@@ -309,7 +311,7 @@ export function askHtml(kind: "consent" | "pair", from: string, when: string, ap
     body: `<div class="callout">${ICON.alert}<p>Allow this only for a device you’re holding right now. If someone asked you to add it, tap Don’t\u00a0allow.</p></div><ul class="facts" role="list"><li>${/iPad/.test(from) ? ICON.tablet : /Mac|PC|computer/.test(from) ? ICON.laptop : /iPhone|phone|Android/.test(from) ? ICON.device : ICON.devices}<p>It can approve Holdt connections.</p></li></ul>`, actions: btns });
   const { who, body } = consentFacts(app ?? {}, writes || "off, so it can't add or change events", undefined, app?.redirectIsLoopback ? "" : `<div class="callout">${ICON.alert}<p>Approve only a request you just started yourself. Never one someone sent you.</p></div>`, true);
   // The name line keeps the same trust rule as the consent page: vouched for only on Grok Bot's exact callback.
-  const trust = who.known ? `Access goes to ${esc(String(knownApp(app.redirectUri) ?? "")).replace(/ /g, "\u00a0")} alone.` : who.lede.replace(/ Allow this only if you just asked it to connect\.$/, "");
+  const trust = who.known ? `Access goes to ${esc(String(knownApp(app.redirectUri) ?? "")).replace(/ /g, "\u00a0")} alone.` : who.lede.replace(` ${ASK}`, "");
   return screen({ title: who.title, lede: `${asked} ${trust}`, markId: "mk", body, actions: btns });
 }
 
@@ -427,8 +429,8 @@ function reviewerPage(env: Env): Response {
   const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
   const close = `<p class="foot">You can close this page.</p>`;
   return page("Holdt: Reviewer access", `<div id="ask">${screen({ title: "Reviewer access", lede: "Turn it on in this browser to try Holdt with a demo calendar.", markId: "mk",
-    body: `<ul class="facts" role="list"><li>${ICON.calendar}<p>No real person’s events.</p></li><li>${ICON.link}<p>Reviewer access lasts up to 14\u00a0days.</p></li></ul>`,
-    actions: `<p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="go">${ICON.spinner}<span>Turn on reviewer access</span></button><p class="foot">Nothing changes until you turn it on.</p><noscript><p class="foot">Turn on JavaScript to use this link.</p></noscript>` })}</div>
+    body: `<ul class="facts" role="list"><li>${ICON.calendar}<p>Demo events only.</p></li><li>${ICON.clock}<p>Reviewer access lasts up to 14\u00a0days.</p></li></ul>`,
+    actions: `<p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="go">${ICON.spinner}<span>Turn on reviewer access</span></button><noscript><p class="foot">Turn on JavaScript to use this link.</p></noscript>` })}</div>
 ${v("done", { title: "Reviewer access on", titleId: "t-done", lede: "Add this address in your assistant, then allow it when Holdt asks.", markState: "open", markId: "mkdone", body: `<div class="next"><p class="say" id="say"></p></div>`, actions: `<div id="copywrap"><button type="button" class="btn primary" id="copy">${ICON.copy}<span>Copy address</span></button><p class="foot copymsg" id="copylive" role="status" aria-live="polite"></p></div><p class="foot" id="until"></p>` })}
 ${v("dead", { title: "This reviewer link has ended", titleId: "t-dead", lede: "Ask the developer for a new one.", markState: "muted", centered: true, actions: close })}`, 200, undefined, "", REVIEW_SCRIPT);
 }
