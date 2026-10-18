@@ -26,13 +26,13 @@ class El {
   setAttribute(k: string, v: string) { this.attrs[k] = v; } removeAttribute(k: string) { delete this.attrs[k]; } hasAttribute(k: string) { return k in this.attrs; }
   remove() { this.removed = true; } focus() {} scrollIntoView() {} addEventListener(e: string, f: Function) { this.on[e] = f; }
 }
-function run(script: string, o: { ua?: string; fetch: (path: string, body: any) => any; hash?: string; ids?: Record<string, El>; create?: () => Promise<any>; touch?: boolean }) {
+function run(script: string, o: { ua?: string; fetch: (path: string, body: any) => any; hash?: string; ids?: Record<string, El>; create?: () => Promise<any>; touch?: boolean; screen?: { width: number; height: number } }) {
   const els: Record<string, El> = { ...o.ids }, doc: any = { title: "", body: new El(), documentElement: new El(), getElementById: (id: string) => (els[id] ??= new El()), querySelectorAll: () => [], createTreeWalker: () => ({ nextNode: () => null }) };
   if (o.touch) doc.ontouchend = null;
   const intervals: Function[] = [], store = new Map<string, string>();
   const fakeFetch = async (path: string, init: any) => { const r = await o.fetch(path, JSON.parse(init.body)); if (r === "net") throw new TypeError("offline"); return { json: async () => r }; };
   const names = ["document", "navigator", "screen", "fetch", "location", "history", "sessionStorage", "setInterval", "clearInterval", "setTimeout", "requestAnimationFrame", "getSelection", "window"];
-  const vals = [doc, { userAgent: o.ua ?? MAC, platform: "MacIntel", credentials: { create: () => o.create!() } }, { width: 1440, height: 900 }, fakeFetch, { hash: o.hash ?? "", pathname: "/x", search: "", origin: ORIGIN }, { replaceState() {} },
+  const vals = [doc, { userAgent: o.ua ?? MAC, platform: "MacIntel", credentials: { create: () => o.create!() } }, o.screen ?? { width: 1440, height: 900 }, fakeFetch, { hash: o.hash ?? "", pathname: "/x", search: "", origin: ORIGIN }, { replaceState() {} },
     { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), removeItem: (k: string) => store.delete(k) },
     (f: Function) => intervals.push(f), () => {}, () => 0, () => 0, () => null, { PublicKeyCredential: function () {} }];
   new Function(...names, script)(...vals);
@@ -138,6 +138,30 @@ test("pair page: a failed save on a computer says Couldn’t save the passkey, a
     await settle(); await p.tick(); await p.$("go").on.click!(); await settle();
     assert.equal(p.$("msg").lastElementChild.textContent, want, ua); assert.equal(p.$("live2").textContent, want, ua);
     assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["ready"]);
+  }
+});
+
+test("pair page: Not now during One moment. wins over a late /pair/new, so no poll starts and Device not added stays", async () => {
+  fresh(); const s = scriptOf(await (await call("/pair")).text()); let late!: (v: any) => void, polls = 0;
+  const p = run(s, { ids: PAIR_VIEWS(), fetch: (path) => path === "/pair/new" ? new Promise((r) => { late = r; }) : (polls++, { ok: true, status: "gone" }) });
+  await settle(); p.$("later").on.click!(); late(NEW); await settle(); await p.tick();
+  assert.equal(polls, 0, "no 2 s poll after Not now");
+  assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["skip"]);
+  assert.equal(p.$("qrwrap").innerHTML, "", "the late QR code isn't drawn");
+});
+
+test("pair and enroll pages: a failed save names the biometric the button showed on a Home-button iPhone and an iPad", async () => {
+  fresh(); const pair = scriptOf(await (await call("/pair")).text()), enroll = scriptOf(await (await call("/enroll")).text());
+  const IPAD = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15";
+  const BAD = { ok: false, message: "Face ID wasn't saved. Reload this page and try again." }, OPTS = { ok: true, challenge_token: "t", publicKey: APPROVED.publicKey };
+  for (const [ua, screen, bio] of [[IPHONE, { width: 375, height: 667 }, "Touch ID"], [IPAD, { width: 1024, height: 1366 }, "Touch ID or Face ID"], [IPHONE, { width: 393, height: 852 }, "Face ID"]] as const) {
+    const want = `${bio} wasn’t saved. Reload this page and try again.`;
+    const p = run(pair, { ua, screen, touch: true, ids: PAIR_VIEWS(), create: SAVED, fetch: (path) => path === "/pair/new" ? NEW : path === "/pair/status" ? APPROVED : BAD });
+    await settle(); await p.tick(); await p.$("go").on.click!(); await settle();
+    assert.equal(p.$("go").lastElementChild.textContent, `Turn on ${bio}`, ua); assert.equal(p.$("msg").lastElementChild.textContent, want, ua); assert.equal(p.$("live2").textContent, want, ua);
+    const e = run(enroll, { ua, screen, touch: true, hash: "#tok", ids: views(["setup", "done", "skip", "dead"]), create: SAVED, fetch: (path) => path === "/enroll/options" ? OPTS : BAD });
+    await settle(); await e.$("go").on.click!(); await settle();
+    assert.equal(e.$("msg").lastElementChild.textContent, want, ua);
   }
 });
 

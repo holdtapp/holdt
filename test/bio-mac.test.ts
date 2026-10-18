@@ -85,6 +85,9 @@ test("turning Face ID on or off reads as a passkey on a computer, and each iPhon
   assert.equal(swap(MAC, false, 900, ["x"], "Holdt: Face ID is off").title, "Holdt: Touch ID or password is off");
   assert.equal(swap(IPHONE, true, 852, texts, "x").texts[0], "Turn on Face ID first");
   assert.equal(swap(IPHONE, true, 667, texts, "x").texts[0], "Turn on Touch ID first");
+  // iPhone 6/7/8 Plus (414x736) have a Home button and Touch ID. No Face ID iPhone has a 736-pt screen.
+  assert.equal(swap(IPHONE, true, 736, texts, "x").texts[0], "Turn on Touch ID first");
+  assert.equal(swap(IPHONE, true, 812, texts, "x").texts[0], "Turn on Face ID first");
   assert.equal(swap(IPAD, true, 1180, texts, "x").texts[0], "Turn on Touch ID or Face ID first");
 });
 
