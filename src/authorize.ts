@@ -6,10 +6,11 @@ import { registerEnvSecrets, SEC_HEADERS } from "./worker.js";
 import { log } from "./redact.js";
 import { guardFor } from "./guard.js";
 import { reviewerState, checkReviewerCode, looksLikeReviewerCode } from "./reviewer.js";
-import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, loadPasskeys, deviceNotice, LOGIN_SCRIPT, ENROLL_SCRIPT } from "./passkey.js";
+import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, loadPasskeys, deviceNotice, usableHere, LOGIN_SCRIPT, ENROLL_SCRIPT } from "./passkey.js";
+import { esc, screen, documentHtml, ICON, ownerNote, endScreen } from "./ui.js";
 
 const CODE_TTL_MS = 15 * 60_000, MAX_TRIES = 5;
-const esc = (v: string) => String(v).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const hostOf = (u: string) => { try { return new URL(u).host || new URL(u).protocol; } catch { return "an unknown address"; } };
 export async function sha256Hex(s: string) { return [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join(""); }
 export const normalizeCode = (s: string) => String(s ?? "").replace(/\D/g, "");
 
@@ -33,16 +34,6 @@ export function redirectListed(env: Pick<Env, "REDIRECT_ALLOWLIST">, uri: string
   try { const u = new URL(uri).href; return list.some((x) => { try { return new URL(x).href === u; } catch { return false; } }); } catch { return false; }
 }
 
-const STYLE = `:root{--bg:#f6f7f9;--card:#fff;--ink:#111827;--muted:#5b6472;--line:#e5e7eb;--blue:#0a66ff;--red:#c62828;--amber:#8a5a00;color-scheme:light dark}
-@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--card:#161b22;--ink:#e6edf3;--muted:#9aa4b2;--line:#2a313c;--blue:#4c8dff;--red:#ff6b6b;--amber:#e3b341}}
-*{box-sizing:border-box}body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-main{max-width:480px;margin:8vh auto;padding:0 16px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:26px;box-shadow:0 8px 24px rgba(0,0,0,.05)}
-h1{font-size:21px;margin:0 0 8px}p{margin:0 0 14px}.muted{color:var(--muted);font-size:14px}.warn{color:var(--amber);font-size:14px}
-label{display:block;font-weight:600;font-size:14px;margin:6px 0}input{width:100%;font:22px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-align:center;padding:12px;border-radius:10px;border:1px solid var(--line);background:transparent;color:inherit}
-input[aria-invalid=true]{border-color:var(--red)}.err{color:var(--red);font-size:14px;margin-top:6px}
-.row{display:flex;gap:10px;margin-top:16px}button{flex:1;border:0;border-radius:10px;padding:12px;font:inherit;font-weight:600;cursor:pointer}
-.allow{background:var(--blue);color:#fff}.deny{background:transparent;color:var(--ink);border:1px solid var(--line)}button:focus-visible,input:focus-visible{outline:3px solid color-mix(in srgb,var(--blue) 45%,transparent);outline-offset:2px}`;
-
 export function formActionFor(uri: string) {
   try { const u = new URL(uri); if (u.username || u.password || u.hash) return false; return u.protocol === "https:" || u.protocol === "http:" ? u.origin : u.protocol; } catch { return ""; }
 }
@@ -52,47 +43,95 @@ function page(title: string, body: string, status = 200, headers?: Headers, redi
   // A script runs only on the passkey pages, and only the one carrying this response's nonce.
   const nonce = script ? crypto.randomUUID().replace(/-/g, "") : "";
   h.set("Content-Security-Policy", `default-src 'none'; style-src 'unsafe-inline';${nonce ? ` script-src 'nonce-${nonce}'; connect-src 'self';` : ""} form-action 'self'${redirectUri && formActionFor(redirectUri) ? " " + formActionFor(redirectUri) : ""}; frame-ancestors 'none'; base-uri 'none'`);
-  if (nonce) body += `<script nonce="${nonce}">${script}</script>`;
   h.set("X-Frame-Options", "DENY");
-  return new Response(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)}</title><style>${STYLE}</style><main><div class="card">${body}</div></main></html>`, { status, headers: h });
+  return new Response(documentHtml(title, body, nonce, script), { status, headers: h });
 }
-function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }, notice?: string, reviewer = false) {
-  const local = (notice ? `<p class="warn" role="status">${esc(notice)}</p>` : "") + (d.redirectIsLoopback ? `<p class="warn">This sends access to an app on this computer. Continue only if you just started connecting from it.</p>` : "");
-  return `<h1>Connect ${esc(d.clientName || "an app")} to your iCloud Calendar?</h1>
-<p class="muted">${d.clientDomain ? `Published by <strong>${esc(d.clientDomain)}</strong>.` : "This app registered itself, so its name isn't verified."} Access goes to <strong>${esc(d.redirectHost || "the app")}</strong>.</p>${local}
-<p class="muted">It can read your calendars. Changes are ${esc(writes)}. It never deletes your events. It can only take back its own, on your yes. It never sends invitations.</p>
-<form method="post" autocomplete="off">
-<input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="ctx" value="${esc(d.__ctx ?? "")}">
-${pk ? `<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">
-<button type="button" class="allow" id="pk" style="width:100%" data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">Allow with Face ID</button>
-<p class="err" id="pkmsg" role="status">${error ? esc(error) : ""}</p>
-<details id="codealt"${error ? " open" : ""}><summary>No Face ID here? Use an approval code</summary>` : ""}
-<label for="code">${reviewer ? "Approval code or reviewer code" : "Approval code from your setup screen"}</label>
-<input id="code" name="code" ${reviewer ? 'inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="40"' : 'inputmode="numeric" maxlength="12"'} placeholder="1234-5678" ${pk ? "" : "autofocus "}${error && !pk ? 'aria-invalid="true" aria-describedby="err"' : ""}>
-${error && !pk ? `<div class="err" id="err" role="alert">${esc(error)}</div>` : ""}
-<div class="row"><button class="deny" name="decision" value="deny">Don't allow</button><button class="allow" name="decision" value="approve">Allow${pk ? " with code" : ""}</button></div>
-${reviewer ? `<p class="muted" style="margin-top:14px">Reviewing Holdt? Enter the reviewer code from the testing instructions. It starts with RVW.</p>` : ""}<p class="muted" style="margin-top:14px">No code, or it expired? On your computer, run <code>npm run setup -- --new-code</code>.</p>${pk ? "</details>" : ""}
-</form>`;
+/** Callbacks that belong to Grok Bot. Holdt calls the app "Grok Bot" only when access will be delivered to one of these
+ * exact URIs. The name follows where access goes, never the name an app typed into its own registration. A custom
+ * scheme (cursor://) is left out on purpose: any app on a computer can claim a scheme, so it can't vouch for a name. */
+export const KNOWN_CALLBACKS: Readonly<Record<string, string>> = { "https://www.cursor.com/agents/mcp/oauth/callback": "Grok Bot" };
+export function knownApp(uri: string): string | undefined {
+  try { const h = new URL(uri).href; for (const [k, v] of Object.entries(KNOWN_CALLBACKS)) if (new URL(k).href === h) return v; } catch { /* not a URL */ }
+  return undefined;
 }
+/** Who is asking, in words a person can trust. Exported for the tests. */
+export function clientLine(d: { clientName?: string; clientDomain?: string; redirectHost?: string; redirectUri?: string }) {
+  const known = d.redirectUri ? knownApp(d.redirectUri) : undefined;
+  if (known) return { known: true, title: `Connect ${known} to your iCloud Calendar?`, lede: `Access goes to ${esc(known)} alone. Allow this only if you just asked it to connect.` };
+  if (d.clientDomain) return { known: false, title: `Connect ${d.clientName || d.clientDomain} to your iCloud Calendar?`, lede: `Published by <strong>${esc(d.clientDomain)}</strong>. Allow this only if you just asked it to connect.` };
+  return { known: false, title: "Connect an app to your iCloud Calendar?", lede: d.clientName ? `It calls itself “${esc(d.clientName)},” but Holdt can't verify that. Allow only if you just asked it to connect.` : "It didn't give a name, and Holdt can't verify where it's from. Allow this only if you just asked it to connect." };
+}
+const HINT = "Shown on the computer where you set up Holdt.";
+/** A code that's spent, expired or blocked isn't a typing mistake: calm grey with the way forward, not red. */
+const DEAD = new Set(["expired", "locked", "used", "none"]);
+/** A wrong code comes back as an empty, focused field (like a wrong iPhone passcode): nothing to delete first. */
+type FieldErr = { text: string; dead: boolean };
+const FIELD_CODE = (o: { reviewer: boolean; error?: FieldErr }) => `<label class="field" for="code"><span class="lbl">${o.reviewer ? "Approval code or reviewer code" : "Approval code"}</span>
+<input class="code" id="code" name="code" required ${o.reviewer ? 'inputmode="text" autocapitalize="characters" spellcheck="false" maxlength="40"' : 'inputmode="numeric" placeholder="8 digits" pattern="\\s*[0-9]{4}[ \\-]?[0-9]{4}\\s*" title="The 8 digits of your approval code" maxlength="12"'} autocomplete="one-time-code" enterkeyhint="go"${o.error && !o.error.dead ? " autofocus" : ""} aria-describedby="${o.error ? (o.error.dead ? "err" : "err codehint") : "codehint"}"${o.error && !o.error.dead ? ' aria-invalid="true"' : ""}>
+${o.error ? `<span class="fielderr${o.error.dead ? " calm" : ""}" id="err"${o.error.dead ? "" : ' role="alert"'}>${o.error.dead ? ICON.clock : ICON.alert}<span>${esc(o.error.text)}</span></span>` : ""}${o.error?.dead ? "" : `<span class="hint" id="codehint">${o.reviewer ? "The 8 digits from your computer, or the reviewer code that starts with RVW." : HINT}</span>`}</label>`;
+const NEW_CODE_CMD = "On the computer where you set up Holdt, run this for a new approval code:<code>npm run new-code</code>";
+const RESET_CMD = "On the computer where you set up Holdt, run this to turn Face ID off everywhere. Codes keep working.<code>npm run reset-passkeys</code>";
+/** One label for owner-only help on every screen. */
+const HELP = "Setup help";
+const REVIEWER_HINT = `<p class="foot">Reviewing Holdt? Enter the reviewer code from the testing instructions. It starts with RVW.</p>`;
+/** The consent page. `errorFrom` says which control the error belongs to, so it shows beside that control. */
+function consentBody(d: any, handle: string, writes: string, error?: string, pk?: { token: string; challenge: string; rpId: string; ids: string[] }, notice?: string, reviewer = false, errorFrom: "code" | "pk" = "code", reason = "", typed = "") {
+  const who = clientLine(d);
+  const facts = `<ul class="facts" role="list">
+
+<li>${ICON.calendar}<p>Reads your calendars and events.</p></li>
+<li class="${writes.startsWith("off") ? "off" : "on"}">${writes.startsWith("off") ? ICON.pencilOff : ICON.pencil}<p>Changes are ${esc(writes)}.</p></li>
+<li class="lock">${ICON.guard}<p>Never deletes your events.<span class="sub keep"> It can only take back its own, on\u00a0your\u00a0yes.</span></p></li>
+<li class="no">${ICON.mailOff}<p>Never sends invitations.</p></li></ul>`;
+  // Security notices come first, before the summary of what the app gets.
+  const dest = who.known ? "" : `<p class="factdest">${ICON.globe}<span>Access goes to <strong>${esc(d.redirectHost || "an unknown address")}</strong></span></p>`;
+  const callouts = (d.redirectIsLoopback ? `<div class="callout">${ICON.alert}<p>This sends access to an app on this computer. Continue only if you just started connecting from it.</p></div>` : "")
+    + (notice ? `<div class="callout">${ICON.device}<p><span class="sr">Security notice: </span>${esc(notice)}</p></div>` : "");
+  const dead = DEAD.has(reason);
+  const codeErr: FieldErr | undefined = error && (!pk || errorFrom === "code") ? { text: reason === "expired" ? "That code expired. Get a new one below." : error, dead } : undefined; // the open help carries where to get a new one
+  const pkErr = error && pk && errorFrom === "pk" ? error : "";
+  void typed;
+  // A dead code: the way forward sits right under the message, open, and Allow with code steps back until a new code is in.
+  // Setup help is the last thing on the page, collapsed. A dead code is the one exception: the fix opens right under it.
+  const help = ownerNote(HELP, dead ? "On the computer where you set up Holdt, run:<code>npm run new-code</code>" : (notice ? RESET_CMD + "<br><br>" : "") + NEW_CODE_CMD, dead, dead ? "dead" : "");
+  const allow = `<button class="btn ${dead ? "secondary" : "primary"}" name="decision" value="approve">Allow with code</button>`;
+  const inPanel = dead ? help + allow : allow;
+  const atEnd = dead ? "" : help;
+  const hidden = `<input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="ctx" value="${esc(d.__ctx ?? "")}">`;
+  const deny = `<button class="btn plain quiet" name="decision" value="deny" formnovalidate>Don’t allow</button>`;
+  const actions = pk
+    ? `<form method="post" autocomplete="off"${codeErr ? ' class="code"' : ""}>${hidden}<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">
+<button type="button" class="btn primary" id="pk" data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">${ICON.faceId}${ICON.spinner}<span id="pklabel">Allow with Face ID</span></button>
+<p class="status" id="pkmsg">${ICON.info}<span class="st">${esc(pkErr)}</span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
+<div class="alt" id="altwrap"><div class="codebox" id="codepanel">
+${FIELD_CODE({ reviewer, error: codeErr })}${inPanel}${reviewer ? REVIEWER_HINT : ""}</div>
+<button type="button" class="btn plain" id="mode" aria-controls="codepanel" aria-expanded="${codeErr ? "true" : "false"}" hidden><span class="off">${ICON.keypad}Use an approval code instead</span><span class="on">${ICON.faceId}<span id="modeface">Use Face ID instead</span></span></button>
+${deny}${atEnd}</div></form>`
+    : `<form method="post" autocomplete="off">${hidden}${FIELD_CODE({ reviewer, error: codeErr })}
+${dead ? help : ""}${allow}${deny}${reviewer ? REVIEWER_HINT : ""}${dead ? "" : help}</form>`;
+  return screen({ title: who.title, lede: who.lede, markId: "mk", body: callouts + dest + facts, actions });
+}
+/** A plain message screen for end states (see endScreen in ui.ts). */
+export const messageBody = endScreen;
 
 export async function authorizeHandler(req: Request, env: Env): Promise<Response> {
   registerEnvSecrets(env);
   const url = new URL(req.url);
-  if (url.pathname === "/enroll" && req.method === "GET") return enrollPage(env);
+  if (url.pathname === "/enroll" && req.method === "GET") return enrollPage(env, url);
   if (url.pathname.startsWith("/enroll/")) return enrollApi(req, env);
   if (url.pathname !== "/authorize") return new Response("Not found", { status: 404, headers: SEC_HEADERS });
   const oauth = (env as any).OAUTH_PROVIDER;
-  const writes = env.WRITES_ENABLED === "true" ? "allowed, and each one waits for your yes" : "turned off (read-only)";
+  const writes = env.WRITES_ENABLED === "true" ? "on, and each one waits for your yes" : "off, so it can't add or change events";
   try {
     if (req.method === "GET") {
       const request = await oauth.parseAuthRequest(req);
-      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri) || !clientListed(env, request.clientId)) return page("Not allowed", `<h1>This app can't connect</h1><p class="muted">It asked to send access somewhere this connector doesn't allow. Only the apps listed in this connector's settings can connect.</p>`, 400);
+      if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri) || !clientListed(env, request.clientId)) return page("Holdt: Can't connect", messageBody("This app can’t connect", `It wanted access sent to ${hostOf(request.redirectUri)}, which you haven’t allowed in Holdt. Nothing was shared.`, { owner: `If you trust this app, add its callback to your allowed list (<code>REDIRECT_ALLOWLIST</code> in <code>wrangler.toml</code>) on the computer where you set up Holdt, then deploy. Its callback:<code>${esc(request.redirectUri.slice(0, 200))}</code>` }), 400);
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
       (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
       const pk = await loginOptions(env, url, consent.handle);
       const reviewer = (await reviewerState(env)).active;
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, consent.handle, writes, undefined, pk, await noticeFor(env), reviewer), 200, consent.headers, request.redirectUri, pk ? LOGIN_SCRIPT : "");
+      return page("Holdt: Connect your iCloud Calendar", consentBody(details, consent.handle, writes, undefined, pk, await noticeFor(env), reviewer), 200, consent.headers, request.redirectUri, pk ? LOGIN_SCRIPT : "");
     }
     if (req.method !== "POST") return new Response(null, { status: 405, headers: SEC_HEADERS });
     const form = await req.formData();
@@ -113,13 +152,13 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       const ctxRaw = String(form.get("ctx") ?? "");
       const details: any = (await readCtx(env, ctxRaw)) ?? { clientName: "the app", redirectHost: "" };
       details.__ctx = ctxRaw;
-      if (!viaPasskey && verdict.reason === "used") return page("Already approved", `<h1>You're already approved</h1><p class="muted">This code already connected Holdt. Go back to Grok Bot and check the connection. If it still asks to connect, run <code>npm run setup -- --new-code</code> and try once more.</p>`, 400);
+      if (!viaPasskey && verdict.reason === "used") { const known = details.redirectUri ? knownApp(details.redirectUri) : undefined; return page("Holdt: Already connected", messageBody(known ? `${known} is already connected` : "You’re already connected", known ? `You said yes earlier. Close this page to go back to ${known}.` : "You said yes earlier. Close this page to go back to your assistant.", { mark: "closed", noClose: true }), 400); }
       // A fresh challenge for the retry: the old one is spent, whether or not it verified.
       const pk = await loginOptions(env, url, handle);
-      return page("Holdt: Connect iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk, await noticeFor(env), (await reviewerState(env)).active), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
+      return page("Holdt: Connect your iCloud Calendar", consentBody(details, handle, writes, verdict.message, pk, await noticeFor(env), (await reviewerState(env)).active, viaPasskey ? "pk" : "code", verdict.reason, f("code")), 400, undefined, details.redirectUri ?? "", pk ? LOGIN_SCRIPT : "");
     }
     const approved = await oauth.approveConsent(req, handle, { scope: ["calendar"] });
-    if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri) || !clientListed(env, approved.request.clientId)) return page("Not allowed", `<h1>This app can't connect</h1>`, 400);
+    if (!redirectAllowed(approved.request.redirectUri) || !redirectListed(env, approved.request.redirectUri) || !clientListed(env, approved.request.clientId)) return page("Holdt: Can't connect", messageBody("This app can’t connect", "Nothing was shared."), 400);
     const props = rv?.ok ? { epoch: env.GRANT_EPOCH, ...rv.props } : { epoch: env.GRANT_EPOCH };
     const { redirectTo } = await oauth.completeAuthorization({ request: approved.request, userId: rv?.ok ? "reviewer" : "owner", metadata: { label: rv?.ok ? "Grok Bot (reviewer)" : "Grok Bot" }, scope: approved.request.scope, props });
     log.info(rv?.ok ? "connection approved (reviewer code)" : "connection approved");
@@ -127,21 +166,28 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
     return new Response(null, { status: 302, headers: approved.headers });
   } catch (e) {
     if (e instanceof AuthorizationError && (e as any).redirectTo && redirectAllowed((e as any).redirectTo)) return Response.redirect((e as any).redirectTo, 302);
-    if (e instanceof AuthorizationError) return page("Couldn't connect", `<h1>That didn't work</h1><p class="muted">${esc((e as any).description ?? "This approval page expired or was already used.")} Start connecting again from Grok Bot.</p>`, 400);
-    log.error("authorize failed", e);
-    return page("Couldn't connect", `<h1>Something went wrong</h1><p class="muted">Start connecting again from Grok Bot.</p>`, 500);
+    if (e instanceof AuthorizationError) return page("Holdt: Page expired", messageBody("This page expired", "Nothing was shared. Ask your assistant to connect again for a fresh page."), 400);
+    const ref = crypto.randomUUID().slice(0, 6).toUpperCase();
+    log.error(`authorize failed (ref ${ref})`, e);
+    return page("Holdt: Couldn’t finish", messageBody("Holdt couldn’t finish connecting", "Nothing was shared. Ask your assistant to connect again.", { owner: `In the Cloudflare dashboard, open Workers, then your Holdt Worker, then Logs, and search for <span class="ref">${esc(ref)}</span>.` }), 500);
   }
 }
 
 async function noticeFor(env: Env) { try { return passkeysOn(env) ? deviceNotice(await loadPasskeys(env), env.TIMEZONE || "UTC") : undefined; } catch { return undefined; } }
-function enrollPage(env: Env): Response {
-  if (!passkeysOn(env)) return page("Holdt", `<h1>One-tap connect is off</h1><p class="muted">Turn it on in the Worker's settings (PASSKEYS = on), then run <code>npm run setup -- --add-device</code>.</p>`, 404);
-  return page("Holdt: Turn on one-tap connect", `<div id="card"><h1>Turn on one-tap connect</h1>
-<p class="muted">Save a passkey for this server on this device. After that, connecting takes Face ID instead of a code. Your other Apple devices get it through iCloud Keychain.</p>
-<label for="code">Approval code from your setup screen</label>
-<input id="code" inputmode="numeric" placeholder="1234-5678" maxlength="12" autocomplete="one-time-code">
-<p class="muted">Already have a Holdt passkey on another device? Leave this empty to confirm with it instead.</p>
-<button type="button" class="allow" id="go" style="width:100%">Save a passkey</button><p class="err" id="msg" role="status"></p></div>`, 200, undefined, "", ENROLL_SCRIPT);
+async function enrollPage(env: Env, url: URL): Promise<Response> {
+  if (!passkeysOn(env)) return page("Holdt: Face ID approvals are off", messageBody("Face ID approvals are off", "Your approval code still works. Setup help shows how to turn Face ID approvals on.", { owner: '<ol><li>On the computer where you set up Holdt, set <code>PASSKEYS = "on"</code> in <code>wrangler.toml</code>.</li><li>Deploy.</li><li>Run this and open the link on your iPhone.<code>npm run add-device</code></li></ol>' }), 404);
+  // Offer "skip the code" only when a passkey for this host already exists to confirm with instead.
+  let hasOther = false; try { hasOther = usableHere(await loadPasskeys(env), url).length > 0; } catch { /* the code path still works */ }
+  const setup = screen({ title: "Turn on Face ID", lede: "Enter your approval code once, then approve with a glance.", markId: "mk",
+    body: `<ul class="facts" role="list"><li>${ICON.faceId}<p>Your face stays on your device. Holdt never sees it.</p></li><li>${ICON.devices}<p>Syncs to your other Apple devices with iCloud\u00a0Keychain.</p></li><li>${ICON.keypad}<p>Your approval code still works.</p></li></ul>`,
+    actions: `<form id="enrollf" novalidate><label class="field" for="code"><span class="lbl">Approval code</span><input class="code" id="code" inputmode="numeric" placeholder="8 digits" maxlength="12" autocomplete="one-time-code" enterkeyhint="go" aria-describedby="codehint"><span class="fielderr" id="err" role="alert" hidden>${ICON.alert}<span></span></span><span class="hint" id="codehint">${HINT}</span></label>
+<button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button></form><p class="status" id="msg" role="status" aria-live="polite">${ICON.info}<span class="st"></span></p>
+<button type="button" class="btn plain quiet" id="later">Not now</button>${ownerNote(HELP, NEW_CODE_CMD)}
+${hasOther ? `<p class="foot">Set up Face ID on another device already? You can skip the code.</p>` : ""}` }).replace('<div class="actions in d3">', '<div class="actions near in d3">');
+  return page("Holdt: Turn on Face ID", `<div id="setup">${setup}</div>
+<div id="done" hidden>${screen({ title: "Face ID is on", titleId: "title-done", lede: "Next time, tap Allow with Face ID. Your other Apple devices with iCloud Keychain can use it too.", markState: "open", markId: "mkdone", centered: true, actions: `<p class="foot">You can close this page.</p>` })}</div>
+<div id="skip" hidden>${screen({ title: "Face ID stays off", titleId: "title-skip", lede: "Your approval code still works. Make a Face ID link on the computer where you set up Holdt anytime.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>` })}</div>
+<div id="dead" hidden>${screen({ title: "This link expired", titleId: "title-dead", lede: "Links last 15 minutes. Make a new one on the computer where you set up Holdt.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, "On the computer where you set up Holdt, run this, then open the new link on this device:<code>npm run add-device</code>")}` })}</div>`, 200, undefined, "", ENROLL_SCRIPT);
 }
 
 type Verdict = { ok: true; hash: string } | { ok: false; reason: string; message: string };
@@ -175,31 +221,31 @@ async function checkCodeOnce(env: Env, raw: string, now: number): Promise<Verdic
   if (g && env.APPROVAL_CODE_HASH && env.APPROVAL_CODE_ISSUED) {
     // Atomic across isolates: the Durable Object decides used / locked / spent / charged in one step.
     const hash = env.APPROVAL_CODE_HASH;
-    if (now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return { ok: false, reason: "expired", message: "That code expired (codes last 15 minutes). On your computer, run npm run setup -- --new-code." };
+    if (now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return { ok: false, reason: "expired", message: "That code expired. Get a new one on the computer where you set up Holdt." };
     // Refuse a used or locked code before PBKDF2, so a flood of tries against a dead code costs no hashing CPU.
     const state = await g.codeState(hash, MAX_TRIES);
-    if (state === "locked") return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. On your computer, run npm run setup -- --new-code." };
-    if (state === "used") return { ok: false, reason: "used", message: "That code was already used. On your computer, run npm run setup -- --new-code for a fresh one." };
+    if (state === "locked") return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. Get a new one on the computer where you set up Holdt." };
+    if (state === "used") return { ok: false, reason: "used", message: "That code was already used. Get a new one on the computer where you set up Holdt." };
     const code = normalizeCode(raw);
     const v = await g.codeTry(hash, code.length === 8 && (await codeMatches(hash, code)), MAX_TRIES);
     if (v.ok) { await env.OAUTH_KV.put(`approval-used:${hash}`, "1", { expirationTtl: 86400 }); return { ok: true, hash }; }
-    if (v.reason === "locked") return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. On your computer, run npm run setup -- --new-code." };
-    if (v.reason === "used") return { ok: false, reason: "used", message: "That code was already used. On your computer, run npm run setup -- --new-code for a fresh one." };
-    return { ok: false, reason: "wrong", message: v.left > 0 ? `That code doesn't match. Check your setup screen and try again (${v.left} ${v.left === 1 ? "try" : "tries"} left).` : "That code doesn't match, and this code is now blocked. On your computer, run npm run setup -- --new-code." };
+    if (v.reason === "locked") return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. Get a new one on the computer where you set up Holdt." };
+    if (v.reason === "used") return { ok: false, reason: "used", message: "That code was already used. Get a new one on the computer where you set up Holdt." };
+    return { ok: false, reason: "wrong", message: v.left > 0 ? (v.left === 1 ? "That code doesn't match. 1 try left, then you'll need a new code." : `That code doesn't match. ${v.left} tries left.`) : "That code doesn't match, so it's now blocked. Get a new one on the computer where you set up Holdt." };
   }
-  if (!env.APPROVAL_CODE_HASH || !env.APPROVAL_CODE_ISSUED) return { ok: false, reason: "none", message: "No approval code is set. On your computer, run npm run setup -- --new-code." };
+  if (!env.APPROVAL_CODE_HASH || !env.APPROVAL_CODE_ISSUED) return { ok: false, reason: "none", message: "No approval code is set yet. Get one on the computer where you set up Holdt." };
   const hash = env.APPROVAL_CODE_HASH;
   const failKey = `approval-fail:${hash}`;
   const fails = Number((await env.OAUTH_KV.get(failKey)) ?? 0);
-  if (fails >= MAX_TRIES) return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. On your computer, run npm run setup -- --new-code." };
-  if (await env.OAUTH_KV.get(`approval-used:${hash}`)) return { ok: false, reason: "used", message: "That code was already used. On your computer, run npm run setup -- --new-code for a fresh one." };
-  if (now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return { ok: false, reason: "expired", message: "That code expired (codes last 15 minutes). On your computer, run npm run setup -- --new-code." };
+  if (fails >= MAX_TRIES) return { ok: false, reason: "locked", message: "Too many wrong tries, so this code is now blocked. Get a new one on the computer where you set up Holdt." };
+  if (await env.OAUTH_KV.get(`approval-used:${hash}`)) return { ok: false, reason: "used", message: "That code was already used. Get a new one on the computer where you set up Holdt." };
+  if (now - Number(env.APPROVAL_CODE_ISSUED) > CODE_TTL_MS) return { ok: false, reason: "expired", message: "That code expired. Get a new one on the computer where you set up Holdt." };
   const code = normalizeCode(raw);
   if (code.length === 8 && (await codeMatches(hash, code))) { await env.OAUTH_KV.put(`approval-used:${hash}`, "1", { expirationTtl: 86400 }); return { ok: true, hash }; }
   {
     await env.OAUTH_KV.put(failKey, String(fails + 1), { expirationTtl: 86400 });
     const left = MAX_TRIES - fails - 1;
-    return { ok: false, reason: "wrong", message: left > 0 ? `That code doesn't match. Check your setup screen and try again (${left} ${left === 1 ? "try" : "tries"} left).` : "That code doesn't match, and this code is now blocked. On your computer, run npm run setup -- --new-code." };
+    return { ok: false, reason: "wrong", message: left > 0 ? (left === 1 ? "That code doesn't match. 1 try left, then you'll need a new code." : `That code doesn't match. ${left} tries left.`) : "That code doesn't match, so it's now blocked. Get a new one on the computer where you set up Holdt." };
   }
 }
 

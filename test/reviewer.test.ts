@@ -107,7 +107,7 @@ test("ATTACK RV2: revoke, setting the hash to revoked, or a KV revoke marker, st
 
 test("ATTACK RV3: scope, a code minted for the test account matches on no other account, and a changed account cuts reviewer connections", async () => {
   await freshEnv({ ICLOUD_EMAIL: "someone.else@example.com" });
-  const r = await (await connect()).submit(RC.display); assert.equal(r.status, 400); assert.match(unesc(await r.text()), /doesn't match/);
+  const r = await (await connect()).submit(RC.display); assert.equal(r.status, 400); assert.match(unesc(await r.text()), /doesn['’]t match/);
   await freshEnv(); const t = (await reviewerToken()).access_token; assert.equal((await mcp(t)).status, 200);
   env.ICLOUD_EMAIL = "someone.else@example.com"; assert.equal((await mcp(t)).status, 401);
 });
@@ -115,7 +115,7 @@ test("ATTACK RV3: scope, a code minted for the test account matches on no other 
 test("ATTACK RV4: production stays closed, without REVIEWER_MODE on, a valid reviewer code connects nothing and the page shows no hint", async () => {
   await freshEnv({ REVIEWER_MODE: undefined });
   const c = await connect(); assert.doesNotMatch(c.html, /Reviewing Holdt\?|reviewer code/i); assert.match(c.html, /inputmode="numeric"/);
-  const r = await c.submit(RC.display); assert.equal(r.status, 400); assert.match(unesc(await r.text()), /aren't accepted on this server/);
+  const r = await c.submit(RC.display); assert.equal(r.status, 400); assert.match(unesc(await r.text()), /aren['’]t accepted on this server/);
   // a grant that claims to be a reviewer grant is refused too
   assert.equal((await checkReviewerCode(env, RC.display)).ok, false);
   const wrangler = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
@@ -128,7 +128,7 @@ test("ATTACK RV5: wrong reviewer codes never lock reviewers out and never charge
   for (let i = 0; i < 12; i++) { const w = await c.submit(`RVW-${"0".repeat(4)}-${"1".repeat(4)}-${"2".repeat(4)}-${String(i).padStart(4, "3")}`); assert.equal(w.status, 400); }
   assert.equal((await c.submit(RC.display)).status, 302, "real reviewer code still works after many wrong tries");
   const o = await connect(); assert.equal((await o.submit(CODE)).status, 302, "owner code was not locked by reviewer misses");
-  const bad = await (await connect()).submit("RVW-12"); assert.match(unesc(await bad.text()), /isn't complete/);
+  const bad = await (await connect()).submit("RVW-12"); assert.match(unesc(await bad.text()), /isn['’]t complete/);
 });
 
 test("the test account's address never reaches a reviewer: consent page, errors and every read tool", async () => {

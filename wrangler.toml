@@ -4,6 +4,9 @@ compatibility_date = "2026-10-01"
 # Keeps any outbound fetch the OAuth library makes (Client ID Metadata Documents, only if CIMD = "on") off private hosts.
 compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
+# Your own domain (docs/custom-domain.md). The zone must be on this Cloudflare account. Passkeys belong to one host,
+# so after switching, reset and add devices again, then set workers_dev = false.
+# routes = [{ pattern = "connect.example.com", custom_domain = true }]
 # Version URLs would keep every uploaded version (including pre-fix ones) callable with production secrets and KV.
 preview_urls = false
 

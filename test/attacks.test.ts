@@ -293,7 +293,7 @@ test("ATTACK E5: aim undo at an event Holdt didn't add (a corrupted or forged lo
 test("ATTACK A8: phishing connect from an attacker's own https app when the owner pinned Grok Bot's callbacks", async () => {
   await freshEnv({ REDIRECT_ALLOWLIST: `${CB}, https://www.cursor.com/agents/mcp/oauth/callback` });
   const a = await connect("https://evil.example/cb");
-  assert.equal(a.page.status, 400); assert.match(a.html, /can't connect/); assert.equal(a.handle, undefined);
+  assert.equal(a.page.status, 400); assert.match(a.html, /can['’]t connect/); assert.equal(a.handle, undefined);
   const ok = await connect(CB); assert.equal(ok.page.status, 200); assert.ok(ok.handle);
 });
 

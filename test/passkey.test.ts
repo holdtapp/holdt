@@ -106,7 +106,7 @@ test("enroll: a challenge is single use and bound to the enroll token, and a wro
   const a = await new VirtualAuthenticator(ORIGIN).init();
   const o: any = await (await post("/enroll/options", { token: ENROLL })).json();
   const bad = await a.create(o.publicKey.challenge, { origin: "https://evil.example" });
-  assert.match((await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...bad })).json() as any).message, /Couldn't save/);
+  assert.match((await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...bad })).json() as any).message, /wasn't saved/);
   // that challenge is spent even though it failed
   const good = await a.create(o.publicKey.challenge);
   assert.equal((await (await post("/enroll/finish", { token: ENROLL, challenge_token: o.challenge_token, ...good })).json() as any).ok, false);
@@ -138,7 +138,7 @@ test("ATTACK P3: an approval captured for one connect request can't approve anot
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
   const c1 = await consent(); const s = await a.get(c1.o.challenge);
   const fields = { pk_token: c1.token, pk_id: s.id, pk_cdj: s.clientDataJSON, pk_ad: s.authenticatorData, pk_sig: s.signature };
-  const moved = await (await consent()).submit(fields); assert.equal(moved.status, 400); assert.match(await moved.text(), /Face ID didn&#39;t confirm/);
+  const moved = await (await consent()).submit(fields); assert.equal(moved.status, 400); assert.match(await moved.text(), /Face ID didn['’]t confirm/);
   assert.equal((await c1.submit(fields)).status, 302, "the moved try didn't burn the real one");
 });
 test("ATTACK P4: a Face ID challenge works once, even after a failed try", async () => {
@@ -206,7 +206,7 @@ test("ATTACK P10: eleven enrollments at once still leave at most 10 passkeys (Du
 test("ATTACK P11: a store holding more than 10 passkeys turns one-tap off instead of trusting them", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
   for (let i = 0; i < MAX_PASSKEYS; i++) await kv.put(`passkey:v1:0:extra${i}`, JSON.stringify(fakeCred(i))); // written around enrollment
-  const c = await consent(); assert.doesNotMatch(c.html, /Face ID/);
+  const c = await consent(); assert.doesNotMatch(c.html, /Allow with Face ID|id="pk"/);
   const s = await a.get("AAAA");
   const r = await c.submit({ pk_token: "x.y", pk_id: s.id, pk_cdj: s.clientDataJSON, pk_ad: s.authenticatorData, pk_sig: s.signature });
   assert.equal(r.status, 400); assert.match(await r.text(), /paused on this server/);
@@ -232,10 +232,10 @@ test("ATTACK P13: a second device can be added with an existing passkey, but not
 });
 test("a new device shows on the next consent pages and in connection_status for 7 days", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
-  assert.match((await consent()).html, /New device added [A-Z][a-z]{2} \d+, \d{4}, \d+:\d\d [AP]M M[DS]T\. Not you\? Run npm run setup -- --reset-passkeys\./);
+  assert.match((await consent()).html, /Face ID was turned on for a new device today at \d+:\d\d [AP]M\. Not you\? Tap Don’t[\s\u00a0]allow\./);
   const { mcpEndpoint } = await import("../src/worker.js");
   const st = async () => (await (await mcpEndpoint(new Request(ORIGIN + "/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "connection_status", arguments: {} } }) }), env, { epoch: env.GRANT_EPOCH }, fetch)).json() as any).result.structuredContent;
   const s1 = await st(); assert.equal(s1.passkeys.length, 1); assert.equal(s1.passkeys[0].added_with, "approval code"); assert.match(s1.device_notice, /New device added .*reset-passkeys/);
   const recs = await kv.list({ prefix: "passkey:" }); for (const k of recs.keys) { const c = JSON.parse((await kv.get(k.name))!); c.createdAt -= 8 * 86400_000; await kv.put(k.name, JSON.stringify(c)); }
-  assert.doesNotMatch((await consent()).html, /New device added/); const s2 = await st(); assert.equal(s2.device_notice, undefined); assert.equal(s2.passkeys.length, 1);
+  assert.doesNotMatch((await consent()).html, /was turned on for/); const s2 = await st(); assert.equal(s2.device_notice, undefined); assert.equal(s2.passkeys.length, 1);
 });

@@ -178,7 +178,7 @@ test("REDTEAM R16: a hostile multistatus body can't pin the CPU (quadratic tag r
 test("REDTEAM R15: a client name can't hijack the consent page's read-only notice", async () => {
   oenv = envOf({ WRITES_ENABLED: "false", APPROVAL_CODE_HASH: await sha256Hex(`icloud-mcp-approval:${CODE}`), APPROVAL_CODE_ISSUED: String(Date.now()) });
   const a = await consent("Grok Bot {{writes}}");
-  assert.match(a.html, /Changes are turned off \(read-only\)/, "the real read-only notice was displaced");
+  assert.match(a.html, /Changes are off, so it can.t add or change events/, "the real read-only notice was displaced");
   assert.doesNotMatch(a.html, /Changes are \{\{writes\}\}/);
 });
 

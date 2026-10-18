@@ -61,7 +61,7 @@ test("discovery: unauthenticated /mcp challenges with resource metadata; AS meta
 test("full flow: register with the legacy cursor:// callback, approve with the one-time code, use the token", async () => {
   await freshEnv();
   const c = await connect();
-  assert.match(c.html, /Connect Grok Bot to your iCloud Calendar\?/); assert.match(c.html, /isn't verified/); assert.match(c.html, /read-only/);
+  assert.match(c.html, /Connect an app to your iCloud Calendar\?/); assert.match(c.html, /calls itself “Grok Bot,” but Holdt can’t verify that/); assert.match(c.html, /Access goes to <strong>anysphere\.cursor-mcp<\/strong>|Access goes to <strong>/); assert.match(c.html, /Changes are off/);
   assert.doesNotMatch(c.html, new RegExp(CODE)); // the page never shows the code
   const ok = await c.submit("4829-1376"); assert.equal(ok.status, 302);
   const loc = ok.headers.get("location")!; assert.ok(loc.startsWith(CB + "?"), loc);
@@ -74,9 +74,9 @@ test("full flow: register with the legacy cursor:// callback, approve with the o
 test("approval code: single use, wrong-code countdown, lockout after 5, expiry after 15 minutes", async () => {
   await freshEnv();
   const a = await connect(); const w = await a.submit("1111-1111"); assert.equal(w.status, 400);
-  const wh = await w.text(); assert.match(wh, /doesn&#39;t match|doesn't match/); assert.match(wh, /4 tries left/); assert.match(wh, /Connect Grok Bot/, "re-shown page still names the client (signed ctx)");
+  const wh = await w.text(); assert.match(wh, /doesn['’]t match/); assert.match(wh, /4 tries left/); assert.match(wh, /calls itself “Grok Bot,”/, "re-shown page still names the client (signed ctx)");
   assert.equal((await a.submit(CODE)).status, 302, "right code still works on the same page after a wrong try");
-  const b = await connect(); const used = await b.submit(CODE); assert.equal(used.status, 400); assert.match(await used.text(), /already (used|approved)/);
+  const b = await connect(); const used = await b.submit(CODE); assert.equal(used.status, 400); assert.match(await used.text(), /already (used|approved|connected)/);
 
   await freshEnv(); const c = await connect();
   for (let i = 0; i < 5; i++) await c.submit("0000-0000");
@@ -132,7 +132,7 @@ test("redirect policy: only https, loopback http, or cursor: may receive a code"
   assert.ok(redirectAllowed(CB)); assert.ok(redirectAllowed("http://127.0.0.1:5000/cb")); assert.ok(redirectAllowed("https://app.example/cb"));
   assert.ok(!redirectAllowed("myapp://cb")); assert.ok(!redirectAllowed("http://evil.example/cb")); assert.ok(!redirectAllowed("javascript:alert(1)"));
   await freshEnv(); const c: any = await connect(CODE, "evilapp://steal");
-  assert.equal(c.page?.status ?? 200, 400); assert.match(c.html, /can&#39;t connect|can't connect/);
+  assert.equal(c.page?.status ?? 200, 400); assert.match(c.html, /can['’]t connect/);
 });
 
 test("consent page CSP lets the form's final redirect reach the client (cursor: scheme and https origin)", async () => {
@@ -155,7 +155,7 @@ test("consent page CSP lets the form's final redirect reach the client (cursor: 
 test("reused code shows 'already approved', not an error to retry", async () => {
   await freshEnv(); const a = await connect(); assert.equal((await a.submit(CODE)).status, 302);
   const b = await connect(); const r = await b.submit(CODE); assert.equal(r.status, 400);
-  const h = await r.text(); assert.match(h, /already approved/); assert.doesNotMatch(h, /<form/);
+  const h = await r.text(); assert.match(h, /already connected/); assert.doesNotMatch(h, /<form/);
 });
 
 test("a revoked grant's 401 points the client back at the resource metadata", async () => {

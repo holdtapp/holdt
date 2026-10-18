@@ -16,7 +16,7 @@ About 10 minutes once Node.js and a free Cloudflare account are ready, plus abou
    - **Test connection** shows "Found N calendars".
    - Choose read-only or "changes with my yes", then **Save**.
 4. Setup shows your connector address (`https://holdt.<you>.workers.dev/mcp`) and an 8-digit approval code. In Grok Bot, open **Connect Apps → Add custom MCP server**, paste the address, and enter the code on the approval page that opens. The code works once, for 15 minutes. Lost it? `npm run setup -- --new-code`.
-5. Optional, one-tap connect: set `PASSKEYS = "on"` in wrangler.toml and deploy, then run `npm run setup -- --add-device` and open the link it prints on your iPhone. After that, connecting is **Allow with Face ID**, with nothing to type. The code stays as the fallback. See docs/SECURITY.md, "Passkey one-tap connect".
+5. Optional, one-tap connect: set `PASSKEYS = "on"` in wrangler.toml and deploy, then run `npm run add-device` and open the link it prints on your iPhone. After that, connecting is **Allow with Face ID**, with nothing to type. The code stays as the fallback. See docs/SECURITY.md, "Passkey one-tap connect".
 
 Your password only goes to Apple and to your own Cloudflare secrets (via `wrangler secret put` on stdin). It is never written to disk, logged, or put on a command line. To disconnect, remove the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
 

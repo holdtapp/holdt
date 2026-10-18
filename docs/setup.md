@@ -96,9 +96,11 @@ That's it. Try asking "What's on my calendar this week?"
 ## Good to know
 
 - **Every change waits for your yes.** With changes on, Holdt shows a preview first and only makes the change after you agree. It never deletes your events and never sends invitations. It can take back its own changes, on your yes.
-- **Code ran out?** Run `npm run setup -- --new-code` in the Holdt folder for a fresh one.
+- **Code ran out?** Run `npm run new-code` in the Holdt folder for a fresh one.
 - **Turn changes on later.** In the Cloudflare dashboard, open Workers & Pages, then holdt, then Settings, then Variables and Secrets. Set WRITES_ENABLED to true and save.
-- **Cut off every connection.** Run `npm run setup -- --revoke-all`.
+- **Approve with Face ID instead of a code (optional).** Once Face ID sign-in is on for your Holdt, run `npm run add-device` and open the link it shows on your iPhone. From then on, the approval page has an Allow with Face ID button.
+- **Reset Face ID.** If the approval page says Face ID was turned on for a device you don't recognize, tap Don't allow. Then run `npm run reset-passkeys` in the Holdt folder. Every Face ID device stops working at once, approval codes keep working, and you can add your own devices again.
+- **Cut off every connection.** Run `npm run revoke-all`.
 - **Disconnect from Apple completely.** At account.apple.com, open Sign-In and Security, then App-Specific Passwords, and remove the Holdt password.
 
 ## If something goes wrong
