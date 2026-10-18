@@ -24,7 +24,7 @@ function swap(ua: string, touchDevice: boolean, h: number, texts: string[], titl
 }
 
 test("HONESTY: a Mac is never promised Touch ID, it gets Touch ID or password and the key glyph", () => {
-  const r = swap(MAC, false, 900, ["Waiting for Face\u00a0ID to be turned\u00a0on.", "Face ID is off"], "Holdt: Face ID is off");
+  const r = swap(MAC, false, 900, ["Waiting for you to turn on Face\u00a0ID.", "Face ID is off"], "Holdt: Face ID is off");
   for (const t of [...r.texts, r.title]) {
     assert.doesNotMatch(t, /Face.ID/, t);
     assert.doesNotMatch(t.replace(/Touch.ID or password/g, ""), /Touch.ID/, `bare Touch ID promised on a Mac: ${t}`);
@@ -57,11 +57,22 @@ test("HONESTY: Windows, Android and Linux browsers are never promised Touch ID o
   const WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
   const AND = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36";
   for (const [ua, t] of [[WIN, false], [AND, true]] as const) {
-    const r = swap(ua, t, 900, ["Waiting for Face\u00a0ID to be turned\u00a0on.", "Face ID is off", "Your face stays on your device. Holdt never sees it."], "Holdt: Face ID is off");
+    const r = swap(ua, t, 900, ["Waiting for you to turn on Face\u00a0ID.", "Face ID is off", "Your face stays on your device. Holdt never sees it."], "Holdt: Face ID is off");
     for (const x of [...r.texts, r.title]) assert.doesNotMatch(x, /Face.ID|Touch.ID|face stays/, x);
     assert.equal(r.texts[1], "Your screen lock is off"); assert.ok(r.cls.has("key") && !r.cls.has("touch") && !r.cls.has("mac"));
   }
   const ipad = swap("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", true, 1180, ["Face ID is off"], "x");
   assert.equal(ipad.texts[0], "Touch ID or Face ID is off", "an iPad has one of the two");
   for (const s of [ENROLL_SCRIPT, PAIR_SCRIPT, CONSENT_SCRIPT]) assert.match(s, /if\(gen\)/);
+});
+
+test("HONESTY (R45): computer-side Setup help never promises Face ID or Touch ID, it names a one-time setup link", async () => {
+  const src = (await import("node:fs")).readFileSync(new URL("../src/authorize.ts", import.meta.url), "utf8");
+  const line = /const ADD_DEVICE = "([^"]+)"/.exec(src)![1]!;
+  assert.match(line, /one-time setup link/); assert.doesNotMatch(line, /Face|Touch/);
+});
+
+test("HONESTY (R45): a Mac or other computer waiting for its first passkey is told to save one, not to turn on a screen lock", () => {
+  const WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+  for (const ua of [MAC, WIN]) assert.equal(swap(ua, false, 900, ["Waiting for you to turn on Face\u00a0ID."], "x").texts[0], "Waiting for you to save a passkey.");
 });

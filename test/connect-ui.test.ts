@@ -71,10 +71,10 @@ test("new-device note: plain words, who and when, and the one thing to do", () =
   const now = Date.UTC(2026, 9, 18, 2, 0); // Oct 17, 8:00 PM MDT
   assert.equal(deviceNotice([], "America/Denver", now), undefined);
   const c = (id: string, ago: number, label?: string) => ({ id, jwk: {}, alg: -7 as const, signCount: 0, createdAt: now - ago, label });
-  assert.equal(deviceNotice([c("a", 60_000, "iPhone")], "America/Denver", now), "An iPhone was added today at 7:59\u00a0PM. Not you? Tap\u00a0Don't\u00a0allow.");
+  assert.equal(deviceNotice([c("a", 60_000, "iPhone")], "America/Denver", now), "An iPhone was added today at\u00a07:59\u00a0PM. Not you? Choose\u00a0Don't\u00a0allow.");
   assert.equal(deviceNotice([c("a", 60_000, "iPhone"), c("b", 86400_000, "MacIntel"), c("c", 3 * 86400_000)], "America/Denver", now),
-    "New devices: an iPhone today at 7:59\u00a0PM, a Mac yesterday at 8:00\u00a0PM and a new device on Oct 14 at 8:00\u00a0PM. Not you? Tap\u00a0Don't\u00a0allow.");
-  assert.match(deviceNotice([c("a", 60_000)], "Not/AZone", now)!, /A new device was added today at 1:59\u00a0AM/);
+    "New devices: an iPhone today at\u00a07:59\u00a0PM, a Mac yesterday at\u00a08:00\u00a0PM and a new device on Oct 14 at\u00a08:00\u00a0PM. Not you? Choose\u00a0Don't\u00a0allow.");
+  assert.match(deviceNotice([c("a", 60_000)], "Not/AZone", now)!, /A new device was added today at\u00a01:59\u00a0AM/);
   assert.deepEqual(["iPhone", "iPad", "MacIntel", "Win32", "Linux armv8l", "Linux x86_64", "", undefined].map(deviceName), ["an iPhone", "an iPad", "a Mac", "a Windows PC", "an Android device", "a Linux computer", "a new device", "a new device"]);
 });
 
@@ -186,7 +186,28 @@ test("pages that also open on a computer never say tap (R44): no-device consent,
   const pages = [visible((await consentHtml("Cursor", GROK)).html), visible(await (await call("/pair")).text())];
   await fresh({ REVIEWER_MODE: "on" }); pages.push(visible(await (await call("/review")).text()));
   for (const p of pages) assert.doesNotMatch(p, /\btap\b/i, p.slice(0, 80));
-  assert.match(pages[0], /If you didn’t ask it to connect, don’t allow it\./);
+  assert.match(pages[0], /Access goes to Grok Bot alone\. Allow this only if you just asked it to connect\./);
   assert.match(pages[1], /Approve from the iPhone you already use with Holdt\./);
   assert.match(pages[2], /Nothing changes until you turn it on\./);
+});
+
+test("Mac Safari keeps a 17 px base: -apple-system-body only where touch-callout exists (iOS, iPadOS), and the new-device notice says Choose", async () => {
+  assert.match(STYLE, /html\{[^}]*font-size:17px/);
+  assert.match(STYLE, /@supports \(font:-apple-system-body\) and \(-webkit-touch-callout:none\)\{html\{font:-apple-system-body\}\}/);
+  assert.doesNotMatch(STYLE, /@supports \(font:-apple-system-body\)\{/, "never the bare rule, which drops a Mac to 13 px");
+  await fresh(); await addPasskey(env, { id: "cred-n" + "x".repeat(20), jwk: {}, alg: -7, signCount: 0, createdAt: Date.now() - 60_000, label: "iPhone" } as any);
+  const p = visible((await consentHtml("Cursor", GROK)).html);
+  assert.match(p, /Not you\? Choose Don[’']t allow\./); assert.doesNotMatch(p, /\btap\b/i);
+});
+
+test("R45: reconnect opens the passkey sheet on load, once, only when the server marks it; a refusal or cancel is silent and Allow stays", async () => {
+  const { CONSENT_SCRIPT } = await import("../src/passkey.js");
+  assert.match(CONSENT_SCRIPT, /if\(btn\.hasAttribute\('data-auto'\)&&!btn\.hidden&&!msg\.textContent\.trim\(\)&&!f\.classList\.contains\('away'\)&&document\.visibilityState==='visible'\)/);
+  assert.match(CONSENT_SCRIPT, /seen=true;try\{seen=!!sessionStorage\.getItem\(k\)/, "no storage, no automatic try");
+  assert.match(CONSENT_SCRIPT, /live\.textContent='';setTimeout\(\(\)=>\{live\.textContent=t;\},150\)/, "a server-rendered error is announced");
+  assert.match(CONSENT_SCRIPT, /sessionStorage\.setItem\(k,'1'\)/, "one automatic try per request");
+  assert.match(CONSENT_SCRIPT, /if\(auto\|\|\(e&&e\.name==='AbortError'\)\)return;fails\+\+;/, "an automatic try never shows an error or counts as a failure");
+  assert.match(CONSENT_SCRIPT, /btn\.addEventListener\('click',\(\)=>go\(false\)\)/, "Allow with Face ID stays as the fallback");
+  assert.match(CONSENT_SCRIPT, /ac\.abort\(\)/, "switching to the QR code closes the sheet");
+  assert.doesNotThrow(() => new Function(CONSENT_SCRIPT));
 });

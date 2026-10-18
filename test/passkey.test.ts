@@ -38,10 +38,10 @@ async function enroll(a: VirtualAuthenticator, token = ENROLL) {
 }
 /** Turns on an owner recovery code, as `npm run new-code` would. */
 const recovery = async () => { env.APPROVAL_CODE_HASH = await sha256Hex(`icloud-mcp-approval:${CODE}`); env.APPROVAL_CODE_ISSUED = String(Date.now()); };
-async function consent() {
-  const reg: any = await (await call("/oauth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_name: "Grok Bot", redirect_uris: [CB], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }) })).json();
+async function consent(cb = CB) {
+  const reg: any = await (await call("/oauth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_name: "Grok Bot", redirect_uris: [cb], token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"] }) })).json();
   const verifier = b64u(randomBytes(32));
-  const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: CB, code_challenge: b64u(createHash("sha256").update(verifier).digest()), code_challenge_method: "S256", state: "s1", scope: "calendar", resource: `${ORIGIN}/mcp` });
+  const q = new URLSearchParams({ response_type: "code", client_id: reg.client_id, redirect_uri: cb, code_challenge: b64u(createHash("sha256").update(verifier).digest()), code_challenge_method: "S256", state: "s1", scope: "calendar", resource: `${ORIGIN}/mcp` });
   const page = await call(`/authorize?${q}`); const html = await page.text();
   const field = (n: string) => unesc(html.match(new RegExp(`name="${n}" value="([^"]*)"`))?.[1] ?? "");
   const o = html.match(/data-o="([^"]+)"/) ? JSON.parse(unesc(html.match(/data-o="([^"]+)"/)![1]!)) : undefined;
@@ -183,7 +183,7 @@ test("connect: a code field shows only while an owner recovery code is live, off
   await freshEnv({ PASSKEYS: "off" }); kv.m.clear();
   const c3 = await consent(); assert.doesNotMatch(c3.html, /<script|name="code"/); assert.match(c3.html, /Face ID is off/); assert.doesNotMatch(c3.page.headers.get("content-security-policy")!, /script-src/);
   await freshEnv(); const c4 = await consent(); assert.doesNotMatch(c4.html, /id="pk"|name="code"/, "nothing enrolled yet: no button and no code");
-  assert.match(c4.html, /Waiting for Face\u00a0ID to be turned\u00a0on\./); assert.match(c4.html, /npm run add-device/);
+  assert.match(c4.html, /Waiting for you to turn on Face\u00a0ID\./); assert.match(c4.html, /npm run add-device/);
   assert.match(c4.html, /<details class="owner" open>/, "the command sits in Setup help, not the main copy");
 });
 
@@ -244,10 +244,14 @@ test("ATTACK P12: the setup link is the owner's proof: hash only, fragment only,
 });
 test("a new device shows on the next consent pages and in connection_status for 7 days", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
-  assert.match((await consent()).html, /A new device was added today at \d+:\d\d[\s\u00a0][AP]M\.(?: |<br>)Not you\? Tap[\s\u00a0]Don’t[\s\u00a0]allow\./);
+  const withNotice = (await consent("https://www.cursor.com/agents/mcp/oauth/callback")).html;
+  assert.doesNotMatch(withNotice, /id="pk"[^>]*data-auto/, "with a security notice the sheet waits for a tap, so the notice is read first");
+  assert.match((await consent()).html, /A new device was added today at[\s\u00a0]\d+:\d\d[\s\u00a0][AP]M\.(?: |<br>)Not you\? Choose[\s\u00a0]Don’t[\s\u00a0]allow\./);
   const { mcpEndpoint } = await import("../src/worker.js");
   const st = async () => (await (await mcpEndpoint(new Request(ORIGIN + "/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "connection_status", arguments: {} } }) }), env, { epoch: env.GRANT_EPOCH }, fetch)).json() as any).result.structuredContent;
   const s1 = await st(); assert.equal(s1.passkeys.length, 1); assert.equal(s1.passkeys[0].added_with, "setup link"); assert.match(s1.device_notice, /New device added .*reset-passkeys/);
   const recs = await kv.list({ prefix: "passkey:" }); for (const k of recs.keys) { const c = JSON.parse((await kv.get(k.name))!); c.createdAt -= 8 * 86400_000; await kv.put(k.name, JSON.stringify(c)); }
-  assert.doesNotMatch((await consent()).html, /was added today|New devices:/); const s2 = await st(); assert.equal(s2.device_notice, undefined); assert.equal(s2.passkeys.length, 1);
+  const later = (await consent()).html; assert.doesNotMatch(later, /id="pk"[^>]*data-auto/, "an unverified app always waits for a tap");
+  assert.match((await consent("https://www.cursor.com/agents/mcp/oauth/callback")).html, /id="pk"[^>]*data-auto/, "reconnecting a verified app opens the passkey sheet by itself");
+  assert.doesNotMatch(later, /was added today|New devices:/); const s2 = await st(); assert.equal(s2.device_notice, undefined); assert.equal(s2.passkeys.length, 1);
 });

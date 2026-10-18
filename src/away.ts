@@ -117,7 +117,7 @@ export async function awayApi(req: Request, env: Env, now = Date.now()): Promise
     const { claim, secret } = await createPair(env, whereFrom(req), now);
     const { qrSvg } = await import("./qr.js");
     const link = `${url.origin}/ok#${secret}`;
-    return json({ ok: true, claim, link, qr: qrSvg(link, "QR code. Scan it with your iPhone’s camera to approve this device.") });
+    return json({ ok: true, claim, link, qr: qrSvg(link, "QR code. Scan it with that iPhone’s camera to approve this device.") });
   }
   if (p === "/pair/status") {
     const claim = String(b?.claim ?? ""); const status = await pairStatus(env, claim, now);
