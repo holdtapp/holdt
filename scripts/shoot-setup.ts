@@ -1,13 +1,14 @@
 // Dev-only: renders the setup screen states against the mock CalDAV server for UX review.
 import { MockCalDav } from "../test/mock-caldav.js";
 import { createSetupServer } from "../setup/server.js";
-// @ts-ignore
-import puppeteer from "/tmp/shotkit/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js";
-const out = process.argv[2] ?? "/workspace/icloud-mcp/docs/shots";
+import { fileURLToPath } from "node:url";
+// puppeteer-core isn't a dependency. Install it anywhere and point PUPPETEER_CORE at it, or install it in this folder.
+const { default: puppeteer }: any = await import(process.env.PUPPETEER_CORE ?? "puppeteer-core");
+const out = process.argv[2] ?? fileURLToPath(new URL("../docs/shots", import.meta.url));
 const mock = new MockCalDav({ user: "you@icloud.com", pass: "abcd-efgh-ijkl-mnop" }); await mock.start();
 const { server, key } = createSetupServer({ caldavUrl: mock.base, workerName: "w", workerUrl: "https://holdt.you.workers.dev", saveSecret: async () => {} });
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r())); const port = (server.address() as any).port;
-const browser = await puppeteer.launch({ executablePath: "/usr/bin/google-chrome", args: ["--no-sandbox"], headless: true });
+const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? "/usr/bin/google-chrome", args: ["--no-sandbox"], headless: true });
 for (const [label, w, h, dark] of [["desktop", 1100, 900, false], ["mobile", 390, 1000, false], ["dark", 1100, 900, true]] as const) {
   const p = await browser.newPage(); await p.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
   await p.emulateMediaFeatures([{ name: "prefers-color-scheme", value: dark ? "dark" : "light" }, { name: "prefers-reduced-motion", value: "reduce" }]);

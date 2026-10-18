@@ -9,3 +9,5 @@ docs/deploy-plan.md
 docs/listing-draft.md
 docs/one-tap-design.md
 docs/audit-2026-10-17.md
+# Local test-account Worker config (own KV id). Never commit it.
+wrangler.test.toml
