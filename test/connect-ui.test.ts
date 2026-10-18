@@ -170,7 +170,7 @@ test("status lines are read once, focus survives a failed sheet, and icons hang 
   assert.match(src, /<p class="status" id="msg" aria-hidden="true">\$\{ICON\.info\}<span class="st"><\/span><\/p><p class="sr" id="live" role="status" aria-live="polite"><\/p>/, "enroll");
   assert.match(src, /<p class="status" id="pkmsg" aria-hidden="true">\$\{ICON\.info\}<span class="st">\$\{esc\(error\)\}<\/span><\/p><p class="sr" id="live" role="status" aria-live="polite">\$\{esc\(error\)\}<\/p>/, "a server-side error is in the live region too");
   assert.match(CONSENT_SCRIPT, /if\(!on\)\{msg\.parentNode\.classList\.remove\('keep'\);msg\.textContent='';live\.textContent='';\}/);
-  assert.match(CONSENT_SCRIPT, /fails>1\)\{setMode\(true\);msg\.parentNode\.classList\.add\('keep'\);say\(bio\+' didn’t finish\.\\nScan the QR code with '\+\(other==='your iPhone'\?'your iPhone':'another device'\)\+' instead\.'\)/);
+  assert.match(CONSENT_SCRIPT, /fails>1\)\{setMode\(true\);msg\.parentNode\.classList\.add\('keep'\);say\(pn\+' didn’t finish\.\\nScan the QR code with '\+\(other==='your iPhone'\?'your iPhone':'another device'\)\+' instead\.'\)/);
   assert.match(ENROLL_SCRIPT, /btn\.focus\(\);\}\}\);$/);
   for (const t of [src, readFileSync(new URL("../src/passkey.ts", import.meta.url), "utf8")]) assert.doesNotMatch(t, /code still works/i);
   assert.match(STYLE, /\.status\{display:flex;justify-content:center;align-items:flex-start;gap:\.35rem;[^}]*text-align:left\}/);

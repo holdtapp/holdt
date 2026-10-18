@@ -59,7 +59,7 @@ test("HONESTY: Windows, Android and Linux browsers are never promised Touch ID o
   for (const [ua, t] of [[WIN, false], [AND, true]] as const) {
     const r = swap(ua, t, 900, ["Waiting for you to turn on Face\u00a0ID.", "Face ID is off", "Your face stays on your device. Holdt never sees it."], "Holdt: Face ID is off");
     for (const x of [...r.texts, r.title]) assert.doesNotMatch(x, /Face.ID|Touch.ID|face stays/, x);
-    assert.equal(r.texts[1], "Your screen lock is off"); assert.ok(r.cls.has("key") && !r.cls.has("touch") && !r.cls.has("mac"));
+    assert.equal(r.texts[1], "Passkey is off"); assert.equal(r.texts[2], "Your passkey stays on your device. Holdt never sees it."); assert.ok(r.cls.has("key") && !r.cls.has("touch") && !r.cls.has("mac"));
   }
   const ipad = swap("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15", true, 1180, ["Face ID is off"], "x");
   assert.equal(ipad.texts[0], "Touch ID or Face ID is off", "an iPad has one of the two");
@@ -70,6 +70,22 @@ test("HONESTY (R45): computer-side Setup help never promises Face ID or Touch ID
   const src = (await import("node:fs")).readFileSync(new URL("../src/authorize.ts", import.meta.url), "utf8");
   const line = /const ADD_DEVICE = "([^"]+)"/.exec(src)![1]!;
   assert.match(line, /one-time setup link/); assert.doesNotMatch(line, /Face|Touch/);
+});
+
+test("turning Face ID on or off reads as a passkey on a computer, and each iPhone and iPad keeps its own sensor", () => {
+  const WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+  const IPAD = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
+  const texts = ["Turn on Face ID first", "Didn’t add a device? Turn Face ID off everywhere, then set it up again.", "It doesn’t have Face ID for Holdt. Scan the code with the device where you turned it on.", "This device isn't set up for Face ID with Holdt."];
+  for (const ua of [MAC, WIN]) {
+    const r = swap(ua, false, 900, texts, "Holdt: Turn on Face ID");
+    assert.deepEqual(r.texts, ["Save a passkey first", "Didn’t add a device? Turn passkeys off everywhere, then set it up again.", "It doesn’t have a passkey for Holdt. Scan the code with the device where you turned it on.", "This device isn't set up with Holdt."], ua);
+    assert.equal(r.title, "Holdt: Save a passkey", ua);
+  }
+  assert.equal(swap(WIN, false, 900, ["x"], "Holdt: Face ID is off").title, "Holdt: Passkey is off");
+  assert.equal(swap(MAC, false, 900, ["x"], "Holdt: Face ID is off").title, "Holdt: Touch ID or password is off");
+  assert.equal(swap(IPHONE, true, 852, texts, "x").texts[0], "Turn on Face ID first");
+  assert.equal(swap(IPHONE, true, 667, texts, "x").texts[0], "Turn on Touch ID first");
+  assert.equal(swap(IPAD, true, 1180, texts, "x").texts[0], "Turn on Touch ID or Face ID first");
 });
 
 test("HONESTY (R45): a Mac or other computer waiting for its first passkey is told to save one, not to turn on a screen lock", () => {

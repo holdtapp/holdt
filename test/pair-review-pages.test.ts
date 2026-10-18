@@ -26,14 +26,15 @@ class El {
   setAttribute(k: string, v: string) { this.attrs[k] = v; } removeAttribute(k: string) { delete this.attrs[k]; } hasAttribute(k: string) { return k in this.attrs; }
   remove() { this.removed = true; } focus() {} scrollIntoView() {} addEventListener(e: string, f: Function) { this.on[e] = f; }
 }
-function run(script: string, o: { ua?: string; fetch: (path: string, body: any) => any; hash?: string; ids?: Record<string, El>; create?: () => Promise<any> }) {
+function run(script: string, o: { ua?: string; fetch: (path: string, body: any) => any; hash?: string; ids?: Record<string, El>; create?: () => Promise<any>; touch?: boolean }) {
   const els: Record<string, El> = { ...o.ids }, doc: any = { title: "", body: new El(), documentElement: new El(), getElementById: (id: string) => (els[id] ??= new El()), querySelectorAll: () => [], createTreeWalker: () => ({ nextNode: () => null }) };
+  if (o.touch) doc.ontouchend = null;
   const intervals: Function[] = [], store = new Map<string, string>();
   const fakeFetch = async (path: string, init: any) => { const r = await o.fetch(path, JSON.parse(init.body)); if (r === "net") throw new TypeError("offline"); return { json: async () => r }; };
-  const names = ["document", "navigator", "screen", "fetch", "location", "history", "sessionStorage", "setInterval", "clearInterval", "setTimeout", "requestAnimationFrame", "getSelection"];
+  const names = ["document", "navigator", "screen", "fetch", "location", "history", "sessionStorage", "setInterval", "clearInterval", "setTimeout", "requestAnimationFrame", "getSelection", "window"];
   const vals = [doc, { userAgent: o.ua ?? MAC, platform: "MacIntel", credentials: { create: () => o.create!() } }, { width: 1440, height: 900 }, fakeFetch, { hash: o.hash ?? "", pathname: "/x", search: "", origin: ORIGIN }, { replaceState() {} },
     { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), removeItem: (k: string) => store.delete(k) },
-    (f: Function) => intervals.push(f), () => {}, () => 0, () => 0, () => null];
+    (f: Function) => intervals.push(f), () => {}, () => 0, () => 0, () => null, { PublicKeyCredential: function () {} }];
   new Function(...names, script)(...vals);
   return { store, $: (id: string) => doc.getElementById(id) as El, tick: async () => { for (const f of intervals) await f(); await settle(); } };
 }
@@ -82,7 +83,7 @@ test("pair page: a later poll that can't reach the server says so and stops the 
 test("pair page: a device cap or a rate limit shows the server's sentence, never 'This request expired'", async () => {
   fresh(); const s = scriptOf(await (await call("/pair")).text());
   for (const [r, want] of [
-    [{ ok: false, message: "Holdt already has 10 Face ID devices, the most it allows." }, "Holdt already has 10 Face ID devices, the most it allows."],
+    [{ ok: false, message: "Holdt already has 10 passkeys, the most it allows." }, "Holdt already has 10 passkeys, the most it allows."],
     [{ error: "rate_limited", error_description: "Too many requests. Wait a minute and try again." }, "Too many requests. Wait a minute and try again."],
   ] as const) {
     const p = run(s, { ids: PAIR_VIEWS(), fetch: () => r }); await settle();
@@ -138,6 +139,36 @@ test("pair page: a failed save on a computer says Couldn’t save the passkey, a
     assert.equal(p.$("msg").lastElementChild.textContent, want, ua); assert.equal(p.$("live2").textContent, want, ua);
     assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["ready"]);
   }
+});
+
+test("enroll page: each device hears its own words, a phone is told to tap and a computer to click", async () => {
+  fresh(); const s = scriptOf(await (await call("/enroll")).text());
+  const WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0 Safari/537.36", AND = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130.0 Mobile Safari/537.36";
+  const OPTS = { ok: true, challenge_token: "t", publicKey: { challenge: "AA", user: { id: "AA" }, excludeCredentials: [] } };
+  const page = (ua: string, finish: any, create: () => Promise<any>, touch = false) => run(s, { ua, touch, hash: "#tok", ids: views(["setup", "done", "skip", "dead"]), create, fetch: (path) => path === "/enroll/options" ? OPTS : finish });
+  const NO = async () => { throw Object.assign(new Error("no"), { name: "NotAllowedError" }); }, DUP = async () => { throw Object.assign(new Error("dup"), { name: "InvalidStateError" }); };
+  for (const [ua, touch, lede] of [[WIN, false, "Next time, click Allow on this device."], [AND, true, "Next time, tap Allow on this device."]] as const) {
+    const ok = page(ua, { ok: true, count: 1 }, SAVED, touch); await settle(); await ok.$("go").on.click!(); await settle();
+    assert.equal(ok.$("done").querySelector("h1")!.textContent, "Passkey saved", ua); assert.equal(ok.$("done").querySelector(".lede")!.textContent, lede, ua);
+    const no = page(ua, {}, NO, touch); await settle(); await no.$("go").on.click!(); await settle();
+    assert.equal(no.$("msg").lastElementChild.textContent, "Couldn’t save the passkey.\nTry again when you’re ready.", ua); assert.equal(no.$("go").lastElementChild.textContent, "Save passkey", ua);
+    const bad = page(ua, { ok: false, message: "Face ID wasn't saved. Reload this page and try again." }, SAVED, touch); await settle(); await bad.$("go").on.click!(); await settle();
+    assert.equal(bad.$("msg").lastElementChild.textContent, "Couldn’t save the passkey. Reload this page and try again.", ua);
+    const dup = page(ua, {}, DUP, touch); await settle(); await dup.$("go").on.click!(); await settle();
+    assert.equal(dup.$("msg").lastElementChild.textContent, "This device already has a passkey for Holdt.", ua);
+  }
+  const mac = page(MAC, {}, NO); await settle(); await mac.$("go").on.click!(); await settle();
+  assert.equal(mac.$("go").lastElementChild.textContent, "Save passkey", "a cancelled sheet on a Mac never reads Turn on Touch ID or password");
+  assert.equal(mac.$("msg").lastElementChild.textContent, "Touch ID or password didn’t finish.\nTry again when you’re ready.");
+  const macOk = page(MAC, { ok: true, count: 1 }, SAVED); await settle(); await macOk.$("go").on.click!(); await settle();
+  assert.match(macOk.$("done").querySelector(".lede")!.textContent, /^Next time, click Allow on this Mac\./);
+  const phone = page(IPHONE, { ok: false, message: "This device already uses Face ID with Holdt." }, SAVED, true); await settle(); await phone.$("go").on.click!(); await settle();
+  assert.equal(phone.$("msg").lastElementChild.textContent, "This device already uses Face ID with Holdt.", "an iPhone keeps Face ID");
+});
+
+test("device cap messages name passkeys, never Face ID, because the server can't know the device", async () => {
+  const src = (await import("node:fs")).readFileSync(new URL("../src/passkey.ts", import.meta.url), "utf8") + (await import("node:fs")).readFileSync(new URL("../src/away.ts", import.meta.url), "utf8");
+  for (const m of src.match(/Holdt already has \$\{MAX_PASSKEYS\}[^`]*/g)!) { assert.match(m, /passkeys, the most it allows/); assert.doesNotMatch(m, /Face|Touch/); }
 });
 
 test("reviewer page: Turning on is spoken, and an ended claim with no message says the server needs a look and keeps the code", async () => {

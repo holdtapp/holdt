@@ -113,7 +113,7 @@ export async function awayApi(req: Request, env: Env, now = Date.now()): Promise
   if (p === "/pair/new") {
     const all = await loadPasskeys(env);
     if (!usableHere(all, url).length) return json({ ok: false, message: "No device has Face ID for Holdt yet. Set it up from your computer first." }, 400);
-    if (all.length >= MAX_PASSKEYS) return json({ ok: false, message: `Holdt already has ${MAX_PASSKEYS} Face ID devices, the most it allows.` }, 400);
+    if (all.length >= MAX_PASSKEYS) return json({ ok: false, message: `Holdt already has ${MAX_PASSKEYS} passkeys, the most it allows.` }, 400);
     const { claim, secret } = await createPair(env, whereFrom(req), now);
     const { qrSvg } = await import("./qr.js");
     const link = `${url.origin}/ok#${secret}`;
