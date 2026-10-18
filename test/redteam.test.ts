@@ -161,8 +161,8 @@ test("REDTEAM R14: an out-of-range XML character reference doesn't crash the par
   assert.doesNotThrow(() => parseXml("<a>&#x110000;&#99999999999;</a>"));
 });
 
-// ---------- N1: not a security bug, found on the way (time zone math drops milliseconds wrongly) ----------
-test("REDTEAM N1: offsets and DST transitions are exact (no -06:0.0083 offsets, VTIMEZONE at 02:00)", async () => {
+// ---------- TZ1 (was N1): not a security bug, found on the way (time zone math drops milliseconds wrongly) ----------
+test("REDTEAM TZ1: offsets and DST transitions are exact (no -06:0.0083 offsets, VTIMEZONE at 02:00)", async () => {
   const { isoInZone, vtimezone } = await import("../src/ical.js");
   assert.match(isoInZone(Date.UTC(2026, 9, 17, 6, 0, 0, 500), TZ), /^2026-10-17T00:00:00-06:00$/);
   const v = vtimezone(TZ, 2026).filter((l) => l.startsWith("DTSTART"));
