@@ -200,6 +200,9 @@ test("setup: --add-device opens the link in the browser (no code, no QR), --qr p
   let out3 = "";
   await cliAction("--add-device", async (n, v) => { saved[n] = v; }, (s) => (out3 += s), "https://holdt.example.workers.dev/", {}, async () => false);
   assert.match(out3, /\/enroll#[\w-]+/, "no browser on this machine: the link and QR print instead"); assert.match(out3, /█/);
+  const before = { ...saved }; let out4 = "";
+  await cliAction("--add-device", async (n, v) => { saved[n] = v; }, (s) => (out4 += s), "", {}, async () => true);
+  assert.deepEqual(saved, before, "no WORKER_URL: no token is saved"); assert.match(out4, /Set WORKER_URL/); assert.doesNotMatch(out4, /enroll#/);
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
   assert.match((await consent()).html, /Allow with Face ID/);
   await cliAction("--reset-passkeys", async (n, v) => { saved[n] = v; }, (s) => (out += s));

@@ -36,7 +36,7 @@ Follow these steps on the user's own computer, in order. Report each "Step N of 
 - The link has ended (used once, or older than 30 minutes): run `npm run agent-setup -- --new-link`. It opens a fresh link without redeploying.
 - To change the iCloud account or the mode later: the same `--new-link` command. Saving a new setup ends existing connections, and the user connects Grok Bot again.
 - "Deploy finished but no workers.dev address came back": the account has no `workers.dev` subdomain yet. Ask the user to open Workers in the Cloudflare dashboard once, then run `npm run agent-setup` again.
-- The page says setup isn't finished (the account was saved but no passkey was made): run `WORKER_URL=https://holdt.<their subdomain>.workers.dev npm run add-device`, with the address `npm run agent-setup` printed. It opens a passkey link in the user's browser. Without `WORKER_URL` it prints a link with no real address instead.
+- The page says setup isn't finished (the account was saved but no passkey was made): run `WORKER_URL=https://holdt.<their subdomain>.workers.dev npm run add-device`, with the address `npm run agent-setup` printed. It opens a passkey link in the user's browser. Without `WORKER_URL` it stops and asks for it, and nothing changes.
 - Apple refuses the password: the user makes a new app-specific password on Apple's page and enters it again. They get 8 tries per link.
 
 Developers who prefer Terminal can still use the manual path in docs/setup.md.

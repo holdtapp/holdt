@@ -37,7 +37,7 @@ Each fixed item has a test in test/ and a row in docs/attack-proof.md that `npm 
 | T2 cross-isolate races | Fixed. Durable Object `Guard` (one per owner) holds spent tokens, code tries and the used-code marker. KV plus in-isolate locks remain only as a fallback if the binding is missing. |
 | T3 Version URLs | `preview_urls = false` in wrangler.toml. It applies on the next deploy. Older version URLs should also be checked in the dashboard. |
 | T4 rate limits | Workers Rate Limiting: DCR 10/min per IP, approval submits 10/min per IP, /mcp 120/min per connection. Residual: someone can still burn the 5 code tries during a 15-minute window from 5 IPs. The fix is `npm run setup -- --new-code`. |
-| T5 redirect allowlist | REDIRECT_ALLOWLIST holds the two callbacks the live Grok Bot client registered (read from KV client records on Oct 17, 2026). |
+| T5 redirect allowlist | REDIRECT_ALLOWLIST holds the one callback the live Grok Bot client registered (read from KV client records on Oct 17, 2026). |
 | T6 supply chain | wrangler pinned exactly (3.114.17) and run from node_modules. CI actions pinned by SHA. `npm audit signatures` in CI. Dependabot. |
 | T7 config drift | The real wrangler.toml is committed (the KV id isn't secret). skip-worktree removed. |
 | T8 crypto hygiene | Salted PBKDF2 code hash. Per-purpose derived keys. Zero-downtime rotation through CONFIRM_SECRET_PREVIOUS (docs/key-rotation.md). |

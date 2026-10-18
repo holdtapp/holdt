@@ -135,13 +135,15 @@ export async function cliAction(flag: string, save: (n: string, v: string) => Pr
     // A one-time passkey link. Only the token's SHA-256 goes to Cloudflare. The token itself is in the link's fragment.
     // It opens in this computer's browser, where one click on Save passkey adds the device and iCloud Keychain
     // carries the passkey to the owner's other Apple devices. The QR code is only for a device without that sync.
+    // Without the Worker's address the link would point nowhere, so stop before a fresh token is saved.
+    if (!workerUrl) { out("\n  Set WORKER_URL to your Holdt address first, for example:\n\n    WORKER_URL=https://holdt.<you>.workers.dev npm run add-device\n\n  Nothing was changed.\n"); return true; }
     const t = newEnrollToken();
     await save("ENROLL_TOKEN_HASH", t.hash); await save("ENROLL_TOKEN_ISSUED", String(Date.now()));
-    const base = (workerUrl ?? "https://<your-worker>.workers.dev").replace(/\/+$/, ""), link = enrollLink(base, t.token);
+    const base = workerUrl.replace(/\/+$/, ""), link = enrollLink(base, t.token);
     const wantQr = extra.includes("--qr");
     const opened = !wantQr && !!workerUrl && (await open(link));
     if (opened) out(`\n  Opened the one-time passkey link in your browser. Click Save passkey there. That's the only step.\n  It works once, for 10 minutes. For a phone that doesn't sync with iCloud Keychain, run npm run add-device -- --qr.\n`);
-    else out(`\n  Open this on the device you want to add (works once, for 10 minutes):\n\n    ${link}\n\n  Or point an iPhone's camera at this code:\n\n${workerUrl ? qrTerminal(link) : "  (Set WORKER_URL to print a full link and a QR code.)"}\n`);
+    else out(`\n  Open this on the device you want to add (works once, for 10 minutes):\n\n    ${link}\n\n  Or point an iPhone's camera at this code:\n\n${qrTerminal(link)}\n`);
     return true;
   }
   if (flag === "--reset-passkeys") {

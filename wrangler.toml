@@ -12,7 +12,7 @@ preview_urls = false
 
 [vars]
 # Only these OAuth callbacks can receive a code. Taken from the live Grok Bot client records in OAUTH_KV on Oct 17, 2026
-# (the client holding the current grant registered exactly these two). Add the desktop app's callback here if you connect from it.
+# (the client holding the current grant registered exactly this one). Add the desktop app's callback here if you connect from it.
 # First deploy: "report" only logs Origin headers on /mcp. After `npm run tail` shows Grok Bot sends none (or only allowed ones),
 # change this to "enforce" and deploy again (see docs/SECURITY.md, Origin rollout).
 ORIGIN_CHECK = "report"
