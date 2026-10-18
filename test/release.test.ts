@@ -42,7 +42,7 @@ test("the request log names the protocol version and the tool count, and nothing
 
 test("the read-only refusal points at the real place to change it", async () => {
   await assert.rejects(makeTools(mock, { writesEnabled: false }).call("prepare_create_event", { calendar_id: "home", title: "x", start: "2026-11-01T10:00" }),
-    /Workers & Pages > holdt > Settings > Variables and Secrets, edit the WRITES_ENABLED secret to true.*npx wrangler secret put WRITES_ENABLED/);
+    /runs npm run agent-setup -- --new-link in the Holdt folder.*picks changes with a yes/);
   await assert.rejects(makeTools(mock, { writesEnabled: false }).call("prepare_undo", { revert_token: "a.b" }), /Changes are turned off/);
 });
 

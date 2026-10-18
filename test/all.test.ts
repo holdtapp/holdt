@@ -85,7 +85,7 @@ test("get_event returns full notes and alerts", async () => {
 test("writes are impossible when WRITES_ENABLED is off", async () => {
   const t = tools(false);
   await assert.rejects(t.call("prepare_create_event", { calendar_id: "home", title: "X", start: "2026-11-01T10:00" }), /turned off/);
-  await assert.rejects(t.call("commit_create_event", { confirm_token: "a.b" }), /turned off/);
+  await assert.rejects(t.call("commit_create_event", { confirm_token: "a.b" }), (e: Error) => e.message.includes("npm run agent-setup -- --new-link") && !/[;—]/.test(e.message), "says how to turn changes on");
   assert.equal(puts().length, 0);
 });
 

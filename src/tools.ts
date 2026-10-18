@@ -155,7 +155,7 @@ export class Tools {
     if (uid !== ch.uid || !(await j.isOwnRecentCreate(ch.uid, this.now()))) throw new UserError("Holdt only removes events it added itself, within 24 hours. This one stays. You can delete it in the Calendar app.");
   }
   private requireWrites() {
-    if (!this.cfg.writesEnabled) throw new UserError("Changes are turned off for this connection, so I can only read. The owner can turn them on in the Cloudflare dashboard: Workers & Pages > holdt > Settings > Variables and Secrets, edit the WRITES_ENABLED secret to true and save (or run npx wrangler secret put WRITES_ENABLED and enter true). Saving deploys right away, and every change still needs a preview and a yes.");
+    if (!this.cfg.writesEnabled) throw new UserError("Changes are turned off for this connection, so I can only read. To turn them on, the owner runs npm run agent-setup -- --new-link in the Holdt folder on their computer and picks changes with a yes on the page that opens. Saving it ends this connection, so connect again after. Every change still needs a preview and a yes.");
   }
   /** A window edge. A bare date means the start of that day in the user's zone, or for an end edge, the start of the next day. */
   private edge(s: string | undefined, def: number, kind: "start" | "end"): number {
