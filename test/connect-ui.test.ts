@@ -135,3 +135,19 @@ test("look: input and secondary-button borders meet 3:1 non-text contrast (WCAG 
   for (const m of ["light", "dark"] as const) for (const bg of [TOKENS[m].surface, TOKENS[m].bg]) assert.ok(contrast(TOKENS[m].fieldLine, bg) >= 3, `${m} field border on ${bg}`);
   assert.match(STYLE, /input\.code\{[^}]*border:1\.5px solid var\(--field-line\)/);
 });
+
+test("status lines are read once, busy text only when work happens, focus survives a failed sheet (review round 20)", async () => {
+  const { LOGIN_SCRIPT, ENROLL_SCRIPT } = await import("../src/passkey.js");
+  // Each visible status line is mirrored into one live region, so the visible copy is hidden from VoiceOver (no double read).
+  const src = readFileSync(new URL("../src/authorize.ts", import.meta.url), "utf8");
+  assert.match(src, /<p class="status" id="msg" aria-hidden="true">\$\{ICON\.info\}<span class="st"><\/span><\/p><p class="sr" id="live" role="status" aria-live="polite"><\/p>/, "enroll");
+  assert.match(src, /<p class="status" id="pkmsg" aria-hidden="true">.*<p class="sr" id="live" role="status" aria-live="polite">\$\{esc\(pkErr\)\}<\/p>/, "a server-side Face ID error is in the live region too");
+  assert.match(LOGIN_SCRIPT, /isn’t available in this window\. Use an approval code instead\.';live\.textContent=msg\.textContent;/);
+  // Switching back to Face ID clears the "Enter your approval code below" line and its mirror.
+  assert.match(LOGIN_SCRIPT, /if\(!on\)\{msg\.parentNode\.classList\.remove\('keep'\);msg\.textContent='';live\.textContent='';\}/);
+  // "Checking code" is announced only when /enroll/options is actually called, not when a kept challenge is reused.
+  assert.doesNotMatch(ENROLL_SCRIPT, /clearErr\(\);busyAs\(/);
+  assert.match(ENROLL_SCRIPT, /if\(!r\)\{busyAs\('Checking code','Checking your code\.'\);r=await post\('\/enroll\/options'/);
+  // After a cancelled or failed sheet the re-enabled button takes focus back (a field error focuses the field instead).
+  assert.match(ENROLL_SCRIPT, /if\(!\(e&&e\.field\)\)btn\.focus\(\);/);
+});

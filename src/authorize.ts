@@ -102,7 +102,7 @@ function consentBody(d: any, handle: string, writes: string, error?: string, pk?
   const actions = pk
     ? `<form method="post" autocomplete="off"${codeErr ? ' class="code"' : ""}>${hidden}<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">
 <button type="button" class="btn primary" id="pk" hidden data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">${ICON.faceId}${ICON.spinner}<span id="pklabel">Allow with Face ID</span></button>
-<p class="status" id="pkmsg">${ICON.info}<span class="st">${esc(pkErr)}</span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
+<p class="status" id="pkmsg" aria-hidden="true">${ICON.info}<span class="st">${esc(pkErr)}</span></p><p class="sr" id="live" role="status" aria-live="polite">${esc(pkErr)}</p>
 <div class="alt" id="altwrap"><div class="codebox" id="codepanel">
 ${FIELD_CODE({ reviewer, error: codeErr })}${inPanel}${reviewer ? REVIEWER_HINT : ""}</div>
 <button type="button" class="btn plain" id="mode" aria-controls="codepanel" aria-expanded="${codeErr ? "true" : "false"}" hidden><span class="off">${ICON.keypad}Use an approval code instead</span><span class="on">${ICON.faceId}<span id="modeface">Use Face ID instead</span></span></button>
@@ -181,7 +181,7 @@ async function enrollPage(env: Env, url: URL): Promise<Response> {
   const setup = screen({ title: "Turn on Face ID", lede: "Enter your approval code once, then approve with a glance.", markId: "mk",
     body: `<ul class="facts" role="list"><li>${ICON.faceId}<p id="face1">Your face stays on your device. Holdt never sees it.</p></li><li>${ICON.devices}<p>Syncs to your other Apple devices with iCloud\u00a0Keychain.</p></li><li>${ICON.keypad}<p>Your approval code still works.</p></li></ul>`,
     actions: `<form id="enrollf" novalidate><div class="field"><label class="lbl" for="code">Approval code</label><input class="code" id="code" inputmode="numeric" placeholder="8 digits" maxlength="12" autocomplete="one-time-code" enterkeyhint="go" aria-describedby="codehint"><span class="fielderr" id="err" role="alert" hidden>${ICON.alert}<span></span></span><span class="hint" id="codehint">${HINT}</span></div>
-<button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button></form><p class="status" id="msg">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
+<button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button></form><p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p>
 <button type="button" class="btn plain quiet" id="later">Not now</button>${ownerNote(HELP, NEW_CODE_CMD)}
 ${hasOther ? `<p class="foot">Set up Face ID on another device already? You can skip the code.</p>` : ""}` }).replace('<div class="actions in d3">', '<div class="actions near in d3">');
   return page("Holdt: Turn on Face ID", `<div id="setup">${setup}</div>

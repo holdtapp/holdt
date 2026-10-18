@@ -228,10 +228,10 @@ const TOUCH = `const touch=/Macintosh/.test(navigator.userAgent)&&!('ontouchend'
 export const LOGIN_SCRIPT = `${CODEC}${TOUCH}
 const btn=document.getElementById('pk'),f=btn.form,o=JSON.parse(btn.dataset.o),msg=document.getElementById('pkmsg').lastElementChild,mode=document.getElementById('mode'),live=document.getElementById('live'),wrap=document.getElementById('altwrap'),lab=document.getElementById('pklabel'),mk=document.getElementById('mk');
 if(touch)lab.textContent='Allow with Touch ID';
-const setMode=(on,say)=>{f.classList.toggle('code',on);if(!on){msg.parentNode.classList.remove('keep');msg.textContent='';}mode.setAttribute('aria-expanded',on?'true':'false');if(say){live.textContent=on?'Approval code shown':bio+' shown';(on?document.getElementById('code'):btn).focus();}};
+const setMode=(on,say)=>{f.classList.toggle('code',on);if(!on){msg.parentNode.classList.remove('keep');msg.textContent='';live.textContent='';}mode.setAttribute('aria-expanded',on?'true':'false');if(say){live.textContent=on?'Approval code shown':bio+' shown';(on?document.getElementById('code'):btn).focus();}};
 f.classList.add('js');btn.hidden=false;mode.hidden=false;mode.addEventListener('click',()=>setMode(!f.classList.contains('code'),true));
 if(touch)document.getElementById('modeface').textContent='Use Touch ID instead';
-if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);msg.parentNode.classList.add('keep');msg.textContent=bio+' isn’t available in this window. Use an approval code instead.';}
+if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);msg.parentNode.classList.add('keep');msg.textContent=bio+' isn’t available in this window. Use an approval code instead.';live.textContent=msg.textContent;}
 const cf=document.getElementById('code');cf.addEventListener('input',()=>{const d=cf.value.replace(/\\D/g,'').slice(0,8),v=d.length>4?d.slice(0,4)+' '+d.slice(4):d;if(v!==cf.value)cf.value=v;});
 let busy=false,fails=0;btn.addEventListener('click',async()=>{if(busy)return;busy=true;btn.setAttribute('aria-disabled','true');msg.textContent='';try{
 const c=await navigator.credentials.get({publicKey:{challenge:b(o.challenge),rpId:o.rpId,allowCredentials:o.ids.map(id=>({type:'public-key',id:b(id)})),userVerification:'required',timeout:120000}});
@@ -254,12 +254,12 @@ code.addEventListener('input',()=>{clearErr();const d=code.value.replace(/\\D/g,
 if(!t){btn.disabled=true;say('This link is missing its last part. Open the full link from your computer.');}
 else if(!window.PublicKeyCredential){btn.disabled=true;say('This browser can’t save '+bio+' for Holdt. Open the link in Safari.');}
 let kept=null;const blab=btn.lastElementChild,idle=()=>{blab.textContent=touch?'Turn on Touch ID':'Turn on Face ID';},busyAs=(l,m)=>{blab.textContent=l;live.textContent=m;};
-btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');say('');clearErr();busyAs('Checking code','Checking your code.');try{
+btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');say('');clearErr();try{
 const cv=code.value.replace(/\\D/g,'');let auth;
 // A checked code is spent, so keep its challenge for a retry after a cancelled sheet (good for 5 minutes, same code only).
 let r=kept&&kept.cv===cv&&Date.now()-kept.at<270000?kept.r:null;
 if(!r&&cv&&kept&&kept.cv===cv){const e=new Error('That code already started Face ID and has now timed out. Get a new one on the computer where you set up Holdt.');e.field=1;throw e;}
-if(!r){r=await post('/enroll/options',{token:t,code:cv});if(!r.ok){btn.removeAttribute('aria-busy');live.textContent='';if(r.field){const e=new Error(r.message);e.field=1;throw e;}return dead(r.message);}if(cv)kept={cv,r,at:Date.now()};}
+if(!r){busyAs('Checking code','Checking your code.');r=await post('/enroll/options',{token:t,code:cv});if(!r.ok){btn.removeAttribute('aria-busy');live.textContent='';if(r.field){const e=new Error(r.message);e.field=1;throw e;}return dead(r.message);}if(cv)kept={cv,r,at:Date.now()};}
 if(!cv){if(!r.auth){const e=new Error('Enter the approval code first.');e.field=1;throw e;}
 const a=await navigator.credentials.get({publicKey:{challenge:b(r.auth.challenge),rpId:r.auth.rpId,allowCredentials:r.auth.ids.map(id=>({type:'public-key',id:b(id)})),userVerification:'required',timeout:120000}});
 auth={challenge_token:r.auth.challenge_token,id:a.id,clientDataJSON:u(a.response.clientDataJSON),authenticatorData:u(a.response.authenticatorData),signature:u(a.response.signature)};}
@@ -271,4 +271,4 @@ $('setup').hidden=true;const done=$('done');done.hidden=false;const h=done.query
 h.textContent=bio+' is on';if(touch)done.querySelector('.lede').textContent='Next time, click Allow with Touch ID. Your other Apple devices with iCloud Keychain can use it too.';
 h.setAttribute('tabindex','-1');h.focus();requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
 }catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';const m=(e&&e.message)||'That didn’t work. Try again.';
-if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again, or tap Not\u00a0now.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else if(e&&e.field)fieldErr(m);else say(typo(m));}});`;
+if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again, or tap Not\u00a0now.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else if(e&&e.field)fieldErr(m);else say(typo(m));if(!(e&&e.field))btn.focus();}});`;
