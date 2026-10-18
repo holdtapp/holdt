@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { MockKV } from "./kv-mock.js";
 import { providerFor } from "../src/worker.js";
 import { checkReviewerCode } from "../src/reviewer.js";
+import { ICON } from "../src/ui.js";
 
 const ORIGIN = "http://localhost:8787";
 const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15";
@@ -34,12 +35,13 @@ function run(script: string, o: { ua?: string; fetch: (path: string, body: any) 
     { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v), removeItem: (k: string) => store.delete(k) },
     (f: Function) => intervals.push(f), () => {}, () => 0, () => 0, () => null];
   new Function(...names, script)(...vals);
-  return { $: (id: string) => doc.getElementById(id) as El, tick: async () => { for (const f of intervals) await f(); await settle(); } };
+  return { store, $: (id: string) => doc.getElementById(id) as El, tick: async () => { for (const f of intervals) await f(); await settle(); } };
 }
 const settle = () => new Promise((r) => setTimeout(r, 5));
 // The views start hidden except the first, as on the real page.
 const views = (ids: string[]) => Object.fromEntries(ids.map((id, i) => [id, new El(i > 0)]));
-const PAIR_VIEWS = () => ({ ...views(["ask", "ready", "done", "no", "skip", "dead", "nopk"]), scanstep: new El(true) });
+const qrwait = () => { const e = new El(); e.classList.add("qrwait"); return e; };
+const PAIR_VIEWS = () => ({ ...views(["ask", "ready", "done", "no", "skip", "dead", "nopk"]), scanstep: new El(true), qrwrap: qrwait() });
 const NEW = { ok: true, claim: "c", qr: "<svg></svg>" }, APPROVED = { ok: true, status: "approved", challenge_token: "t", publicKey: { challenge: "AA", user: { id: "AA" }, excludeCredentials: [] } };
 const SAVED = async () => ({ response: { clientDataJSON: new ArrayBuffer(1), attestationObject: new ArrayBuffer(1) } });
 const shown = (p:{ $: (id: string) => El }, ids: string[]) => ids.filter((id) => !p.$(id).hidden);
@@ -49,7 +51,7 @@ test("pair page HTML: no scan step or waiting line before the QR code, and Setup
   const mac = await (await call("/pair")).text();
   assert.match(mac, /<ol class="steps one" id="scanstep" data-nobio hidden>/, "the scan step waits for the QR code");
   assert.match(mac, /id="awaymsg" aria-hidden="true">[\s\S]*?<span class="st">One moment\.<\/span>/);
-  assert.doesNotMatch(mac.replace(/<script[\s\S]*<\/script>/, ""), /Waiting for your iPhone/, "not before the QR code exists");
+  assert.doesNotMatch(mac.replace(/<script[\s\S]*<\/script>/, ""), /Waiting for/, "not before the QR code exists");
   const nopk = (h: string) => h.match(/<div id="nopk"[\s\S]*?<\/details>/)![0];
   assert.match(nopk(mac), /<code>npm run add-device<\/code>/); assert.doesNotMatch(nopk(mac), /--qr/);
   assert.match(nopk(await (await call("/pair", IPHONE)).text()), /<code>npm run add-device -- --qr<\/code>/);
@@ -60,18 +62,20 @@ test("pair page: the QR code brings the scan step and the waiting line, and a sc
   const p = run(s, { ids: PAIR_VIEWS(), fetch: (path) => path === "/pair/new" ? { ok: true, claim: "c", qr: "<svg class=\"qr\"></svg>" } : { ok: true, status: "pending" } });
   assert.equal(p.$("scanstep").hidden, true); await settle();
   assert.equal(p.$("scanstep").hidden, false); assert.match(p.$("qrwrap").innerHTML, /svg/);
-  assert.equal(p.$("awaymsg").lastElementChild.textContent, "Waiting for your iPhone.");
-  assert.equal(p.$("live").textContent, "QR code shown. Scan it with that iPhone’s camera. Waiting for your iPhone.");
+  assert.equal(p.$("awaymsg").lastElementChild.textContent, "Waiting for that iPhone.");
+  assert.equal(p.$("live").textContent, "QR code shown. Scan it with that iPhone’s camera. Waiting for that iPhone.");
+  assert.equal(p.$("qrwrap").hidden, false);
 });
 
 test("pair page: a later poll that can't reach the server says so and stops the spinner", async () => {
   fresh(); const s = scriptOf(await (await call("/pair")).text()); let net = false;
   const p = run(s, { ids: PAIR_VIEWS(), fetch: (path) => path === "/pair/new" ? { ok: true, claim: "c", qr: "<svg></svg>" } : net ? "net" : { ok: true, status: "pending" } });
-  await settle(); await p.tick(); assert.equal(p.$("awaymsg").lastElementChild.textContent, "Waiting for your iPhone.");
+  await settle(); await p.tick(); assert.equal(p.$("awaymsg").lastElementChild.textContent, "Waiting for that iPhone.");
   net = true; await p.tick();
   const t = "Holdt couldn’t reach your server. Check your connection, then reload this page.";
   assert.equal(p.$("awaymsg").lastElementChild.textContent, t); assert.equal(p.$("live").textContent, t);
   assert.equal(p.$("awaymsg").classList.contains("wait"), false); assert.equal(p.$("awaymsg").querySelector(".spin"), null);
+  assert.equal(p.$("qrwrap").hidden, false, "a QR code already shown stays");
   assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["ask"]);
 });
 
@@ -85,6 +89,7 @@ test("pair page: a device cap or a rate limit shows the server's sentence, never
     assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["ask"], want);
     assert.equal(p.$("awaymsg").lastElementChild.textContent, want); assert.equal(p.$("live").textContent, want);
     assert.equal(p.$("awaymsg").querySelector(".spin"), null); assert.equal(p.$("scanstep").hidden, true);
+    assert.equal(p.$("qrwrap").hidden, true, "no empty QR tile left on screen");
   }
   const y = run(s, { ids: PAIR_VIEWS(), fetch: () => ({ ok: false, message: "No device has Face ID for Holdt yet. Set it up from your computer first." }) }); await settle();
   assert.deepEqual(shown(y, ["ask", "nopk", "dead"]), ["nopk"]);
@@ -112,6 +117,38 @@ test("pair page on a computer: a cancelled sheet leaves Save passkey, never 'Tur
     sheet = SAVED;
     void p.$("go").on.click!(); await settle(); assert.equal(p.$("go").lastElementChild.textContent, busy, ua);
   }
+});
+
+test("pair page HTML: the wait is in #live on first paint, an info icon waits behind the spinner, and the nopk lede names no biometric", async () => {
+  fresh(); const html = await (await call("/pair")).text();
+  assert.match(html, /<p class="sr" id="live" role="status" aria-live="polite">One moment\.<\/p>/);
+  const away = html.match(/<p class="status wait" id="awaymsg"[\s\S]*?<\/p>/)![0];
+  assert.ok(away.includes(ICON.info) && away.includes(ICON.spinner), "fail() removes the spinner and leaves the info icon");
+  assert.match(html, /\.status\.wait \.ico:not\(\.spin\)\{display:none\}/, "only the spinner shows while waiting");
+  const lede = html.match(/<div id="nopk"[\s\S]*?class="lede[^"]*">([^<]*)</)![1]!;
+  assert.equal(lede, "No device can approve Holdt connections yet. Set one up first with Setup help below.");
+  assert.doesNotMatch(lede, /Face/, "BIO_WALK has nothing to rewrite into 'Touch ID or password'");
+});
+
+test("pair page: a failed save on a computer says Couldn’t save the passkey, a phone keeps the server's Face ID sentence", async () => {
+  fresh(); const s = scriptOf(await (await call("/pair")).text());
+  for (const [ua, want] of [[MAC, "Couldn’t save the passkey. Reload this page and try again."], ["Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Couldn’t save the passkey. Reload this page and try again."], [IPHONE, "Face ID wasn’t saved. Reload this page and try again."]] as const) {
+    const p = run(s, { ua, ids: PAIR_VIEWS(), create: SAVED, fetch: (path) => path === "/pair/new" ? NEW : path === "/pair/status" ? APPROVED : { ok: false, message: "Face ID wasn't saved. Reload this page and try again." } });
+    await settle(); await p.tick(); await p.$("go").on.click!(); await settle();
+    assert.equal(p.$("msg").lastElementChild.textContent, want, ua); assert.equal(p.$("live2").textContent, want, ua);
+    assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["ready"]);
+  }
+});
+
+test("reviewer page: Turning on is spoken, and an ended claim with no message says the server needs a look and keeps the code", async () => {
+  fresh({ REVIEWER_MODE: "on" }); const s = scriptOf(await (await call("/review")).text());
+  const wait = run(s, { hash: "#RVW-CODE", ids: views(["ask", "done", "dead"]), fetch: () => new Promise(() => {}) });
+  void wait.$("go").on.click!(); assert.equal(wait.$("go").lastElementChild.textContent, "Turning on"); assert.equal(wait.$("live").textContent, "Turning on reviewer access.");
+  const p = run(s, { hash: "#RVW-CODE", ids: views(["ask", "done", "dead"]), fetch: () => ({ ok: false, ended: true }) });
+  await p.$("go").on.click!(); assert.equal(p.$("dead").hidden, false);
+  assert.equal(p.$("dead").querySelector("h1")!.textContent, "Couldn’t turn on reviewer access");
+  assert.equal(p.$("dead").querySelector(".lede")!.textContent, "Ask the developer to check this demo server."); assert.equal(p.$("dead").querySelector(".lede")!.hidden, false);
+  assert.equal(p.store.get("holdt-review"), "RVW-CODE", "the link didn’t end, so a reload can try again");
 });
 
 test("reviewer page: no code says the link isn't complete, a server sentence shows as is, only an ended code says ended", async () => {

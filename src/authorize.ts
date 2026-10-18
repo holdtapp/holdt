@@ -324,8 +324,8 @@ function pairPage(env: Env, url: URL, phone = false): Response {
   const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
   return page("Holdt: Add this device", `<div id="ask">${screen({ title: "Add this device", lede: "Approve from the iPhone you already use with Holdt.", markId: "mk",
     body: `<div class="awaybox lone" id="awaypanel"><div id="qrwrap" class="qrwait"></div>
-<div class="stepsw"><ol class="steps one" id="scanstep" data-nobio hidden><li>Scan it with that iPhone’s camera, then approve with Face\u00a0ID.</li></ol><p class="status wait" id="awaymsg" aria-hidden="true">${ICON.spinner}<span class="st">One moment.</span></p></div><noscript><p class="foot">Turn on JavaScript to add this device.</p></noscript></div>`,
-    actions: `<p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn plain quiet" id="later">Not now</button>` })}</div>
+<div class="stepsw"><ol class="steps one" id="scanstep" data-nobio hidden><li>Scan it with that iPhone’s camera, then approve with Face\u00a0ID.</li></ol><p class="status wait" id="awaymsg" aria-hidden="true">${ICON.info}${ICON.spinner}<span class="st">One moment.</span></p></div><noscript><p class="foot">Turn on JavaScript to add this device.</p></noscript></div>`,
+    actions: `<p class="sr" id="live" role="status" aria-live="polite">One moment.</p><button type="button" class="btn plain quiet" id="later">Not now</button>` })}</div>
 ${v("ready", { title: "Turn on Face ID", titleId: "t-ready", lede: "Approved. Finish here with a glance.", markId: "mkready",
     body: `<ul class="facts" role="list"><li>${ICON.faceId}<p>Your face stays on your device. Holdt never sees it.</p></li></ul>`,
     actions: `<p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live2" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button><button type="button" class="btn plain quiet" id="later2">Not now</button>` })}
@@ -333,7 +333,7 @@ ${v("done", { title: "Face ID is on", titleId: "t-done", lede: "Next time, appro
 ${v("no", { title: "Device not added", titleId: "t-no", lede: "It wasn’t approved. Nothing changed.", markState: "muted", centered: true, actions: close })}
 ${v("skip", { title: "Device not added", titleId: "t-skip", lede: "You can add it anytime from this page.", markState: "muted", centered: true, actions: close })}
 ${v("dead", { title: "This request expired", titleId: "t-dead", lede: "Requests last 5 minutes. Reload this page to start again.", markState: "muted", centered: true, actions: close })}
-${v("nopk", { title: "Turn on Face ID first", titleId: "t-nopk", lede: "No device has Face ID for Holdt yet. Turn it on first with Setup help below.", markState: "muted", centered: true, actions: close + ownerNote(HELP, phone ? ADD_DEVICE_HELP_QR : ADD_DEVICE_HELP, true) })}`, 200, undefined, "", PAIR_SCRIPT);
+${v("nopk", { title: "Turn on Face ID first", titleId: "t-nopk", lede: "No device can approve Holdt connections yet. Set one up first with Setup help below.", markState: "muted", centered: true, actions: close + ownerNote(HELP, phone ? ADD_DEVICE_HELP_QR : ADD_DEVICE_HELP, true) })}`, 200, undefined, "", PAIR_SCRIPT);
 }
 
 /** The consent page's own calls: a fresh QR code when the old one ran out, and "is Face ID on yet". Same-origin JSON only. */
@@ -441,10 +441,10 @@ $('say').textContent=location.origin+'/mcp';
 const end=(t,l)=>{const d=$('dead'),e=d.querySelector('.lede');d.querySelector('h1').textContent=t;e.textContent=l;e.hidden=!l;show('dead');};
 if(!code)end('This reviewer link isn’t complete','Open it again from the testing instructions.');
 const btn=$('go'),msg=$('msg').lastElementChild,live=$('live'),lab=btn.lastElementChild;
-btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');lab.textContent='Turning on';msg.textContent='';
+btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');lab.textContent='Turning on';msg.textContent='';live.textContent='Turning on reviewer access.';
 const d=await fetch('/review/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}).then(r=>r.json()).catch(()=>({ok:false,message:'Holdt couldn’t reach the server. Try again.'}));
-if(d.ok||d.ended)forget();if(d.ok){$('until').textContent='Reviewer access in this browser ends '+new Date(d.until).toLocaleDateString(undefined,{month:'long',day:'numeric'})+'.';show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));return;}
-if(d.ended){if(d.message&&!/has ended/.test(d.message))end(d.message.replace(/\\.$/,''),'');else show('dead');return;}
+if(d.ok||d.ended&&d.message)forget();if(d.ok){$('until').textContent='Reviewer access in this browser ends '+new Date(d.until).toLocaleDateString(undefined,{month:'long',day:'numeric'})+'.';show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));return;}
+if(d.ended){if(!d.message)end('Couldn’t turn on reviewer access','Ask the developer to check this demo server.');else if(!/has ended/.test(d.message))end(d.message.replace(/\\.$/,''),'');else show('dead');return;}
 btn.disabled=false;btn.removeAttribute('aria-busy');lab.textContent='Turn on reviewer access';msg.textContent=d.message||'That didn’t work. Try again.';live.textContent=msg.textContent;});
 const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent.trim());cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in your assistant.';setTimeout(()=>{cl.textContent='Copy address';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy address';$('copylive').textContent='Couldn’t copy. The address is selected.';}});`;
 /** The tap: same-origin JSON only, then a signed pass cookie for this browser. Multi-use, spends nothing. */
