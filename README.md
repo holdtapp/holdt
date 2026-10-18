@@ -6,8 +6,8 @@ Holdt is a small MCP server that runs on **your own Cloudflare account** and let
 
 > Status: private beta. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Adding, changing and undoing events were verified live on a real iCloud test account on Oct 17, 2026. All 18 checks passed, including a repeated commit being refused, an undo being refused after a later edit, and every other event staying untouched. v1.0 (this branch) has 214 automated tests. `npm run prove` refuses 89 attacks and proves 88 protections by switching each one off. Not deployed, submitted or published.
 
-## Setup (about 5 minutes, ESTIMATE)
-You type these commands in Terminal on a Mac (or any command line). You need Node.js and a free Cloudflare account. A step-by-step version in plain English is in docs/setup.md.
+## Setup (about 10 minutes, ESTIMATE)
+About 10 minutes once Node.js and a free Cloudflare account are ready, plus about 5 if you still need them. You type these commands in Terminal on a Mac (or Command Prompt or PowerShell on Windows). A step-by-step version in plain English is in docs/setup.md.
 
 1. `npm install`
 2. `npm run cf:login`, then `npm run deploy` (both use the wrangler version pinned in package.json). Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.

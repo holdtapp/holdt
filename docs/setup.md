@@ -1,25 +1,42 @@
 # Set up Holdt for iCloud Calendar
 
-This guide walks you through setup from start to finish. It takes about 10 minutes the first time (ESTIMATE). You need a computer for setup. After that, Holdt works from Grok Bot on any device.
+This guide walks you through setup from start to finish. It takes about 10 minutes once Node.js and a Cloudflare account are ready (ESTIMATE). Allow about 5 more minutes if you still need to install Node.js or sign up for Cloudflare. You need a computer for setup. After that, Holdt works from Grok Bot on any device.
 
 Holdt runs on your own free Cloudflare account. Your Apple password goes only to Apple and to your own Cloudflare account. Nobody else ever holds it, including us.
 
 ## Before you start
 
-- **A Mac, Windows or Linux computer.** You will type a few commands in Terminal (on a Mac, open Spotlight and type Terminal).
+- **A Mac, Windows or Linux computer.** You will type a few commands in Terminal. On a Mac, open Spotlight and type Terminal. On Windows, use Command Prompt or PowerShell from the Start menu.
 - **Node.js.** Download the LTS version from nodejs.org and install it.
 - **A free Cloudflare account.** Sign up at dash.cloudflare.com.
 - **Two-factor authentication on your Apple Account.** Apple needs it before it will make an app-specific password. Most accounts already have it.
 
 ## 1. Get Holdt
 
-Download Holdt from its GitHub page (Code, then Download ZIP) and unzip it. Or, if you use git, clone it.
+<!-- LINK GOES LIVE ONLY WHEN THE REPO IS PUBLIC. Owner and org still to be decided (launch plan decision 4). Update this link if the repo moves. -->
+Download Holdt from its GitHub page at [github.com/dallintwatts/holdt](https://github.com/dallintwatts/holdt). Press Code, then Download ZIP, and unzip it. The folder is usually named holdt-main. Or, if you use git, clone it.
 
-In Terminal, go into the Holdt folder. For example, if it unzipped to your Downloads folder:
+Then go into that folder. If it unzipped to your Downloads folder:
+
+On a Mac or Linux, in Terminal:
 
 ```
-cd ~/Downloads/holdt
+cd ~/Downloads/holdt-main
 ```
+
+On Windows, in Command Prompt:
+
+```
+cd %USERPROFILE%\Downloads\holdt-main
+```
+
+On Windows, in PowerShell:
+
+```
+cd $HOME\Downloads\holdt-main
+```
+
+If the folder has a different name, use that name instead.
 
 ## 2. Install and put Holdt on Cloudflare
 
@@ -42,10 +59,17 @@ Run setup with your own address in place of the example:
 WORKER_URL=https://holdt.you.workers.dev npm run setup
 ```
 
-On Windows, in Command Prompt, run the two parts as two lines instead:
+On Windows, run the two parts as two lines instead. In Command Prompt:
 
 ```
 set WORKER_URL=https://holdt.you.workers.dev
+npm run setup
+```
+
+In PowerShell:
+
+```
+$env:WORKER_URL = "https://holdt.you.workers.dev"
 npm run setup
 ```
 
