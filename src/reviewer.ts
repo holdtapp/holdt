@@ -72,11 +72,11 @@ const ENDED = "This reviewer link has ended. Ask the developer for a new one.";
 /** Checks a typed reviewer code. Multi-use: a match spends nothing. */
 export async function checkReviewerCode(env: ReviewerEnv, raw: string, now = Date.now()): Promise<ReviewerVerdict> {
   const st = await reviewerState(env, now);
-  if (!st.active) return { ok: false, reason: `reviewer ${st.reason}`, message: st.reason === "off" || st.reason === "none" ? "Reviewer links don't work on this server." : ENDED };
+  if (!st.active) return { ok: false, reason: `reviewer ${st.reason}`, message: st.reason === "off" || st.reason === "none" ? "Reviewer links don’t work on this server." : ENDED };
   const code = normalizeReviewerCode(raw);
-  if (!code) return { ok: false, reason: "reviewer malformed", message: "That reviewer link isn't complete. Open it again from the testing instructions." };
+  if (!code) return { ok: false, reason: "reviewer malformed", message: "That reviewer link isn’t complete. Open it again from the testing instructions." };
   const tag = await accountTag(env.ICLOUD_EMAIL!);
-  if (!(await pbkdf2Matches(env.REVIEWER_CODE_HASH!, reviewerSecretInput(tag, code)))) return { ok: false, reason: "reviewer wrong", message: "That reviewer link doesn't match. Open it again from the testing instructions." };
+  if (!(await pbkdf2Matches(env.REVIEWER_CODE_HASH!, reviewerSecretInput(tag, code)))) return { ok: false, reason: "reviewer wrong", message: "That reviewer link doesn’t match. Open it again from the testing instructions." };
   return { ok: true, props: { via: "reviewer", rc: st.id, acct: st.acct } };
 }
 

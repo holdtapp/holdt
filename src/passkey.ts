@@ -358,15 +358,16 @@ export const PAIR_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["ask", "ready", "don
 let claim='',opts=null,timer=0;const live=$('live');
 if(gen){$('ready').querySelector('h1').textContent='Save a passkey on '+here;$('go').lastElementChild.textContent='Save passkey';$('done').querySelector('h1').textContent='Passkey saved';$('done').querySelector('.lede').textContent='Next time, click Allow on '+here+'.';}
 const stop=()=>{clearInterval(timer);timer=0;};
-const poll=async()=>{if(document.hidden||!claim)return;const r=await post('/pair/status',{claim});if(!r||!r.ok||!timer)return;
+const NET='Holdt couldn’t reach your server. Check your connection, then reload this page.',fail=t=>{const m=$('awaymsg');m.classList.remove('wait');m.querySelector('.spin')?.remove();m.lastElementChild.textContent=t;live.textContent=t;};
+const poll=async()=>{if(document.hidden||!claim)return;const r=await post('/pair/status',{claim});if(!r||!timer)return;if(r.net){stop();return fail(NET);}if(!r.ok)return;
 if(r.status==='approved'&&r.publicKey){stop();opts=r;show('ready');}else if(r.status==='denied'){stop();show('no');}else if(r.status==='gone'){stop();show('dead');}};
-(async()=>{const r=await post('/pair/new',{});if(!r.ok&&r.net){const m=$('awaymsg');m.classList.remove('wait');m.querySelector('.spin')?.remove();const t='Holdt couldn’t reach your server. Check your connection, then reload this page.';m.lastElementChild.textContent=t;live.textContent=t;return;}if(!r.ok)return show(/yet/.test(r.message||'')?'nopk':'dead');claim=r.claim;const w=$('qrwrap');w.innerHTML=r.qr;w.classList.remove('qrwait');live.textContent='QR code shown. Scan it with that iPhone’s camera.';timer=setInterval(poll,2000);})();
+(async()=>{const r=await post('/pair/new',{});if(!r.ok&&r.net)return fail(NET);if(!r.ok)return /yet/.test(r.message||'')?show('nopk'):fail(typo(r.message||r.error_description||'That didn’t work. Reload this page to try again.'));claim=r.claim;const w=$('qrwrap');w.innerHTML=r.qr;w.classList.remove('qrwait');$('scanstep').hidden=false;const t='Waiting for your iPhone.';$('awaymsg').lastElementChild.textContent=t;live.textContent='QR code shown. Scan it with that iPhone’s camera. '+t;timer=setInterval(poll,2000);})();
 $('later').addEventListener('click',()=>{stop();show('skip');});$('later2').addEventListener('click',()=>show('skip'));
-const btn=$('go'),msg=$('msg').lastElementChild,live2=$('live2'),blab=btn.lastElementChild,idle=()=>{blab.textContent='Turn on '+bio;};
+const btn=$('go'),msg=$('msg').lastElementChild,live2=$('live2'),blab=btn.lastElementChild,idle=()=>{blab.textContent=gen?'Save passkey':'Turn on '+bio;};
 const say=m=>{msg.textContent=m;live2.textContent=m;};
 btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');say('');try{
-const d=await register(opts,{pair:claim},()=>{blab.textContent='Turning on';live2.textContent='Turning on '+bio+'. One moment.';});
-if(!d.ok){if(/expired|already used/.test(d.message||'')){show('dead');return;}throw new Error(d.message);}
+const d=await register(opts,{pair:claim},()=>{blab.textContent=gen?'Saving passkey':'Turning on';live2.textContent=(gen?'Saving passkey':'Turning on '+bio)+'. One moment.';});
+if(!d.ok){if(/already used/.test(d.message||'')){const x=$('dead');x.querySelector('h1').textContent='This approval was already used';x.querySelector('.lede').textContent='Start again on this device.';show('dead');return;}if(/expired/.test(d.message||'')){show('dead');return;}throw new Error(d.message);}
 show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
 }catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();
 if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again when you’re\u00a0ready.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else say(typo((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;
