@@ -6,18 +6,18 @@ Holdt is a small MCP server that runs on **your own Cloudflare account** and let
 
 > **Status:** v1.0.3, self-hosted.
 > Reads verified live on a real iCloud account, Oct 16, 2026 (calendar list, event detail, week view, search).
-> Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026, on a pre-release build. All 18 checks passed, including a repeated commit refused, an undo refused after a later edit, and every other event left untouched.
-> As of Oct 18, 2026: `npm test` runs 272 tests, all passing. `npm run prove` refuses 110 of 110 attacks and proves 112 protections (each one switched off in a scratch copy, its attack then gets through). Current table: [docs/attack-proof.md](docs/attack-proof.md).
+> Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: a repeated commit was refused, an undo after a later edit was refused, and every other event was left untouched.
+> As of Oct 18, 2026: `npm test` runs 272 tests, all passing. `npm run prove` runs 110 attacks, all refused, and proves 112 protections by switching each one off in a scratch copy. Current table: [docs/attack-proof.md](docs/attack-proof.md).
 
 ## Setup (no Terminal)
 Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your free Cloudflare account from your computer (it needs the Grok Bot desktop app). You do four things:
 
 1. Click **Allow** on Cloudflare's page.
 2. Apple's page opens in front of the Holdt setup page. Make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars. That's how Apple designed them. Paste it on the Holdt page. Holdt checks it with Apple on its own and seals it in your Cloudflare account.
-3. Leave changes off for read-only, the default, or turn them on. Then save a passkey once: **Turn on Face ID** on an iPhone, or **Save passkey** on a Mac (Touch ID or your password).
+3. Choose read-only (the default) or changes. Then save a passkey once: **Turn on Face ID** on an iPhone, or **Save passkey** on a Mac (Touch ID or your password).
 4. Add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
 
-When Grok Bot connects, the approval page has one button: **Allow with Face ID** on an iPhone or iPad (Touch ID on models without Face ID), or **Allow on this Mac** on a Mac (Touch ID or your password). Not on a device with your passkey? Choose **Approve on your iPhone instead** and scan the code with your iPhone. Action counts for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
+When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone or iPad (Touch ID on models without Face ID), or **Allow on this Mac** on a Mac (Touch ID or your password). **Don't allow** is there too. Not on a device with your passkey? Choose **Approve on your iPhone instead** and scan the code with your iPhone. Action counts for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
 
 ### For developers: Terminal setup
 You need Node.js and a free Cloudflare account. A step-by-step version is in [docs/setup.md](docs/setup.md).
