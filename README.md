@@ -10,8 +10,8 @@ Holdt is a small MCP server that runs on **your own Cloudflare account** and let
 Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your own free Cloudflare account from your computer (it needs the Grok Bot desktop app). You do three things:
 
 1. Click **Allow** on Cloudflare's page.
-2. On the Holdt setup page that opens, make an app-specific password on Apple's page, enter it with your Apple Account email, choose read-only or changes with your yes, and press **Continue**. Holdt checks it with Apple and seals it in your Cloudflare account.
-3. Save one passkey (Face ID on an iPhone, Touch ID or password on a Mac). Then add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
+2. Apple's page opens in front of the Holdt setup page. Make an app-specific password named Holdt and copy it. Read-only is the default. Paste it on the Holdt page. Holdt checks it with Apple on its own and seals it in your Cloudflare account.
+3. Tap **Save passkey** once (Face ID on an iPhone, Touch ID or the device password on a Mac). Then add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
 
 When Grok Bot connects, the approval page has one button: **Allow with Face ID**. Not on a device with your passkey? Tap **Approve on your iPhone instead** and scan the code. Click counts for every path, and the threat model, are in docs/no-typed-codes.md.
 

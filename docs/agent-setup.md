@@ -1,6 +1,6 @@
 # Set up Holdt by sending this page to your Grok Bot
 
-**For people:** send this page's link to your Grok Bot and say "Set up Holdt for my iCloud Calendar." Your Grok Bot does the install on your computer. You do three things: click **Allow** on Cloudflare's page, make one app-specific password on Apple's page and enter it on the Holdt page, then save one passkey (Face ID on an iPhone, Touch ID or password on a Mac). You never open Terminal.
+**For people:** send this page's link to your Grok Bot and say "Set up Holdt for my iCloud Calendar." Your Grok Bot does the install on your computer. You do three things: click **Allow** on Cloudflare's page, make one app-specific password on Apple's page and enter it on the Holdt page, then tap **Save passkey** once (Face ID on an iPhone, Touch ID or the device password on a Mac). You never open Terminal, and there's no Continue button.
 
 You need a free Cloudflare account and an Apple Account with two-factor authentication on. Your Grok Bot needs access to your computer (the Grok Bot desktop app).
 
@@ -25,11 +25,12 @@ Follow these steps on the user's own computer, in order. Report each "Step N of 
    ```
 3. Run the install:
    ```
-   npm run agent-setup
+   HOLDT_APPLE_EMAIL=<their Apple Account email, if you know it> npm run agent-setup
    ```
-   It signs in to Cloudflare (the user clicks **Allow** in the browser), makes Holdt's storage, deploys to the user's `workers.dev` address, saves Holdt's sealing key, and opens the one-time setup page.
-4. Tell the user what to do on that page: open Apple's page from the button, make an app-specific password named Holdt, enter it with their Apple Account email, choose read-only or changes-with-a-yes, and press **Continue**. The page checks the password with Apple, then asks them to save one passkey.
-5. When the user says the last page shows their server address, tell them to add it in Grok Bot under **Connect Apps → Add custom MCP server**. The address is `https://holdt.<their subdomain>.workers.dev/mcp`, and `npm run agent-setup` printed it as the last line.
+   `HOLDT_APPLE_EMAIL` is optional. It rides only in the link's `#` fragment, so it reaches no server log, and the page fills the Email field from it. It is never printed.
+   It signs in to Cloudflare (the user clicks **Allow** in the browser), makes Holdt's storage, deploys to the user's `workers.dev` address, saves Holdt's sealing key, opens the one-time setup page, then opens Apple's app-specific password page in front of it.
+4. Tell the user: sign in on Apple's page, make an app-specific password named Holdt, copy it, switch to the Holdt page and paste it. The cursor is already in the field. Holdt checks it with Apple on its own as soon as all 16 letters are in. Read-only is chosen unless they pick changes-with-a-yes first. Then one tap on **Save passkey**. The passkey is made on the same page.
+5. The last page says **Holdt is set up** and shows the server address with **Copy address**. Tell them to add it in Grok Bot under **Connect Apps → Add custom MCP server**. The address is `https://holdt.<their subdomain>.workers.dev/mcp`, and `npm run agent-setup` printed it as the last line.
 
 ### If something goes wrong
 - The link has ended (used once, or older than 30 minutes): run `npm run agent-setup -- --new-link`. It opens a fresh link without redeploying.

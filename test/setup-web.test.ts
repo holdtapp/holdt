@@ -168,3 +168,19 @@ test("setup page: a reload after the link was opened picks up the same session, 
   assert.equal((await save(c.cookie)).status, 200);
   const after = await call("/setup", { headers: { cookie: c.cookie } }); assert.doesNotMatch(await after.text(), /NOTOKEN="resume/, "a finished session never reopens the form");
 });
+
+test("setup page, one-step flow: Apple first, paste checks on its own, the same page saves the passkey, then shows the address", async () => {
+  const t = freshEnv(); const html = await (await call("/setup")).text();
+  const js = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)![1]!;
+  assert.doesNotThrow(() => new Function(js), "the page script parses");
+  const steps = [...html.matchAll(/<h2 class="gh"[^>]*>([^<]*)</g)].map((m) => m[1]!);
+  assert.match(steps[0]!, /app-specific password/); assert.match(steps[1]!, /what it may do/); assert.match(steps[2]!, /Paste it here/);
+  assert.match(js, /\.length===16&&/, "a full pasted app password starts the Apple check without a button");
+  assert.match(js, /navigator\.credentials\.create/); assert.match(js, /\/enroll\/finish/);
+  assert.match(html, /id="addr"/); assert.match(html, /Copy address/);
+  assert.match(js, /split\('&'\)/, "an email hint can ride in the fragment, never the query");
+  // The server side the page relies on: the enroll token from save opens options twice (a cancelled sheet can retry) and is spent only at finish.
+  const c = await claim(t); const s = await save(c.cookie);
+  const enrollToken = (s.body.next as string).split("#")[1]!;
+  for (let i = 0; i < 2; i++) { const o = await post("/enroll/options", { token: enrollToken }); assert.equal(o.status, 200); assert.equal(((await o.json()) as any).ok, true); }
+});

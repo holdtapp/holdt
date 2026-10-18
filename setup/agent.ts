@@ -15,7 +15,11 @@ import { redact } from "../src/redact.js";
 
 const WRANGLER = fileURLToPath(new URL(`../node_modules/.bin/wrangler${process.platform === "win32" ? ".cmd" : ""}`, import.meta.url));
 export type Run = (args: string[], o?: { input?: string; interactive?: boolean }) => Promise<{ code: number; out: string }>;
-export interface AgentDeps { run: Run; open: (url: string) => Promise<boolean>; log: (s: string) => void; toml: string; home: string; workerName: string; now?: () => number }
+export interface AgentDeps { run: Run; open: (url: string) => Promise<boolean>; log: (s: string) => void; toml: string; home: string; workerName: string; now?: () => number; email?: string }
+
+/** Apple's sign-in and security page, where app-specific passwords are made. Opened right after the setup page so it's in front. */
+export const APPLE_PAGE = "https://account.apple.com/account/manage/section/security";
+const EMAIL = /^[^@\s#&]+@[^@\s#&]+\.[^@\s#&]+$/;
 
 export const wranglerRun: Run = (args, o = {}) => new Promise((resolve) => {
   const p = spawn(WRANGLER, args, { stdio: [o.input === undefined ? (o.interactive ? "inherit" : "ignore") : "pipe", "pipe", "pipe"] });
@@ -67,15 +71,21 @@ export async function agentSetup(d: AgentDeps, o: { newLink?: boolean } = {}): P
   const token = randomBytes(32).toString("base64url");
   await put("SETUP_TOKEN_HASH", createHash("sha256").update(token).digest("hex"));
   await put("SETUP_TOKEN_ISSUED", String((d.now ?? Date.now)()));
-  const link = `${url}/setup#${token}`;
-  if (await d.open(link)) say("Step 4 of 4. The Holdt setup page is open in the browser. Ask the user to follow it: make an Apple app-specific password on Apple’s page, enter it on the Holdt page with their Apple Account email, press Continue, then save the passkey (Face ID on an iPhone, Touch ID or password on a Mac). The link works once, for 30 minutes. Run npm run agent-setup -- --new-link for a fresh one.");
-  else { const f = linkFile(d.home, d.workerName); writePrivate(f, link + "\n"); say(`Step 4 of 4. No browser here. The one-time setup link is in ${f}, readable only by this user. Ask the user to open that file and click the link. Never paste it into a chat.`); }
+  // The email is a hint only, kept in the fragment so it never reaches a server log. The page fills it in.
+  const hint = d.email && EMAIL.test(d.email.trim()) ? `&e=${encodeURIComponent(d.email.trim())}` : "";
+  const link = `${url}/setup#${token}${hint}`;
+  if (await d.open(link)) {
+    const apple = await d.open(APPLE_PAGE);
+    say(apple
+      ? "Step 4 of 4. The Holdt setup page is open, with Apple’s page in front of it. Ask the user to sign in on Apple’s page, make an app-specific password named Holdt and copy it, then switch to the Holdt page and paste it. Holdt checks it with Apple on its own. Then one tap on Save passkey (Face ID on an iPhone, Touch ID or the device password on a Mac). The link works once, for 30 minutes. Run npm run agent-setup -- --new-link for a fresh one."
+      : "Step 4 of 4. The Holdt setup page is open in the browser. Ask the user to tap Open Apple Account on it, make an app-specific password named Holdt and copy it, then paste it on the Holdt page. Holdt checks it with Apple on its own. Then one tap on Save passkey. The link works once, for 30 minutes. Run npm run agent-setup -- --new-link for a fresh one.");
+  } else { const f = linkFile(d.home, d.workerName); writePrivate(f, link + "\n"); say(`Step 4 of 4. No browser here. The one-time setup link is in ${f}, readable only by this user. Ask the user to open that file and click the link. Never paste it into a chat.`); }
   say(`When setup is done, the user adds ${url}/mcp in Grok Bot under Connect Apps, Add custom MCP server.`);
   return url;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const workerName = process.env.WORKER_NAME ?? "holdt";
-  agentSetup({ run: wranglerRun, open: openInBrowser, log: console.log, toml: fileURLToPath(new URL("../wrangler.toml", import.meta.url)), home: homedir(), workerName }, { newLink: process.argv.includes("--new-link") })
+  agentSetup({ run: wranglerRun, open: openInBrowser, log: console.log, toml: fileURLToPath(new URL("../wrangler.toml", import.meta.url)), home: homedir(), workerName, email: process.env.HOLDT_APPLE_EMAIL }, { newLink: process.argv.includes("--new-link") })
     .catch((e) => { console.error(redact(String(e?.message ?? e))); process.exit(1); });
 }

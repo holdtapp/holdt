@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, readFileSync, statSync, existsSync, copyFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { agentSetup, linkFile, type Run } from "../setup/agent.js";
+import { agentSetup, linkFile, APPLE_PAGE, type Run } from "../setup/agent.js";
 
 function fake(o: { authed?: boolean; kvIds?: string[]; secrets?: string[] } = {}) {
   const calls: { args: string[]; input?: string }[] = [];
@@ -26,14 +26,15 @@ function fake(o: { authed?: boolean; kvIds?: string[]; secrets?: string[] } = {}
 function home() { const h = mkdtempSync(join(tmpdir(), "holdt-agent-")); const toml = join(h, "wrangler.toml"); copyFileSync(new URL("../wrangler.toml", import.meta.url), toml); return { h, toml }; }
 
 test("agent setup: signs in, makes storage, deploys, seals nothing in the open, opens the one-time link, prints no secret", async () => {
-  const { h, toml } = home(); const f = fake({ authed: false }); const logs: string[] = []; let opened = "";
-  const url = await agentSetup({ run: f.run, open: async (u) => { opened = u; return true; }, log: (s) => logs.push(s), toml, home: h, workerName: "holdt", now: () => 1_000 });
+  const { h, toml } = home(); const f = fake({ authed: false }); const logs: string[] = []; const tabs: string[] = [];
+  const url = await agentSetup({ run: f.run, open: async (u) => { tabs.push(u); return true; }, log: (s) => logs.push(s), toml, home: h, workerName: "holdt", now: () => 1_000 });
   assert.equal(url, "https://holdt.someone.workers.dev");
   assert.ok(f.calls.some((c) => c.args[0] === "login"));
   assert.match(readFileSync(toml, "utf8"), /id = "0123456789abcdef0123456789abcdef"/, "the user's own storage id goes in wrangler.toml");
   const puts = f.calls.filter((c) => c.args[1] === "put");
   assert.deepEqual(puts.map((c) => c.args[2]), ["SEAL_KEY", "SETUP_TOKEN_HASH", "SETUP_TOKEN_ISSUED"]);
   assert.ok(puts.every((c) => typeof c.input === "string" && !c.args.includes(c.input!)), "values only on stdin, never as arguments");
+  const opened = tabs[0]!; assert.equal(tabs[1], APPLE_PAGE, "Apple's page opens second, so it's in front");
   const token = opened.split("#")[1]!; assert.match(opened, /^https:\/\/holdt\.someone\.workers\.dev\/setup#[A-Za-z0-9_-]{43}$/);
   assert.equal(puts[1]!.input, createHash("sha256").update(token).digest("hex"));
   const all = logs.join("\n"); assert.ok(!all.includes(token) && !all.includes(puts[0]!.input!), "neither the link's token nor SEAL_KEY is printed");
@@ -52,4 +53,15 @@ test("agent setup: an existing SEAL_KEY is never replaced, and with no browser t
   await agentSetup({ run: again.run, open: async () => true, log: () => {}, toml, home: h, workerName: "holdt" }, { newLink: true });
   assert.ok(!again.calls.some((c) => c.args[0] === "deploy"), "a new link doesn't redeploy");
   assert.deepEqual(again.calls.filter((c) => c.args[1] === "put").map((c) => c.args[2]), ["SETUP_TOKEN_HASH", "SETUP_TOKEN_ISSUED"]);
+});
+
+test("agent setup: the Apple email rides only in the link fragment, never in a log, and a bad one is dropped", async () => {
+  const { h, toml } = home(); const kvId = readFileSync(toml, "utf8").match(/id = "([0-9a-f]{32})"/)![1]!;
+  const tabs: string[] = []; const logs: string[] = [];
+  await agentSetup({ run: fake({ kvIds: [kvId], secrets: ["SEAL_KEY"] }).run, open: async (u) => { tabs.push(u); return true; }, log: (s) => logs.push(s), toml, home: h, workerName: "holdt", email: "test@holdt.app" });
+  assert.match(tabs[0]!, /\/setup#[A-Za-z0-9_-]{43}&e=test%40holdt\.app$/);
+  assert.ok(!logs.join("\n").includes("test@holdt.app"), "the email isn't printed");
+  tabs.length = 0;
+  await agentSetup({ run: fake({ kvIds: [kvId], secrets: ["SEAL_KEY"] }).run, open: async (u) => { tabs.push(u); return true; }, log: () => {}, toml, home: h, workerName: "holdt", email: "x#y&z" }, { newLink: true });
+  assert.match(tabs[0]!, /\/setup#[A-Za-z0-9_-]{43}$/, "a malformed hint is left out");
 });

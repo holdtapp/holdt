@@ -182,6 +182,7 @@ const SETUP_CSS = `<style>
 a.row{color:var(--green-ink);text-decoration:none;font-weight:400}a.row svg{width:1.1rem;height:1.1rem;flex:none}a.row:focus-visible{outline:none;box-shadow:inset 0 0 0 2px var(--green-ink);border-radius:.62rem}
 .slot .status{font-size:.765rem;justify-content:center;text-align:center}.slot .status .st{max-width:19rem;text-align:left}.status.err{font-weight:500}.status.err svg{color:var(--err)}
 .status.ok svg{color:var(--green-ink)}
+.addr{margin-top:1.25rem}.addr .row{font:inherit;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.88rem;word-break:break-all;padding:.7rem 1rem;margin:0;user-select:all}
 #t-dead,#t-nolink,#t-unfinished,#t-off{font-size:1.65rem;line-height:1.21;letter-spacing:.013em}
 .slot{min-height:2.2rem;display:flex;align-items:flex-end;justify-content:center;margin:.5rem 0 .5rem}.slot .status{margin:0}
 @media (pointer:fine){html{font-size:17px}}
@@ -207,19 +208,20 @@ function setupPage(env: Env, nolink: NoLink): Response {
   const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
   const check = `<svg class="ck" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
   const form = `<div id="form"><section class="grp" aria-labelledby="g1"><h2 class="gh" id="g1">1. Make an app-specific password named Holdt</h2><div class="rows"><a class="row" href="https://account.apple.com/account/manage/section/security" target="_blank" rel="noopener noreferrer" id="apple">${ICON.globe}<span>Open Apple Account<span class="sr"> (opens in a new tab)</span></span></a></div></section>
-<section class="grp" aria-labelledby="g2"><h2 class="gh" id="g2">2. Enter it here, not your Apple Account password</h2><div class="rows" id="acct">
-<div class="row"><label class="rl" for="email">Email</label><input id="email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="Apple Account email" aria-describedby="acct-err"></div>
-<div class="row"><label class="rl" for="pw">App password</label><input id="pw" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx-xxxx-xxxx-xxxx" aria-describedby="acct-err"></div></div>
-</section>
-<section class="grp" aria-labelledby="g3"><h2 class="gh" id="g3">3. Choose what it may do</h2><fieldset class="modes" aria-labelledby="g3"><div class="rows">
+<section class="grp" aria-labelledby="g2"><h2 class="gh" id="g2">2. Choose what it may do</h2><fieldset class="modes" aria-labelledby="g2"><div class="rows">
 <label class="row"><input type="radio" name="mode" value="read" checked><span class="rt"><strong>Read only</strong><span>Grok\u00a0Bot only sees your calendar.</span></span>${check}</label>
 <label class="row"><input type="radio" name="mode" value="write"><span class="rt"><strong>Changes, with your yes</strong><span>Grok\u00a0Bot suggests, you approve each one.</span></span>${check}</label></div></fieldset>
-<p class="gf lock">Never deletes your events. <span>It can only take back its own, on your\u00a0yes.</span></p></section></div>`;
+<p class="gf lock">Never deletes your events. <span>It can only take back its own, on your\u00a0yes.</span></p></section>
+<section class="grp" aria-labelledby="g3"><h2 class="gh" id="g3">3. Paste it here, not your Apple Account password</h2><div class="rows" id="acct">
+<div class="row"><label class="rl" for="email">Email</label><input id="email" type="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="Apple Account email" aria-describedby="acct-err"></div>
+<div class="row"><label class="rl" for="pw">App password</label><input id="pw" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="xxxx-xxxx-xxxx-xxxx" aria-describedby="acct-err"></div></div>
+</section></div>`;
   return page("Holdt: Set up", `${SETUP_CSS}
 <div id="open">${screen({ title: "Opening setup", markState: "muted", centered: true, markId: "mk0", actions: `<p class="status">${ICON.spinner}<span class="st">One moment.</span></p>` })}</div>
 ${v("ask", { title: "Set up Holdt", titleId: "t-ask", markId: "mk", lede: `<span id="lede">Connect your iCloud Calendar to Grok\u00a0Bot.</span>`,
     body: form,
     actions: `<div class="slot"><p class="status err" id="acct-err" hidden>${ICON.alert}<span class="st"></span></p><p class="status" id="msg" aria-hidden="true" hidden>${ICON.alert}<span class="st"></span></p><p class="status ok" id="okmsg" aria-hidden="true" hidden>${ICON.checkCircle}<span class="st"></span></p></div><p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="go">${ICON.spinner}<span>Continue</span></button><p class="foot">Your app-specific password is sealed in your own Cloudflare account. Holdt sends it only to Apple.</p><noscript><p class="foot">Turn on JavaScript to finish setup.</p></noscript>` })}
+${v("done", { title: "Holdt is set up", titleId: "t-done", markId: "mk2", markState: "closed", lede: "Last step: in Grok\u00a0Bot, open Connect Apps and add this address.", body: `<div class="rows addr"><p class="row" id="addr"></p></div>`, actions: `<button type="button" class="btn primary" id="copy">${ICON.copy}<span>Copy address</span></button><p class="foot">You can close this page after you copy it.</p>` })}
 ${v("dead", { title: "This link has ended", titleId: "t-dead", lede: "Setup links work once, for 30\u00a0minutes. Ask your Grok\u00a0Bot for a new one.", markState: "muted", centered: true, actions: close })}
 ${v("retry", { title: "Setup didn’t open", titleId: "t-retry", lede: "Your server didn’t answer clearly.", markState: "muted", actions: `<button type="button" class="btn primary" id="again-btn">Try again</button><p class="foot">If it keeps happening, ask your Grok\u00a0Bot to check the server.</p>` })}
 ${v("nolink", { title: "Ask Grok\u00a0Bot for a setup link", titleId: "t-nolink", lede: "Setup only opens from a one-time link.", markState: "muted", centered: true, actions: close })}
@@ -227,21 +229,38 @@ ${v("unfinished", { title: "Setup isn’t finished", titleId: "t-unfinished", le
 ${v("set", { title: "Holdt is set up", titleId: "t-set", lede: "To change what Grok\u00a0Bot may do, ask it for a new setup link.", markState: "closed", centered: true, actions: close })}`, 200, undefined, "", `const NOTOKEN=${JSON.stringify(nolink)};` + SETUP_SCRIPT);
 }
 
-const SETUP_SCRIPT = `const $=id=>document.getElementById(id),VIEWS=["open","ask","dead","retry","nolink","unfinished","set"],show=id=>{VIEWS.forEach(x=>{$(x).hidden=x!==id;});const h=$(id).querySelector('h1');if(id!=='open'){h.setAttribute('tabindex','-1');h.focus();}setTimeout(()=>{document.title='Holdt: '+h.textContent.trim();},0);};
-const KEY='holdt-setup-link',token=location.hash.slice(1)||sessionStorage.getItem(KEY)||'';if(location.hash){sessionStorage.setItem(KEY,token);history.replaceState(null,'',location.pathname);}
+const SETUP_SCRIPT = `const $=id=>document.getElementById(id),VIEWS=["open","ask","done","dead","retry","nolink","unfinished","set"],show=id=>{VIEWS.forEach(x=>{$(x).hidden=x!==id;});const h=$(id).querySelector('h1');if(id!=='open'){h.setAttribute('tabindex','-1');h.focus();}setTimeout(()=>{document.title='Holdt: '+h.textContent.trim();},0);};
+const KEY='holdt-setup-link',frag=location.hash.slice(1).split('&'),token=frag[0]||sessionStorage.getItem(KEY)||'',hint=(frag.find(x=>x.startsWith('e='))||'').slice(2);if(location.hash){sessionStorage.setItem(KEY,token);history.replaceState(null,'',location.pathname);}
 const NET='Holdt couldn’t reach your server. Check your connection and try again.',SRV='Your Holdt server hit an error. Try again in a moment.';
 const post=(p,b)=>fetch(p,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json().catch(()=>({ok:false,net:true,message:SRV})),()=>({ok:false,net:true,message:NET}));
 const AGAIN='Continuing disconnects Grok\\u00a0Bot.',existing=()=>{$('lede').textContent=AGAIN;$('t-ask').textContent='Set up Holdt again';};
-const claim=async()=>{show('open');const d=await post('/setup/claim',{token});if(d.ok||d.ended)sessionStorage.removeItem(KEY);if(d.ok){if(d.existing)existing();show('ask');return;}show(d.ended?'dead':'retry');};
+const claim=async()=>{show('open');const d=await post('/setup/claim',{token});if(d.ok||d.ended)sessionStorage.removeItem(KEY);if(d.ok){if(d.existing)existing();ready();return;}show(d.ended?'dead':'retry');};
 $('again-btn').addEventListener('click',claim);
-if(token)claim();else if(NOTOKEN.startsWith('resume')){if(NOTOKEN==='resume-existing')existing();show('ask');}else show(NOTOKEN);
+function ready(){show('ask');let e='';try{e=decodeURIComponent(hint);}catch{}if(/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test(e)&&!$('email').value)$('email').value=e;($('email').value?$('pw'):$('email')).focus();}
+if(token)claim();else if(NOTOKEN.startsWith('resume')){if(NOTOKEN==='resume-existing')existing();ready();}else show(NOTOKEN);
 const btn=$('go'),lab=btn.lastElementChild,msg=$('msg'),ok=$('okmsg'),live=$('live'),form=$('form'),acct=$('acct'),err=$('acct-err');
 const fe=(f,t)=>{['email','pw'].forEach(x=>$(x).removeAttribute('aria-invalid'));delete acct.dataset.bad;err.hidden=!t;if(!t)return;err.lastElementChild.textContent=t;live.textContent='';acct.dataset.bad=f;(f==='account'?['email','pw']:[f==='email'?'email':'pw']).forEach(x=>$(x).setAttribute('aria-invalid','true'));const el=$(f==='email'?'email':'pw');el.focus();if(el.id==='pw')el.select();};
 const say=t=>{msg.lastElementChild.textContent=t||'';msg.hidden=!t;live.textContent=t||'';};
 let busy=false;const lock=on=>{busy=on;form.inert=on;btn.setAttribute('aria-disabled',String(on));};
 const idle=()=>{live.textContent='';btn.removeAttribute('aria-busy');lab.textContent='Continue';lock(false);};
-btn.addEventListener('click',async()=>{if(busy)return;fe();say('');btn.setAttribute('aria-busy','true');lab.textContent='Checking with Apple';live.textContent='Checking with Apple.';lock(true);
+const b64=x=>Uint8Array.from(atob(x.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0)),u64=a=>btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');
+let enroll='',opts=null,next='',saved=false;
+const getOpts=async()=>{const r=await post('/enroll/options',{token:enroll});opts=r.ok?r:null;return opts;};
+const check=async()=>{if(busy||saved)return;fe();say('');btn.setAttribute('aria-busy','true');lab.textContent='Checking with Apple';live.textContent='Checking with Apple.';lock(true);
 const d=await post('/setup/save',{email:$('email').value,password:$('pw').value,writes:document.querySelector('input[name=mode]:checked').value==='write',timezone:Intl.DateTimeFormat().resolvedOptions().timeZone});
-if(d.ok){const n=d.calendars+(d.calendars===1?' calendar':' calendars');ok.lastElementChild.textContent='Found '+n+'. Next, your passkey.';ok.hidden=false;lab.textContent='Opening passkey';live.textContent='Found '+n+'. Opening the passkey step.';setTimeout(()=>{$('pw').value='';$('email').value='';location.replace(d.next);},1800);return;}
-idle();if(d.ended){show('dead');return;}if(d.field){fe(d.field,d.message);return;}say(d.message||'That didn’t work. Try again.');});
+if(d.ok){saved=true;next=d.next;enroll=String(d.next).split('#')[1]||'';$('pw').value='';const n=d.calendars+(d.calendars===1?' calendar':' calendars');await getOpts();
+btn.removeAttribute('aria-busy');busy=false;btn.setAttribute('aria-disabled','false');form.inert=true;lab.textContent=opts?'Save passkey':'Continue to passkey';ok.lastElementChild.textContent='Found '+n+'. Save a passkey to finish.';ok.hidden=false;live.textContent='Found '+n+'. Save a passkey to finish.';btn.focus();if(opts)passkey(true);return;}
+idle();if(d.ended){show('dead');return;}if(d.field){fe(d.field,d.message);return;}say(d.message||'That didn’t work. Try again.');};
+const passkey=async(auto)=>{if(busy)return;if(!opts){location.replace(next);return;}busy=true;say('');
+try{const p=JSON.parse(JSON.stringify(opts.publicKey));p.challenge=b64(p.challenge);p.user.id=b64(p.user.id);p.excludeCredentials=(p.excludeCredentials||[]).map(x=>({type:x.type,id:b64(x.id)}));
+const c=await navigator.credentials.create({publicKey:p});btn.setAttribute('aria-busy','true');lab.textContent='Saving';$('mk').classList.add('drop');
+const r=await post('/enroll/finish',{token:enroll,challenge_token:opts.challenge_token,clientDataJSON:u64(c.response.clientDataJSON),attestationObject:u64(c.response.attestationObject),label:navigator.platform||''});
+if(r.ok){$('addr').textContent=location.origin+'/mcp';show('done');return;}
+btn.removeAttribute('aria-busy');$('mk').classList.remove('drop');lab.textContent='Save passkey';say(r.message||'The passkey wasn’t saved. Try again.');await getOpts();}
+catch(e){btn.removeAttribute('aria-busy');lab.textContent='Save passkey';if(!auto)say('The passkey wasn’t saved. Try again.');}busy=false;};
+btn.addEventListener('click',()=>{saved?passkey(false):check();});
+const looksDone=()=>$('pw').value.replace(/[^a-z]/gi,'').length===16&&/^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$/.test($('email').value.trim());
+$('pw').addEventListener('input',()=>{if(looksDone())check();});
+window.addEventListener('focus',()=>{if(!saved&&!$('ask').hidden&&$('email').value&&!$('pw').value)$('pw').focus();});
+$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('addr').textContent);$('copy').lastElementChild.textContent='Copied';}catch{const r=document.createRange();r.selectNodeContents($('addr'));const s=getSelection();s.removeAllRanges();s.addRange(r);}});
 ['email','pw'].forEach(f=>{$(f).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();btn.focus();btn.click();}});$(f).addEventListener('input',()=>{if(!err.hidden)fe();});});`;
