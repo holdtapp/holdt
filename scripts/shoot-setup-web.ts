@@ -66,6 +66,7 @@ for (const s of SCREENS) {
     await p.setViewport({ width: 393, height: Number(process.env.SHOOT_H || 852), deviceScaleFactor: 3, isMobile: false, hasTouch: false });
     await p.emulateMediaFeatures([{ name: "prefers-color-scheme", value: mode }]);
     await s.go(p); await settle(s.id.startsWith("42") ? 300 : 700); await p.evaluate(() => { (document.activeElement as any)?.blur?.(); window.scrollTo(0, 0); });
+    if (mode === "light") { const m = await p.evaluate(() => { const f = Array.from(document.querySelectorAll(".foot") as any).find((x: any) => x.offsetParent) as any; const g = document.getElementById("go") as any; return { foot: f ? Math.round(f.getBoundingClientRect().bottom) : 0, go: g && g.offsetParent ? Math.round(g.getBoundingClientRect().bottom) : 0, page: document.documentElement.scrollHeight }; }); console.log(`fold ${s.id} foot=${m.foot} go=${m.go} page=${m.page}`); }
     const file = `${out}/${s.id}-${mode}.png`; await p.screenshot({ path: file });
     if (mode === "light") writeFileSync(`${out}/${s.id}.html`, await p.content());
     index.push({ id: s.id, name: s.name, mode, file });

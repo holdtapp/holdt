@@ -122,7 +122,7 @@ test("setup refuses without a setup link on the Worker (a fresh deploy can't be 
   freshEnv({ SETUP_TOKEN_HASH: undefined, SETUP_TOKEN_ISSUED: undefined });
   for (const t of [newToken().t, "", "x".repeat(43)]) assert.equal((await claim(t)).status, 400);
   freshEnv({ SEAL_KEY: undefined });
-  const p = await call("/setup"); assert.equal(p.status, 404); assert.match(await p.text(), /Setup isn’t ready/);
+  const p = await call("/setup"); assert.equal(p.status, 404); assert.match(await p.text(), /Holdt isn’t fully installed/);
 });
 
 test("setup: a wrong password says so on the field, seals nothing, and tries run out", async () => {
