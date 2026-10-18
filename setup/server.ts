@@ -32,7 +32,7 @@ export function openInBrowser(url: string): Promise<boolean> {
     try { const p = spawn(cmd, args as string[], { stdio: "ignore", detached: true }); p.on("error", () => resolve(false)); p.on("spawn", () => { p.unref(); resolve(true); }); } catch { resolve(false); }
   });
 }
-/** The one-time Face ID link: the token rides in the fragment, so it never reaches a server log, a Referer or a link preview. */
+/** The one-time passkey link: the token rides in the fragment, so it never reaches a server log, a Referer or a link preview. */
 export const enrollLink = (base: string, token: string, fromSetup = false) => `${base.replace(/\/+$/, "")}/enroll${fromSetup ? "?from=setup" : ""}#${token}`;
 
 export function wranglerSaver(workerName: string) {
@@ -85,13 +85,13 @@ export function createSetupServer(deps: SetupDeps) {
         await deps.saveSecret("GRANT_EPOCH", epoch); // new epoch = every older connection is cut off
         await deps.saveSecret("TIMEZONE", lastGood.timezone);
         await deps.saveSecret("WRITES_ENABLED", body.allowChanges === true ? "true" : "false");
-        // No approval code. Owner proof is a one-time Face ID link (only its hash goes to Cloudflare), opened next in this browser.
+        // No approval code. Owner proof is a one-time passkey link (only its hash goes to Cloudflare), opened next in this browser.
         await deps.saveSecret("ENROLL_TOKEN_HASH", et.hash);
         await deps.saveSecret("ENROLL_TOKEN_ISSUED", String(Date.now()));
       } catch (err) { console.error(redact(err)); return send(200, { ok: false, message: "Couldn't save to Cloudflare. Make sure you ran `npm run cf:login` and `npm run deploy` first, then press Save again." }); }
       lastGood = null; // forget the password in this process
       const mcpUrl = deps.workerUrl ? `${deps.workerUrl.replace(/\/+$/, "")}/mcp` : undefined;
-      // The page goes straight to the link, where one click on Save passkey (Turn on Face ID on an iPhone) finishes setup.
+      // The page goes straight to the link, where one click on Save passkey (Face ID on an iPhone, Touch ID or the device password on a Mac) finishes setup.
       const enrollUrl = deps.workerUrl ? enrollLink(deps.workerUrl, et.token, true) : undefined;
       return send(200, { ok: true, mcpUrl, enrollUrl, writesEnabled: body.allowChanges === true });
     }
@@ -132,7 +132,7 @@ export async function cliAction(flag: string, save: (n: string, v: string) => Pr
     return true;
   }
   if (flag === "--add-device") {
-    // A one-time Face ID link. Only the token's SHA-256 goes to Cloudflare. The token itself is in the link's fragment.
+    // A one-time passkey link. Only the token's SHA-256 goes to Cloudflare. The token itself is in the link's fragment.
     // It opens in this computer's browser, where one click on Save passkey adds the device and iCloud Keychain
     // carries the passkey to the owner's other Apple devices. The QR code is only for a device without that sync.
     const t = newEnrollToken();
@@ -140,18 +140,18 @@ export async function cliAction(flag: string, save: (n: string, v: string) => Pr
     const base = (workerUrl ?? "https://<your-worker>.workers.dev").replace(/\/+$/, ""), link = enrollLink(base, t.token);
     const wantQr = extra.includes("--qr");
     const opened = !wantQr && !!workerUrl && (await open(link));
-    if (opened) out(`\n  Opened the Face ID link in your browser. Click Save passkey there. That's the only step.\n  It works once, for 10 minutes. For a phone that doesn't sync with iCloud Keychain, run npm run add-device -- --qr.\n`);
+    if (opened) out(`\n  Opened the one-time passkey link in your browser. Click Save passkey there. That's the only step.\n  It works once, for 10 minutes. For a phone that doesn't sync with iCloud Keychain, run npm run add-device -- --qr.\n`);
     else out(`\n  Open this on the device you want to add (works once, for 10 minutes):\n\n    ${link}\n\n  Or point an iPhone's camera at this code:\n\n${workerUrl ? qrTerminal(link) : "  (Set WORKER_URL to print a full link and a QR code.)"}\n`);
     return true;
   }
   if (flag === "--reset-passkeys") {
     await save("PASSKEY_EPOCH", randomBytes(18).toString("base64url"));
-    out("\n  Done. Every passkey for this server stopped working. Turn Face ID on again with npm run add-device.\n");
+    out("\n  Done. Every passkey for this server stopped working. Save a new one with npm run add-device.\n");
     return true;
   }
   if (flag === "--revoke-all") {
     await save("GRANT_EPOCH", randomBytes(24).toString("base64url"));
-    out("\n  Done. Every existing connection to this server is cut off. Reconnect from Grok Bot and approve with Face ID.\n");
+    out("\n  Done. Every existing connection to this server is cut off. Reconnect from Grok Bot and approve with your passkey.\n");
     return true;
   }
   return false;

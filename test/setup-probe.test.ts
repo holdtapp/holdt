@@ -34,7 +34,7 @@ test("setup server: one-time key, live 'Found N calendars', plain-English errors
     assert.equal(good.j.ok, true); assert.deepEqual(good.j.calendars, ["Home", "Work", "US Holidays"]); assert.equal(good.j.reminderLists, undefined);
     const s = await call("/api/save", { allowChanges: false });
     assert.equal(s.j.ok, true); assert.equal(s.j.approvalCode, undefined, "no code to type"); assert.equal(s.j.mcpToken, undefined);
-    // The page goes straight to the one-time Face ID link: the token in the fragment, only its hash at Cloudflare.
+    // The page goes straight to the one-time passkey link: the token in the fragment, only its hash at Cloudflare.
     const token = s.j.enrollUrl.match(/^https:\/\/holdt\.example\.workers\.dev\/enroll\?from=setup#([\w-]{43})$/)?.[1]; assert.ok(token, s.j.enrollUrl);
     assert.equal(saved.ICLOUD_APP_PASSWORD, PASS); assert.equal(saved.ICLOUD_EMAIL, USER); assert.equal(saved.WRITES_ENABLED, "false"); assert.equal(saved.TIMEZONE, "America/Denver");
     assert.ok(saved.GRANT_EPOCH.length >= 30); assert.ok(saved.CONFIRM_SECRET.length >= 40); assert.equal(saved.MCP_TOKEN, undefined);
