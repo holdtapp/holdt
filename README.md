@@ -9,8 +9,8 @@ Holdt is a small MCP server that lets Grok Bot read your iCloud calendars. It ru
 **Calendar only: Apple Reminders is not included (see below).** Events with invitees or an organizer can't be edited, and the time of a repeating event can't be changed yet.
 
 > **Status:** v1.0.3, self-hosted.
-> As of Oct 18, 2026: `npm test` runs 281 tests, all passing. `npm run prove` runs 110 attacks, all refused, and proves 112 protections, each switched off in a scratch copy: 101 attacks then get through, and 11 layered ones are caught by the next layer. Current table: [docs/attack-proof.md](docs/attack-proof.md).
-> Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: a repeated commit was refused, an undo after a later edit was refused, and every other event was left untouched (18 of 18 checks, [docs/live-test-2026-10-17.md](docs/live-test-2026-10-17.md)).
+> As of Oct 18, 2026: `npm test` runs 281 tests, all passing. `npm run prove` runs 110 attacks against a mock iCloud, and all are refused. It then switches off each of 112 protections in a scratch copy: for 101 the matching attack gets through, and for the 11 layered ones the next layer still refuses it. Table: [docs/attack-proof.md](docs/attack-proof.md).
+> Verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: adding, changing and undoing, a repeated commit refused, an undo after a later edit refused, and every other event left untouched (18 of 18 checks, [docs/live-test-2026-10-17.md](docs/live-test-2026-10-17.md)). Not covered yet: a conflict from an edit made on an iPhone, and an event across the Nov 1 DST change.
 
 ## Setup (no Terminal)
 You need a free Cloudflare account and an Apple Account with two-factor authentication. Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Grok Bot installs Holdt on your Cloudflare account from your computer (it needs the Grok Bot desktop app). Then you:
