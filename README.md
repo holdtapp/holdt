@@ -7,7 +7,7 @@ Holdt is a small MCP server that runs on **your own Cloudflare account** and let
 **Calendar only: Apple Reminders is not included (see below).**
 
 > **Status:** v1.0.3, self-hosted.
-> Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: a repeated commit was refused, an undo after a later edit was refused, and every other event was left untouched.
+> Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: a repeated commit was refused, an undo after a later edit was refused, and every other event was left untouched (18 of 18 checks, [docs/live-test-2026-10-17.md](docs/live-test-2026-10-17.md)).
 > As of Oct 18, 2026: `npm test` runs 273 tests, all passing. `npm run prove` runs 110 attacks, all refused, and proves 112 protections: each one is switched off in a scratch copy, and its attack then gets through. Current table: [docs/attack-proof.md](docs/attack-proof.md).
 
 ## Setup (no Terminal)
