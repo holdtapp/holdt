@@ -435,13 +435,13 @@ ${v("done", { title: "Reviewer access on", titleId: "t-done", lede: "Add this ad
 ${v("dead", { title: "This reviewer link has ended", titleId: "t-dead", lede: "Ask the developer for a new one.", markState: "muted", centered: true, actions: close })}`, 200, undefined, "", REVIEW_SCRIPT);
 }
 const REVIEW_SCRIPT = `const $=id=>document.getElementById(id),VIEWS=["ask","done","dead"],show=id=>{VIEWS.forEach(x=>{$(x).hidden=x!==id;});const h=$(id).querySelector('h1');h.setAttribute('tabindex','-1');h.focus();setTimeout(()=>{document.title='Holdt: '+h.textContent.trim();},0);};
-const code=decodeURIComponent(location.hash.slice(1));history.replaceState(null,'',location.pathname);
+const KEY='holdt-review',store=(()=>{try{return sessionStorage}catch{return null}})();const code=decodeURIComponent(location.hash.slice(1))||store?.getItem(KEY)||'';if(code&&store)try{store.setItem(KEY,code)}catch{}history.replaceState(null,'',location.pathname);const forget=()=>{try{store?.removeItem(KEY)}catch{}};
 $('say').textContent=location.origin+'/mcp';
 if(!code)show('dead');
 const btn=$('go'),msg=$('msg').lastElementChild,live=$('live'),lab=btn.lastElementChild;
 btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');lab.textContent='Turning on';msg.textContent='';
 const d=await fetch('/review/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}).then(r=>r.json()).catch(()=>({ok:false,message:'Holdt couldn’t reach the server. Try again.'}));
-if(d.ok){$('until').textContent='Reviewer access in this browser ends '+new Date(d.until).toLocaleDateString(undefined,{month:'long',day:'numeric'})+'.';show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));return;}
+if(d.ok||d.ended)forget();if(d.ok){$('until').textContent='Reviewer access in this browser ends '+new Date(d.until).toLocaleDateString(undefined,{month:'long',day:'numeric'})+'.';show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));return;}
 if(d.ended){show('dead');return;}
 btn.disabled=false;btn.removeAttribute('aria-busy');lab.textContent='Turn on reviewer access';msg.textContent=d.message||'That didn’t work. Try again.';live.textContent=msg.textContent;});
 const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent.trim());cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in your assistant.';setTimeout(()=>{cl.textContent='Copy address';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy address';$('copylive').textContent='Couldn’t copy. The address is selected.';}});`;
