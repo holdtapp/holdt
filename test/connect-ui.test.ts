@@ -199,3 +199,15 @@ test("Mac Safari keeps a 17 px base: -apple-system-body only where touch-callout
   const p = visible((await consentHtml("Cursor", GROK)).html);
   assert.match(p, /Not you\? Choose Don[’']t allow\./); assert.doesNotMatch(p, /\btap\b/i);
 });
+
+test("R45: reconnect opens the passkey sheet on load, once, only when the server marks it; a refusal or cancel is silent and Allow stays", async () => {
+  const { CONSENT_SCRIPT } = await import("../src/passkey.js");
+  assert.match(CONSENT_SCRIPT, /if\(btn\.hasAttribute\('data-auto'\)&&!btn\.hidden&&!msg\.textContent\.trim\(\)&&!f\.classList\.contains\('away'\)&&document\.visibilityState==='visible'\)/);
+  assert.match(CONSENT_SCRIPT, /seen=true;try\{seen=!!sessionStorage\.getItem\(k\)/, "no storage, no automatic try");
+  assert.match(CONSENT_SCRIPT, /live\.textContent='';setTimeout\(\(\)=>\{live\.textContent=t;\},150\)/, "a server-rendered error is announced");
+  assert.match(CONSENT_SCRIPT, /sessionStorage\.setItem\(k,'1'\)/, "one automatic try per request");
+  assert.match(CONSENT_SCRIPT, /if\(auto\|\|\(e&&e\.name==='AbortError'\)\)return;fails\+\+;/, "an automatic try never shows an error or counts as a failure");
+  assert.match(CONSENT_SCRIPT, /btn\.addEventListener\('click',\(\)=>go\(false\)\)/, "Allow with Face ID stays as the fallback");
+  assert.match(CONSENT_SCRIPT, /ac\.abort\(\)/, "switching to the QR code closes the sheet");
+  assert.doesNotThrow(() => new Function(CONSENT_SCRIPT));
+});
