@@ -101,7 +101,7 @@ That's it. Try asking "What's on my calendar this week?"
 - **Lost every device with Face ID?** Run `npm run new-code` in the Holdt folder. It prints a one-time recovery code, and for 15 minutes the approval page shows a field for it. Type it yourself, never paste it into a chat.
 - **Turn changes on later.** In the Cloudflare dashboard, open Workers & Pages, then holdt, then Settings, then Variables and Secrets. Set WRITES_ENABLED to true and save.
 - **Add a device.** Apple devices on the same Apple Account get Face ID for Holdt through iCloud Keychain. For another device, run `npm run add-device` (it opens the link in this computer's browser) or `npm run add-device -- --qr` and scan the code with that phone. Or open **Setup help** on the approval page, tap **add it**, and approve from your iPhone.
-- **Reset Face ID.** If the approval page says Face ID was turned on for a device you don't recognize, tap Don't allow. Then run `npm run reset-passkeys` in the Holdt folder. Every Face ID device stops working at once. Then run `npm run add-device` to add your own again.
+- **Reset Face ID.** If the approval page says a device you don't recognize was added, tap Don't allow. Then run `npm run reset-passkeys` in the Holdt folder. Every Face ID device stops working at once. Then run `npm run add-device` to add your own again.
 - **Cut off every connection.** Run `npm run revoke-all`.
 - **Disconnect from Apple completely.** At account.apple.com, open Sign-In and Security, then App-Specific Passwords, and remove the Holdt password.
 

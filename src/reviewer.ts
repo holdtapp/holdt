@@ -68,15 +68,15 @@ export async function reviewerState(env: ReviewerEnv, now = Date.now()): Promise
 }
 
 export type ReviewerVerdict = { ok: true; props: ReviewerProps } | { ok: false; reason: string; message: string };
-const ENDED = "This reviewer code has ended. Ask the developer for a new one.";
+const ENDED = "This reviewer link has ended. Ask the developer for a new one.";
 /** Checks a typed reviewer code. Multi-use: a match spends nothing. */
 export async function checkReviewerCode(env: ReviewerEnv, raw: string, now = Date.now()): Promise<ReviewerVerdict> {
   const st = await reviewerState(env, now);
-  if (!st.active) return { ok: false, reason: `reviewer ${st.reason}`, message: st.reason === "off" || st.reason === "none" ? "Reviewer codes aren't accepted on this server." : ENDED };
+  if (!st.active) return { ok: false, reason: `reviewer ${st.reason}`, message: st.reason === "off" || st.reason === "none" ? "Reviewer links don't work on this server." : ENDED };
   const code = normalizeReviewerCode(raw);
-  if (!code) return { ok: false, reason: "reviewer malformed", message: "That reviewer code isn't complete. It starts with RVW and has 16 more letters and digits." };
+  if (!code) return { ok: false, reason: "reviewer malformed", message: "That reviewer link isn't complete. Open it again from the testing instructions." };
   const tag = await accountTag(env.ICLOUD_EMAIL!);
-  if (!(await pbkdf2Matches(env.REVIEWER_CODE_HASH!, reviewerSecretInput(tag, code)))) return { ok: false, reason: "reviewer wrong", message: "That reviewer code doesn't match. Check the testing instructions and try again." };
+  if (!(await pbkdf2Matches(env.REVIEWER_CODE_HASH!, reviewerSecretInput(tag, code)))) return { ok: false, reason: "reviewer wrong", message: "That reviewer link doesn't match. Open it again from the testing instructions." };
   return { ok: true, props: { via: "reviewer", rc: st.id, acct: st.acct } };
 }
 
@@ -84,4 +84,40 @@ export async function checkReviewerCode(env: ReviewerEnv, raw: string, now = Dat
 export async function reviewerGrantValid(env: ReviewerEnv, props: Partial<ReviewerProps>, now = Date.now()) {
   const st = await reviewerState(env, now);
   return st.active && typeof props.rc === "string" && typeof props.acct === "string" && safeEq(props.rc, st.id) && safeEq(props.acct, st.acct);
+}
+
+// ---------- one-tap reviewer link ----------
+// The developer hands reviewers a link: https://<demo>/review#RVW-.... The code rides only in the fragment, so it never
+// reaches a server log, a Referer or a link preview, and opening the page changes nothing. A tap on "Turn on reviewer
+// access" POSTs the code (same-origin JSON only) and earns a signed reviewer pass in an HttpOnly cookie for this browser.
+// The consent page then shows one button, Allow as reviewer. The pass is bound to the live code's id and the account,
+// and dies with the code (14 days, revoke, a new code, another account). Nobody types a code.
+export const REVIEWER_PASS_COOKIE = "__Host-holdt-rv";
+export interface ReviewerPassEnv extends ReviewerEnv { CONFIRM_SECRET?: string }
+async function passMac(env: ReviewerPassEnv, data: string) {
+  const root = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(env.CONFIRM_SECRET ?? "")), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sub = await crypto.subtle.sign("HMAC", root, new TextEncoder().encode("holdt-reviewer-pass/v1"));
+  const k = await crypto.subtle.importKey("raw", sub, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(data))))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+/** A signed pass for this browser, valid until the code itself ends. */
+export async function mintReviewerPass(env: ReviewerPassEnv, props: ReviewerProps, now = Date.now()) {
+  const st = await reviewerState(env, now); if (!st.active || !env.CONFIRM_SECRET) return undefined;
+  const exp = Math.min(st.expiresAt, now + REVIEWER_TTL_MS);
+  const data = btoa(JSON.stringify({ rc: props.rc, acct: props.acct, exp }));
+  const value = `${data}.${await passMac(env, data)}`;
+  return { value, cookie: `${REVIEWER_PASS_COOKIE}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${Math.max(0, Math.floor((exp - now) / 1000))}`, expiresAt: exp };
+}
+/** Reads the pass from a Cookie header. Valid only while the same code is live on the same account. */
+export async function readReviewerPass(env: ReviewerPassEnv, cookieHeader: string | null, now = Date.now()): Promise<ReviewerVerdict> {
+  const no = (reason: string): ReviewerVerdict => ({ ok: false, reason: `reviewer pass ${reason}`, message: "Your reviewer access has ended. Open the reviewer link again, or ask the developer for a new one." });
+  const raw = String(cookieHeader ?? "").split(/;\s*/).find((c) => c.startsWith(REVIEWER_PASS_COOKIE + "="))?.slice(REVIEWER_PASS_COOKIE.length + 1);
+  if (!raw || !env.CONFIRM_SECRET) return no("missing");
+  const [data, sig] = raw.split("."); if (!data || !sig) return no("malformed");
+  if (!safeEq(sig, await passMac(env, data))) return no("forged");
+  let p: any; try { p = JSON.parse(atob(data)); } catch { return no("malformed"); }
+  if (!(typeof p.exp === "number" && p.exp > now)) return no("expired");
+  const st = await reviewerState(env, now); if (!st.active) return no(st.reason);
+  if (!(typeof p.rc === "string" && safeEq(p.rc, st.id) && typeof p.acct === "string" && safeEq(p.acct, st.acct))) return no("stale");
+  return { ok: true, props: { via: "reviewer", rc: st.id, acct: st.acct } };
 }

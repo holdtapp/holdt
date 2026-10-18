@@ -111,16 +111,18 @@ export async function cliAction(flag: string, save: (n: string, v: string) => Pr
     if (name === "holdt") { out("\n  Reviewer codes only go on a separate demo Worker. Set WORKER_NAME to that Worker's name and try again.\n"); return true; }
     if (flag === "--revoke-reviewer") {
       await save("REVIEWER_CODE_HASH", "revoked");
-      out(`\n  Done. The reviewer code for ${name} stopped working, and every reviewer connection is cut off on its next call. Your own connections keep working.\n`);
+      out(`\n  Done. The reviewer link for ${name} stopped working, and every reviewer connection is cut off on its next call. Your own connections keep working.\n`);
       return true;
     }
     const r = newReviewerCode(rv.account ?? process.env.HOLDT_REVIEWER_ACCOUNT ?? "", rv.now);
     await save("REVIEWER_CODE_HASH", r.hash); await save("REVIEWER_CODE_ISSUED", String(r.issued));
     // The code goes to a private file, not the terminal, so it never lands in a scrollback, a log or a chat transcript.
-    const file = rv.codeFile ?? join(homedir(), ".holdt", `reviewer-code-${name}.txt`);
-    mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, `${r.display}\n`, { mode: 0o600 }); chmodSync(file, 0o600);
+    // It is a one-tap link: the code rides in the fragment, so opening it changes nothing and only the reviewer's tap uses it.
+    const file = rv.codeFile ?? join(homedir(), ".holdt", `reviewer-link-${name}.txt`);
+    const link = `${(workerUrl ?? `https://${name}.<your-subdomain>.workers.dev`).replace(/\/(mcp)?$/, "")}/review#${r.display}`;
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); writeFileSync(file, `${link}\n`, { mode: 0o600 }); chmodSync(file, 0o600);
     const until = new Date(r.expiresAt).toLocaleString("en-US", { timeZone: process.env.TZ || "America/Denver", dateStyle: "medium", timeStyle: "short" });
-    out(`\n  New reviewer code for ${name} saved to ${file} (readable only by you).\n  It works for any number of reviewers until ${until}. Revoke it any time with npm run setup -- --revoke-reviewer.\n  The demo Worker also needs REVIEWER_MODE = "on" in its [vars].\n`);
+    out(`\n  New reviewer link for ${name} saved to ${file} (readable only by you).\n  Put it in the testing instructions. It works for any number of reviewers until ${until}. Revoke it any time with npm run setup -- --revoke-reviewer.\n  The demo Worker also needs REVIEWER_MODE = "on" in its [vars].\n`);
     return true;
   }
   if (flag === "--new-code") {

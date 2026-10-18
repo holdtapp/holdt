@@ -183,7 +183,7 @@ test("connect: a code field shows only while an owner recovery code is live, off
   await freshEnv({ PASSKEYS: "off" }); kv.m.clear();
   const c3 = await consent(); assert.doesNotMatch(c3.html, /<script|name="code"/); assert.match(c3.html, /Face ID is off/); assert.doesNotMatch(c3.page.headers.get("content-security-policy")!, /script-src/);
   await freshEnv(); const c4 = await consent(); assert.doesNotMatch(c4.html, /id="pk"|name="code"/, "nothing enrolled yet: no button and no code");
-  assert.match(c4.html, /Turn on Face ID to approve/); assert.match(c4.html, /npm run add-device/);
+  assert.match(c4.html, /Waiting for Face\u00a0ID to be turned\u00a0on\./); assert.match(c4.html, /npm run add-device/);
   assert.match(c4.html, /<details class="owner" open>/, "the command sits in Setup help, not the main copy");
 });
 
@@ -244,10 +244,10 @@ test("ATTACK P12: the setup link is the owner's proof: hash only, fragment only,
 });
 test("a new device shows on the next consent pages and in connection_status for 7 days", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
-  assert.match((await consent()).html, /Face ID was turned on for a new device today at \d+:\d\d[\s\u00a0][AP]M\.(?: |<br>)Not you\? Tap[\s\u00a0]Don’t[\s\u00a0]allow\./);
+  assert.match((await consent()).html, /A new device was added today at \d+:\d\d[\s\u00a0][AP]M\.(?: |<br>)Not you\? Tap[\s\u00a0]Don’t[\s\u00a0]allow\./);
   const { mcpEndpoint } = await import("../src/worker.js");
   const st = async () => (await (await mcpEndpoint(new Request(ORIGIN + "/mcp", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "connection_status", arguments: {} } }) }), env, { epoch: env.GRANT_EPOCH }, fetch)).json() as any).result.structuredContent;
   const s1 = await st(); assert.equal(s1.passkeys.length, 1); assert.equal(s1.passkeys[0].added_with, "setup link"); assert.match(s1.device_notice, /New device added .*reset-passkeys/);
   const recs = await kv.list({ prefix: "passkey:" }); for (const k of recs.keys) { const c = JSON.parse((await kv.get(k.name))!); c.createdAt -= 8 * 86400_000; await kv.put(k.name, JSON.stringify(c)); }
-  assert.doesNotMatch((await consent()).html, /was turned on for/); const s2 = await st(); assert.equal(s2.device_notice, undefined); assert.equal(s2.passkeys.length, 1);
+  assert.doesNotMatch((await consent()).html, /was added today|New devices:/); const s2 = await st(); assert.equal(s2.device_notice, undefined); assert.equal(s2.passkeys.length, 1);
 });

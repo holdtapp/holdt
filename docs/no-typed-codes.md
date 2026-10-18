@@ -63,4 +63,22 @@ Allow with Face ID on the owner's own device (one click, origin-bound, not phish
 ## Recovery
 The approval code survives only as an owner tool. `npm run new-code` on the owner's computer prints an 8-digit code that works
 once, for 15 minutes, and while it's live the consent page shows a code field. No screen in the normal flow mentions it.
-The demo Worker's reviewer code (REVIEWER_MODE) uses the same field.
+
+## Reviewer link (demo Worker only)
+The demo Worker's reviewer path used to be a typed RVW code. It is now a one-tap link, `https://<demo>/review#RVW-...`,
+with the same properties: 14 days, multi-use, revocable, test-account-only, REVIEWER_MODE-gated. The code sits in the fragment,
+so it never reaches a server, a log, a Referer or a link preview. Opening the page changes nothing. The tap on
+"Turn on reviewer access" posts it (same-origin JSON only) and earns a signed, HttpOnly reviewer pass for that browser.
+The consent page then has one button, "Allow as reviewer". Actions: 1 tap on the link page, 1 tap on consent (2 total,
+the same as the owner's first setup plus connect). No Apple prompt.
+
+| Threat | Protection | Test | Prove row |
+|---|---|---|---|
+| Link preview or GET spends or uses the code | GET /review is static and sets no cookie. Claim is POST only | reviewer link is one tap, RL1 | RL1 |
+| CSRF on the claim (another site plants a reviewer pass) | Exact Origin plus application/json | ATTACK RL1 | RL1 |
+| Forged or tampered pass | HMAC with a "holdt-reviewer-pass/v1" subkey of CONFIRM_SECRET | ATTACK RL2 | RL2 |
+| Pass outlives a revoke or a new link | Pass names the link id and account, re-checked against the live link on every use | ATTACK RL3, RV2 | RL3, RV2 |
+| Pass past 14 days | Pass carries exp = min(link end, now + 14 days), checked on its own | ATTACK RL4, RV1 | RL4, RV1 |
+| Production Worker | REVIEWER_MODE off: /review is a 404 without script, claims earn nothing | ATTACK RV4 | RV4 |
+
+Directory forms: no exception was needed. A form that asks for a credential gets the link itself.

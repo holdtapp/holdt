@@ -158,7 +158,8 @@ export function deviceNotice(creds: StoredCredential[], tz: string, now = Date.n
   };
   const list = recent.slice(0, 3).map((c) => `${deviceName(c.label)} ${when(c.createdAt)}`);
   const joined = list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
-  return `Face ID was turned on for ${joined}. Not you? Tap\u00a0Don't\u00a0allow.`;
+  const lead = list.length === 1 ? `${list[0]!.charAt(0).toUpperCase()}${list[0]!.slice(1).replace(/ (today|yesterday|on )/, " was added $1")}` : `New devices: ${joined}`;
+  return `${lead}. Not you? Tap\u00a0Don't\u00a0allow.`;
 }
 export const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
 
@@ -226,9 +227,14 @@ export async function enrollApi(req: Request, env: Env, now = Date.now()): Promi
 // ---------- browser scripts (served with a per-response nonce, no other script may run) ----------
 const CODEC = `const b=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0));const u=a=>btoa(String.fromCharCode(...new Uint8Array(a))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');`;
 // Touch ID on a Mac, Face ID elsewhere. The lift mark's piece drops home the moment a passkey answers (src/ui.ts).
-const TOUCH = `const touch=/Macintosh/.test(navigator.userAgent)&&!('ontouchend' in document),bio=touch?'Touch ID':'Face ID';if(touch)document.documentElement.classList.add('touch');`;
+// Which biometric to name. A Mac without touch has Touch ID (touch). An iPhone with a 667-pt screen has a Home button,
+// so Touch ID too. An iPad (Macintosh UA with touch) or anything else can't be told apart, so it gets both names.
+// Every other iPhone has Face ID. Copy written for Face ID is rewritten in place for the other two.
+const BIO_KIND = `const _ua=navigator.userAgent,_tch='ontouchend' in document,touch=/Macintosh/.test(_ua)&&!_tch,_bk=touch?'touch':/iPhone/.test(_ua)?(Math.max(screen.width,screen.height)<=667?'touchphone':'face'):'either';`;
+const BIO_WALK = `const _rw=(root)=>{if(_bk==='face')return;const one=_bk!=='either',w=document.createTreeWalker(root,4);let n;while((n=w.nextNode()))if(!/Touch|fingerprint/.test(n.nodeValue)&&!(n.parentElement&&n.parentElement.closest('[data-nobio]')))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,one?'Touch$1ID':'Touch$1ID or Face$1ID').replace('Your face stays',one?'Your fingerprint stays':'Your face or fingerprint stays').replace('with a glance',one?'with a touch':'with a glance or a touch');};`;
+const TOUCH = `${BIO_KIND}${BIO_WALK}const bio=touch||_bk==='touchphone'?'Touch ID':_bk==='either'?'Touch ID or Face ID':'Face ID';if(touch||_bk==='touchphone')document.documentElement.classList.add('touch');if(touch)document.documentElement.classList.add('mac');_rw(document.body);document.title=document.title.replace('Face ID',bio);`;
 /** Pages with no other script: on a Mac, say Touch ID inside [data-bio] and show the fingerprint glyph. */
-export const BIO_SWAP = `(()=>{if(!(/Macintosh/.test(navigator.userAgent)&&!('ontouchend' in document)))return;document.documentElement.classList.add('touch');document.querySelectorAll('[data-bio]').forEach(e=>{const w=document.createTreeWalker(e,4);let n;while((n=w.nextNode()))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,'Touch$1ID');});document.title=document.title.replace('Face ID','Touch ID');})();`;
+export const BIO_SWAP = `(()=>{${BIO_KIND}${BIO_WALK}if(touch){document.documentElement.classList.add('touch');document.querySelectorAll('[data-bio]').forEach(e=>{const w=document.createTreeWalker(e,4);let n;while((n=w.nextNode()))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,'Touch$1ID');});document.title=document.title.replace('Face ID','Touch ID');return;}if(_bk==='touchphone')document.documentElement.classList.add('touch');document.querySelectorAll('[data-bio]').forEach(_rw);document.title=document.title.replace('Face ID',_bk==='touchphone'?'Touch ID':_bk==='either'?'Touch ID or Face ID':'Face ID');})();`;
 export const LOGIN_SCRIPT = `${CODEC}${TOUCH}
 const btn=document.getElementById('pk'),f=btn.form,o=JSON.parse(btn.dataset.o),msg=document.getElementById('pkmsg').lastElementChild,mode=document.getElementById('mode'),live=document.getElementById('live'),wrap=document.getElementById('altwrap'),lab=document.getElementById('pklabel'),mk=document.getElementById('mk');
 if(touch)lab.textContent='Allow with Touch ID';
@@ -244,7 +250,7 @@ btn.setAttribute('aria-busy','true');lab.textContent='Approving';mk.classList.ad
 }catch(e){busy=false;btn.removeAttribute('aria-disabled');fails++;msg.textContent=fails>1?bio+' didn’t finish.\\nEnter your approval code below.':bio+' didn’t finish.\\nTry again or use a\u00a0code.';if(fails>1){setMode(true);msg.parentNode.classList.add('keep');document.getElementById('code').focus();live.textContent=msg.textContent+' Approval code shown.';}else live.textContent=msg.textContent;}});`;
 // Shared by the pages below: same-origin JSON POST, the views, and making a passkey.
 const POST = `const post=(p,o)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)}).then(r=>r.json()).catch(()=>({ok:false,net:1,message:'Holdt couldn’t reach your server. Check your connection and try again.'}));`;
-const VIEWS = (ids: string[]) => `const $=id=>document.getElementById(id),VIEWS=${JSON.stringify(ids)},show=id=>{VIEWS.forEach(x=>{const e=$(x);if(e)e.hidden=x!==id;});const h=$(id)&&$(id).querySelector('h1');if(h){h.setAttribute('tabindex','-1');h.focus();}};`;
+const VIEWS = (ids: string[]) => `const $=id=>document.getElementById(id),VIEWS=${JSON.stringify(ids)},show=id=>{VIEWS.forEach(x=>{const e=$(x);if(e)e.hidden=x!==id;});document.querySelectorAll('p.sr[role=status]').forEach(e=>{e.textContent='';});const h=$(id)&&$(id).querySelector('h1');if(h){h.setAttribute('tabindex','-1');h.focus();setTimeout(()=>{document.title='Holdt: '+h.textContent.trim();},0);}};`;
 const REGISTER = `const register=async(r,extra,onBusy)=>{const p=JSON.parse(JSON.stringify(r.publicKey));p.challenge=b(p.challenge);p.user.id=b(p.user.id);p.excludeCredentials=p.excludeCredentials.map(x=>({type:x.type,id:b(x.id)}));
 const c=await navigator.credentials.create({publicKey:p});onBusy();
 return post('/enroll/finish',Object.assign({challenge_token:r.challenge_token,clientDataJSON:u(c.response.clientDataJSON),attestationObject:u(c.response.attestationObject),label:navigator.platform||''},extra));};
@@ -271,8 +277,8 @@ if(!r.ok){if(r.net||/most it allows/.test(r.message||''))throw new Error(r.messa
 const d=await register(r,{token:t},()=>{btn.setAttribute('aria-busy','true');blab.textContent='Turning on';live.textContent='Turning on '+bio+'. One moment.';});
 if(!d.ok){if(/already used|expired/.test(d.message||''))return dead(d.message);throw new Error(d.message);}
 const h=$('done').querySelector('h1');h.textContent=bio+' is on';
-const lede=$('done').querySelector('.lede');lede.textContent=fromSetup?(touch?'Holdt is ready. With iCloud Keychain on, your iPhone can use it too.':'Holdt is ready on this device. With iCloud Keychain on, your other Apple devices can use it too.'):touch?'Next time, click Allow with Touch ID. With iCloud Keychain on, your other Apple devices can use it too.':lede.textContent;if(touch)$('done').querySelector('h1').textContent='Touch ID is on';
-if(fromSetup){$('next').hidden=false;$('closeline').hidden=true;const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent);cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in Grok Bot.';setTimeout(()=>{cl.textContent='Copy';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy';$('copylive').textContent='Couldn’t copy. The text is selected, so copy it yourself.';}});}
+const lede=$('done').querySelector('.lede');lede.textContent=fromSetup?'Last step. Give your assistant this address.':touch?'Next time, click Allow with Touch ID. With iCloud Keychain on, your other Apple devices can use it too.':lede.textContent;if(touch)$('done').querySelector('h1').textContent='Touch ID is on';
+if(fromSetup){$('next').hidden=false;$('copywrap').hidden=false;$('closeline').hidden=true;const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent.trim());cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in your assistant.';setTimeout(()=>{cl.textContent='Copy address';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy address';$('copylive').textContent='Couldn’t copy. The address is selected.';}});}
 show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
 }catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';fetchOpts();
 if(e&&e.name==='NotAllowedError')say(bio+' didn’t finish.\\nTry again when you’re\u00a0ready.');else if(e&&e.name==='InvalidStateError')say('This device already uses '+bio+' with Holdt.');else say(typo((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;
@@ -292,7 +298,7 @@ if(r.status==='approved')finish(true);
 else if(r.status==='denied'){done=true;clearInterval(timer);const i=document.createElement('input');i.type='hidden';i.name='decision';i.value='deny';f.appendChild(i);live.textContent='Not allowed on '+Other+'.';f.submit();}
 else if(r.status==='gone')refresh();};
 const setMode=(on,speak)=>{f.classList.toggle('away',on);if(!on){msg.parentNode.classList.remove('keep');msg.textContent='';live.textContent='';}mode.setAttribute('aria-expanded',on?'true':'false');
-if(on&&!timer)timer=setInterval(poll,2000);if(speak){live.textContent=on?(other==='your iPhone'?'QR code shown. Scan it with your iPhone’s camera.':'QR code shown. Scan it with another device’s camera.'):bio+' shown';if(on){panel.focus({preventScroll:true});const d=f.querySelector('[value=deny]')||panel,fc=document.querySelector('.facts')||panel,y=e=>e.getBoundingClientRect().top+scrollY,need=d.getBoundingClientRect().bottom+scrollY+24-innerHeight;if(need>scrollY)scrollTo(0,y(fc)-12>=need?y(fc)-12:y(panel)-16);}else btn.focus();}};
+if(on&&!timer)timer=setInterval(poll,2000);if(speak){live.textContent=on?(other==='your iPhone'?'QR code shown. Scan it with your iPhone’s camera.':'QR code shown. Scan it with another device’s camera.'):bio+' shown';if(on){panel.focus({preventScroll:true});$('qrwrap').scrollIntoView({block:'nearest'});}else btn.focus();}};
 f.classList.add('js');btn.hidden=false;mode.hidden=false;mode.addEventListener('click',()=>setMode(!f.classList.contains('away'),true));
 if(f.classList.contains('away'))setMode(true);
 if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);}
@@ -301,7 +307,7 @@ const c=await navigator.credentials.get({publicKey:{challenge:b(o.challenge),rpI
 if(done)return;f.pk_id.value=c.id;f.pk_cdj.value=u(c.response.clientDataJSON);f.pk_ad.value=u(c.response.authenticatorData);f.pk_sig.value=u(c.response.signature);
 btn.setAttribute('aria-busy','true');lab.textContent='Approving';live.textContent='Approving. One moment.';finish(false);
 }catch(e){busy=false;btn.removeAttribute('aria-disabled');if(done)return;fails++;
-if(fails>1){setMode(true);msg.parentNode.classList.add('keep');say(bio+' didn’t finish.\\nScan the QR code with '+(other==='your iPhone'?'your iPhone':'another device')+' instead.');}else say(bio+' didn’t finish.\\nTry again, or approve on '+other.replace(/ (\\S+)$/,'\u00a0$1')+'.');}});`;
+if(fails>1){setMode(true);msg.parentNode.classList.add('keep');say(bio+' didn’t finish.\\nScan the QR code with '+(other==='your iPhone'?'your iPhone':'another device')+' instead.');}else say(bio+' didn’t finish.\\nTry again, or approve on '+(other==='your iPhone'?'your\u00a0iPhone':'another\u00a0device')+'.');}});`;
 
 /** Consent page before any device has Face ID: wait, and carry on by itself once one does. */
 export const READY_SCRIPT = `${POST}
@@ -318,7 +324,7 @@ else if(r.gone==='invalid'||r.net){d.querySelector('h1').textContent=r.net?'Hold
 show('dead');};
 (async()=>{if(!s)return gone({gone:'invalid'});let o=await post('/ok/view',{s});if(!o.ok)return gone(o);
 $('ask').innerHTML=o.html;show('ask');$('ask').querySelector('h1').removeAttribute('tabindex');
-if(o.kind==='pair'){$('ok').querySelector('h1').textContent='Device approved';$('ok').querySelector('.lede').textContent='Go back to the new device to finish.';$('no').querySelector('h1').textContent='Device not added';$('no').querySelector('.lede').textContent='Nothing changed.';}else if(o.device&&o.device!=='device')$('ok').querySelector('.lede').textContent='Your '+o.device+' finishes on its own. There’s nothing more to do here.';
+if(o.kind==='pair'){$('ok').querySelector('h1').textContent='Device approved';$('ok').querySelector('.lede').textContent='Go back to the new device to finish.';$('no').querySelector('h1').textContent='Device not added';$('no').querySelector('.lede').textContent='Nothing changed.';}else if(o.device&&o.device!=='device')$('ok').querySelector('.lede').textContent='Your '+o.device+' finishes when its Holdt page is open.';
 const yes=$('yes'),lab=$('yeslabel'),msg=$('askmsg').lastElementChild,live=$('live'),idle=()=>{lab.textContent='Allow with '+bio;};idle();
 const say=m=>{msg.textContent=m;live.textContent=m;};
 if(!window.PublicKeyCredential){yes.disabled=true;say(bio+' isn’t available in this browser. Open the link in Safari.');}
@@ -332,7 +338,7 @@ if(d.gone)return gone(d);
 const n=await post('/ok/view',{s});if(n.ok)o=n;else return gone(n);throw new Error(d.message);
 }catch(e){busy=false;yes.removeAttribute('aria-disabled');yes.removeAttribute('aria-busy');idle();
 say(e&&e.name==='NotAllowedError'?bio+' didn’t finish.\\nTry again, or tap Don’t\u00a0allow.':String((e&&e.message)||'That didn’t work. Try again.'));yes.focus();}});
-$('nope').addEventListener('click',async()=>{const d=await post('/ok/deny',{s});if(d.ok)show('no');else gone(d);});
+let denying=false;$('nope').addEventListener('click',async()=>{if(denying)return;denying=true;$('nope').disabled=true;const d=await post('/ok/deny',{s});if(d.ok)show('no');else{denying=false;$('nope').disabled=false;gone(d);}});
 })();`;
 
 /** A new device: show a QR code, wait for the iPhone's yes, then make this device's own passkey on a tap.

@@ -71,10 +71,10 @@ test("new-device note: plain words, who and when, and the one thing to do", () =
   const now = Date.UTC(2026, 9, 18, 2, 0); // Oct 17, 8:00 PM MDT
   assert.equal(deviceNotice([], "America/Denver", now), undefined);
   const c = (id: string, ago: number, label?: string) => ({ id, jwk: {}, alg: -7 as const, signCount: 0, createdAt: now - ago, label });
-  assert.equal(deviceNotice([c("a", 60_000, "iPhone")], "America/Denver", now), "Face ID was turned on for an iPhone today at 7:59\u00a0PM. Not you? Tap\u00a0Don't\u00a0allow.");
+  assert.equal(deviceNotice([c("a", 60_000, "iPhone")], "America/Denver", now), "An iPhone was added today at 7:59\u00a0PM. Not you? Tap\u00a0Don't\u00a0allow.");
   assert.equal(deviceNotice([c("a", 60_000, "iPhone"), c("b", 86400_000, "MacIntel"), c("c", 3 * 86400_000)], "America/Denver", now),
-    "Face ID was turned on for an iPhone today at 7:59\u00a0PM, a Mac yesterday at 8:00\u00a0PM and a new device on Oct 14 at 8:00\u00a0PM. Not you? Tap\u00a0Don't\u00a0allow.");
-  assert.match(deviceNotice([c("a", 60_000)], "Not/AZone", now)!, /a new device today at 1:59\u00a0AM/);
+    "New devices: an iPhone today at 7:59\u00a0PM, a Mac yesterday at 8:00\u00a0PM and a new device on Oct 14 at 8:00\u00a0PM. Not you? Tap\u00a0Don't\u00a0allow.");
+  assert.match(deviceNotice([c("a", 60_000)], "Not/AZone", now)!, /A new device was added today at 1:59\u00a0AM/);
   assert.deepEqual(["iPhone", "iPad", "MacIntel", "Win32", "Linux armv8l", "Linux x86_64", "", undefined].map(deviceName), ["an iPhone", "an iPad", "a Mac", "a Windows PC", "an Android device", "a Linux computer", "a new device", "a new device"]);
 });
 
