@@ -9,7 +9,7 @@ Holdt is a small MCP server that lets Grok Bot read your iCloud calendars. It ru
 **Calendar only: Apple Reminders is not included (see below).** Events with invitees or an organizer can't be edited, and the time of a repeating event can't be changed yet.
 
 > **Status:** v1.0.3, self-hosted.
-> As of Oct 18, 2026: `npm test` runs 281 tests, all passing. `npm run prove` runs 110 attacks against a mock iCloud, and all are refused. It then switches off each of 112 protections in a scratch copy: for 101 the matching attack gets through, and for the 11 layered ones the next layer still refuses it. Table: [docs/attack-proof.md](docs/attack-proof.md).
+> As of Oct 18, 2026: `npm test` runs 284 tests, all passing. `npm run prove` runs 110 attacks against a mock iCloud, and all are refused. It then switches off each of 112 protections in a scratch copy: for 101 the matching attack gets through, and for the 11 layered ones the next layer still refuses it. Table: [docs/attack-proof.md](docs/attack-proof.md).
 > Verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: adding, changing and undoing, a repeated commit refused, an undo after a later edit refused, and every other event left untouched (18 of 18 checks, [docs/live-test-2026-10-17.md](docs/live-test-2026-10-17.md)). Not covered yet: a conflict from an edit made on an iPhone, and an event across the Nov 1 DST change.
 
 ## Setup (no Terminal)
@@ -71,7 +71,7 @@ Anything we built would read the wrong list, so v1 leaves Reminders out. You can
 Times without an offset are in your time zone (set by setup). Plain English works too: "tomorrow at 3pm", "next friday", "end of month", "the last friday of november", "in 2 weeks". "Next friday" means the Friday of next week. A clock time that falls in the spring-forward gap moves to the first valid time. Every preview spells out the date, so check it before saying yes. A date alone means that whole day in your zone, so "from 2026-10-17 to 2026-10-17" is all of Saturday Oct 17. All-day events stay on their date wherever you are. Repeating events are expanded per date, including "2nd Tuesday", "last Friday", "1st and 15th" and yearly rules like Thanksgiving. Rare rules (BYSETPOS, week numbers) show the first date with a note.
 
 ## Develop
-`npm test` (281 tests) · `npm run prove` (switches each protection off and proves its attack then succeeds, or for layered rows that the next layer still stops it, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
+`npm test` (284 tests) · `npm run prove` (switches each protection off and proves its attack then succeeds, or for layered rows that the next layer still stops it, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
 
 ## License, warranty and who makes Holdt
 Holdt is made by Terminus X Partners, LLC and released under the MIT License (see LICENSE). It is provided as is, without warranty of any kind. You run it on your own accounts, and you are responsible for your Cloudflare deployment and your Apple Account, including the app-specific password you create for it. Read every preview before you say yes. Security reports: docs/SECURITY.md.
