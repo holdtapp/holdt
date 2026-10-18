@@ -2,31 +2,32 @@
 
 **Holdt, said holt.** Reads your calendar. Changes nothing until you say yes.
 
-Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. **Calendar only: Apple Reminders is not included (see below).** It is read-only unless you turn changes on. With changes on, every change is shown to you first, and Holdt accepts only the change you saw, once, within 10 minutes. Grok Bot is told to wait for your yes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
+Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. **Calendar only: Apple Reminders is not included (see below).** It is read-only unless you turn changes on. With changes on, every change starts as a preview. Grok Bot is told to show it to you and wait for your yes, and Holdt accepts only that previewed change, once, within 10 minutes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
 
-> **Status:** v1.0, self-hosted.
+> **Status:** v1.0.3, self-hosted.
 > Reads verified live on a real iCloud account, Oct 16, 2026 (calendar list, event detail, week view, search).
-> Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026. All 18 checks passed, including a repeated commit refused, an undo refused after a later edit, and every other event left untouched.
+> Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026, on a pre-release build. All 18 checks passed, including a repeated commit refused, an undo refused after a later edit, and every other event left untouched.
 > As of Oct 18, 2026: `npm test` runs 272 tests, all passing. `npm run prove` refuses 110 of 110 attacks and proves 112 protections (each one switched off in a scratch copy, its attack then gets through). Current table: [docs/attack-proof.md](docs/attack-proof.md).
 
 ## Setup (no Terminal)
-Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your free Cloudflare account from your computer (it needs the Grok Bot desktop app). You do three things:
+Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your free Cloudflare account from your computer (it needs the Grok Bot desktop app). You do four things:
 
 1. Click **Allow** on Cloudflare's page.
-2. Apple's page opens in front of the Holdt setup page. Make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars. That's how Apple designed them. Paste it on the Holdt page. Read-only is the default. Holdt checks it with Apple on its own and seals it in your Cloudflare account.
-3. Save a passkey once: **Turn on Face ID** on an iPhone, or **Save passkey** on a Mac (Touch ID or your password). Then add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
+2. Apple's page opens in front of the Holdt setup page. Make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars. That's how Apple designed them. Paste it on the Holdt page. Holdt checks it with Apple on its own and seals it in your Cloudflare account.
+3. Leave changes off for read-only, the default, or turn them on. Then save a passkey once: **Turn on Face ID** on an iPhone, or **Save passkey** on a Mac (Touch ID or your password).
+4. Add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
 
 When Grok Bot connects, the approval page has one button: **Allow with Face ID** on an iPhone or iPad (Touch ID on models without Face ID), or **Allow on this Mac** on a Mac (Touch ID or your password). Not on a device with your passkey? Choose **Approve on your iPhone instead** and scan the code with your iPhone. Action counts for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
 
 ### For developers: Terminal setup
-Roughly 10 minutes once Node.js and a free Cloudflare account are ready (an estimate, not timed). A step-by-step version is in [docs/setup.md](docs/setup.md).
+You need Node.js and a free Cloudflare account. A step-by-step version is in [docs/setup.md](docs/setup.md).
 
 1. `npm install`
 2. `npm run cf:login`, then `npx --no-install wrangler kv namespace create OAUTH_KV` and put the id it prints under `binding = "OAUTH_KV"` in wrangler.toml, then `npm run deploy`. Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
 3. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens on your computer. Make an app-specific password on Apple's page, paste it, enter your Apple Account email, **Test connection**, turn on **Let Grok Bot add and change events** if you want changes, then **Save and finish**.
 4. Save opens a one-time passkey link in the same browser. Click **Save passkey** (on an iPhone the button reads **Turn on Face ID**). iCloud Keychain carries the passkey to your iPhone. The last screen shows your connector address with a Copy button.
 
-Adding a device later: `WORKER_URL=https://holdt.<you>.workers.dev npm run add-device` opens a fresh link in your browser (one click). For a phone, `npm run add-device -- --qr` prints a QR code. Lost every device? `npm run new-code` prints a one-time recovery code, and the approval page shows a code field for 15 minutes.
+Adding a device later: `WORKER_URL=https://holdt.<you>.workers.dev npm run add-device` opens a fresh link in your browser. Click **Save passkey** there. For a phone, `npm run add-device -- --qr` prints a QR code. Lost every device? `npm run new-code` prints a one-time recovery code, and the approval page shows a code field for 15 minutes.
 
 Your password only goes to Apple and to your own Cloudflare account. On the no-Terminal path it is sealed (AES-256-GCM, key in your Cloudflare secrets) in Holdt's storage. On the Terminal path it goes to `wrangler secret put` on stdin. It is never written to disk on your computer, logged, or put on a command line. To disconnect, remove the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
 
