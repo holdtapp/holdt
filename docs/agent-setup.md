@@ -27,7 +27,7 @@ Follow these steps on the user's own computer, in order. Report each "Step N of 
    ```
    HOLDT_APPLE_EMAIL=<their Apple Account email, if you know it> npm run agent-setup
    ```
-   `HOLDT_APPLE_EMAIL` is optional. It rides only in the link's `#` fragment, so it reaches no server log, and the page fills the Email field from it. It is never printed.
+   `HOLDT_APPLE_EMAIL` is optional. If you don't know the email, run `npm run agent-setup` on its own. On Windows, set it first instead (`$env:HOLDT_APPLE_EMAIL = "..."` in PowerShell, `set HOLDT_APPLE_EMAIL=...` in Command Prompt). It rides only in the link's `#` fragment, so it reaches no server log, and the page fills the Email field from it. It is never printed.
    It signs in to Cloudflare (the user clicks **Allow** in the browser), makes Holdt's storage, deploys to the user's `workers.dev` address, saves Holdt's sealing key, opens the one-time setup page, then opens Apple's app-specific password page in front of it.
 4. Tell the user: sign in on Apple's page, make an app-specific password named Holdt, copy it, switch to the Holdt page and paste it. The cursor is already in the field. Holdt checks it with Apple on its own as soon as all 16 letters are in. Read-only is chosen unless they pick changes-with-a-yes first. Then one tap on **Save passkey**. The passkey is made on the same page.
 5. The last page says **Holdt is set up** and shows the server address with **Copy address**. Tell them to add it in Grok Bot under **Connect Apps → Add custom MCP server**. The address is `https://holdt.<their subdomain>.workers.dev/mcp`, and `npm run agent-setup` printed it as the last line.
@@ -36,7 +36,7 @@ Follow these steps on the user's own computer, in order. Report each "Step N of 
 - The link has ended (used once, or older than 30 minutes): run `npm run agent-setup -- --new-link`. It opens a fresh link without redeploying.
 - To change the iCloud account or the mode later: the same `--new-link` command. Saving a new setup ends existing connections, and the user connects Grok Bot again.
 - "Deploy finished but no workers.dev address came back": the account has no `workers.dev` subdomain yet. Ask the user to open Workers in the Cloudflare dashboard once, then run `npm run agent-setup` again.
-- The page says setup isn't finished (the account was saved but no passkey was made): run `npm run add-device`. It opens a passkey link in the user's browser.
+- The page says setup isn't finished (the account was saved but no passkey was made): run `WORKER_URL=https://holdt.<their subdomain>.workers.dev npm run add-device`, with the address `npm run agent-setup` printed. It opens a passkey link in the user's browser. Without `WORKER_URL` it prints a link with no real address instead.
 - Apple refuses the password: the user makes a new app-specific password on Apple's page and enters it again. They get 8 tries per link.
 
 Developers who prefer Terminal can still use the manual path in docs/setup.md.

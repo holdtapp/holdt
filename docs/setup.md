@@ -14,7 +14,7 @@ Holdt runs on your own free Cloudflare account. Your Apple password goes only to
 ## 1. Get Holdt
 
 <!-- LINK GOES LIVE ONLY WHEN THE REPO IS PUBLIC under the holdtapp GitHub organization (decision 4, Oct 18, 2026). -->
-Download Holdt from its GitHub page at [github.com/holdtapp/holdt](https://github.com/holdtapp/holdt). Press Code, then Download ZIP, and unzip it. The folder is usually named holdt-main. Or, if you use git, clone it.
+Download Holdt from its GitHub page at [github.com/holdtapp/holdt](https://github.com/holdtapp/holdt). Press Code, then Download ZIP, and unzip it. The folder is usually named holdt-main. Or, if you use git, clone it. The folder is then named holdt.
 
 Then go into that folder. If it unzipped to your Downloads folder:
 
@@ -45,11 +45,13 @@ Run these one at a time:
 ```
 npm install
 npm run cf:login
+npx --no-install wrangler kv namespace create OAUTH_KV
 npm run deploy
 ```
 
 - `npm run cf:login` opens your browser. Sign in to Cloudflare and press Allow.
-- `npm run deploy` prints your Holdt address. It looks like `https://holdt.you.workers.dev`. Keep it handy.
+- `npx --no-install wrangler kv namespace create OAUTH_KV` makes Holdt's storage on your account and prints a line like `id = "0123abcd..."`. Open `wrangler.toml` in the Holdt folder, find `binding = "OAUTH_KV"`, and replace the `id` under it with yours. The id already there belongs to another account, so deploy fails until you replace it.
+- `npm run deploy` prints your Holdt address. It looks like `https://holdt.you.workers.dev`. Keep it handy. If it prints no `workers.dev` address, open Workers & Pages in the Cloudflare dashboard once so your account gets a `workers.dev` subdomain, then run it again.
 
 ## 3. Connect your iCloud Calendar
 
@@ -73,16 +75,16 @@ $env:WORKER_URL = "https://holdt.you.workers.dev"
 npm run setup
 ```
 
-Terminal prints a link. Open it in your browser. It only works on this computer. Then on that page:
+A setup page opens in your browser. If it doesn't, open the link Terminal prints. It only works on this computer. Then on that page:
 
-1. Enter your Apple Account email, for example you@icloud.com.
-2. Press **Open Apple's password page**. Sign in, go to Sign-In and Security, then App-Specific Passwords, and make one named Holdt. Apple shows 16 letters, like abcd-efgh-ijkl-mnop.
-3. Paste it into **Paste it here**. Use the app-specific password, never your regular Apple password.
+1. Press **Open Apple's password page**. Sign in, go to Sign-In and Security, then App-Specific Passwords, and make one. Any name works, for example Holdt. Apple shows 16 letters, like abcd-efgh-ijkl-mnop.
+2. Paste it into **Paste it here**. Use the app-specific password, never your regular Apple password.
+3. Enter your Apple Account email, for example you@icloud.com.
 4. Press **Test connection**. You should see "Found 2 calendars" (or however many you have).
-5. Choose **read-only** or **changes with my yes**. Read-only is the safe start. You can change it later.
-6. Press **Save**.
+5. Leave **Let Grok Bot add and change events** off for read-only, or turn it on for changes with your yes. Read-only is the safe start. You can change it later.
+6. Press **Save and finish**.
 
-Save opens a page called **Save a passkey on this Mac** (Turn on Face ID on an iPhone). Click **Save passkey**, then use Touch ID or your Mac password when your Mac asks. That's the only step. Your iPhone gets it through iCloud Keychain. The next screen shows your connector address (ending in `/mcp`) with a Copy button.
+Save opens a page called **Save a passkey on this Mac** (on Windows or Linux, **Save a passkey on this device**). Click **Save passkey**, then use Touch ID or your Mac password when your Mac asks (on Windows or Linux, your screen lock). That's the only step. If you did this on a Mac, your iPhone gets the passkey through iCloud Keychain. The next screen shows your connector address (ending in `/mcp`) with a Copy button.
 
 ## 4. Add Holdt to Grok Bot
 
@@ -98,10 +100,10 @@ That's it. Try asking "What's on my calendar this week?"
 ## Good to know
 
 - **Every change waits for your yes.** With changes on, Holdt shows a preview first and only makes the change after you agree. It never deletes your events and never sends invitations. It can take back its own changes, on your yes.
-- **Lost every device with Face ID?** Run `npm run new-code` in the Holdt folder. It prints a one-time recovery code, and for 15 minutes the approval page shows a field for it. Type it yourself, never paste it into a chat.
+- **Lost every device with your passkey?** Run `npm run new-code` in the Holdt folder. It prints a one-time recovery code, and for 15 minutes the approval page shows a field for it. Type it yourself, never paste it into a chat.
 - **Turn changes on later.** In the Cloudflare dashboard, open Workers & Pages, then holdt, then Settings, then Variables and Secrets. Set WRITES_ENABLED to true and save.
-- **Add a device.** Apple devices on the same Apple Account get Face ID for Holdt through iCloud Keychain. For another device, run `npm run add-device` (it opens the link in this computer's browser) or `npm run add-device -- --qr` and scan the code with that phone. Or open **Setup help** on the approval page, tap **add it**, and approve from your iPhone.
-- **Reset Face ID.** If the approval page says a device you don't recognize was added, tap Don't allow. Then run `npm run reset-passkeys` in the Holdt folder. Every Face ID device stops working at once. Then run `npm run add-device` to add your own again.
+- **Add a device.** Apple devices on the same Apple Account get your Holdt passkey through iCloud Keychain. For another device, run `WORKER_URL=https://holdt.you.workers.dev npm run add-device` (it opens the link in this computer's browser) or the same with `npm run add-device -- --qr` and scan the code with that phone. On Windows, set `WORKER_URL` first the same way as in step 3. Without `WORKER_URL` the link it prints has no real address. Or open **Setup help** on the approval page, tap **add it**, and approve from your iPhone.
+- **Reset passkeys.** If the approval page says a device you don't recognize was added, tap Don't allow. Then run `npm run reset-passkeys` in the Holdt folder. Every passkey stops working at once. Then run `npm run add-device` with `WORKER_URL` set, as above, to add your own again.
 - **Cut off every connection.** Run `npm run revoke-all`.
 - **Disconnect from Apple completely.** At account.apple.com, open Sign-In and Security, then App-Specific Passwords, and remove the Holdt password.
 

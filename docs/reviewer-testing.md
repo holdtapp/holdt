@@ -13,7 +13,7 @@ The demo account belongs to Holdt's test setup. Where an address has to appear i
 ## Connect
 
 1. Open the reviewer link in the browser you use for Grok Bot and tap Turn on reviewer access. The page shows the demo server address.
-2. In Grok Bot, add a custom connector and paste the demo server address. It ends in /mcp.
+2. In Grok Bot, open Connect Apps, then Add custom MCP server, and paste the demo server address. It ends in /mcp.
 3. Grok Bot opens Holdt's approval page. Check that it says "Connect Grok Bot to your iCloud Calendar?"
 4. Tap Allow as reviewer. Grok Bot shows the connector as connected.
 
@@ -44,11 +44,11 @@ Things Holdt refuses on purpose:
 
 Nothing here has been deployed. Each step that touches Cloudflare needs your go.
 
-1. Use a separate demo Worker on the test Apple Account, for example a copy of the test config with its own name, KV namespace and rate-limit namespaces. Never the production Worker named holdt.
+1. Use a separate demo Worker on the test Apple Account, for example a copy of wrangler.test.toml with its own name, KV namespace and rate-limit namespaces. Never the production Worker named holdt.
 2. In that Worker's config, under [vars], set REVIEWER_MODE = "on". The production wrangler.toml never sets it, and a test checks that.
-3. Deploy that Worker.
+3. Deploy that Worker with `npx --no-install wrangler deploy -c <demo config>`. Then connect the test Apple Account to it: `WORKER_NAME=<demo-worker> WORKER_URL=<demo server address> npm run setup`. The reviewer link is bound to that account, so do this before minting.
 4. Mint the link: `WORKER_NAME=<demo-worker> WORKER_URL=<demo server address> HOLDT_REVIEWER_ACCOUNT=<test account address> npm run setup -- --new-reviewer-code`. Only a salted hash bound to that account goes to Cloudflare. The link, `https://<demo-worker>.../review#RVW-...`, goes to a private file in ~/.holdt and is not printed. The address is read from the environment and never printed or stored.
-5. Put the link and the demo server address in the submission's testing notes. If a directory's submission form has a field that wants a credential, paste the link itself there. No form needs the bare code. (No click-budget exception was needed, see products/connect-standard section 10.)
+5. Put the link and the demo server address in the submission's testing notes. If a directory's submission form has a field that wants a credential, paste the link itself there. No form needs the bare code. (No click-budget exception was needed, see docs/no-typed-codes.md.)
 6. Revoke at any time: `WORKER_NAME=<demo-worker> npm run setup -- --revoke-reviewer`. The link stops working, every browser's reviewer access ends and every reviewer connection is cut on its next call. Your own connections keep working. Minting a new link also retires the old one, its browser passes and its connections.
 
 How it is locked down (src/reviewer.ts, tests in test/reviewer.test.ts):
