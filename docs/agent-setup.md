@@ -1,6 +1,6 @@
 # Set up Holdt by sending this page to your Grok Bot
 
-**For people:** send this page's link to your Grok Bot and say "Set up Holdt for my iCloud Calendar." Your Grok Bot does the install on your computer. You do three things: click **Allow** on Cloudflare's page, make one app-specific password on Apple's page and enter it on the Holdt page, then tap **Save passkey** once (Face ID on an iPhone, Touch ID or the device password on a Mac). You never open Terminal, and there's no Continue button.
+**For people:** send this page's link to your Grok Bot and say "Set up Holdt for my iCloud Calendar." Your Grok Bot does the install on your computer. You do three things: click **Allow** on Cloudflare's page, make one app-specific password on Apple's page and enter it on the Holdt page, then click **Save passkey** once (Touch ID or your password on a Mac). You never open Terminal, and there's no Continue button.
 
 You need a free Cloudflare account and an Apple Account with two-factor authentication on. Your Grok Bot needs access to your computer (the Grok Bot desktop app).
 

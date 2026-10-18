@@ -2,19 +2,21 @@
 
 **Holdt, said holt.** Reads your calendar. Changes nothing until you say yes.
 
-Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. **Calendar only: Apple Reminders is not included (see below).** It is read-only unless you turn changes on. With changes on, every change starts as a preview. Grok Bot is told to show it to you and wait for your yes, and Holdt accepts only that previewed change, once, within 10 minutes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
+Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. It is read-only unless you turn changes on. With changes on, every change starts as a preview. Grok Bot is told to show it to you and wait for your yes, and Holdt accepts only that previewed change, once, within 10 minutes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
+
+**Calendar only: Apple Reminders is not included (see below).**
 
 > **Status:** v1.0.3, self-hosted.
 > Reads verified live on a real iCloud account, Oct 16, 2026 (calendar list, event detail, week view, search).
 > Adding, changing and undoing verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: a repeated commit was refused, an undo after a later edit was refused, and every other event was left untouched.
-> As of Oct 18, 2026: `npm test` runs 272 tests, all passing. `npm run prove` runs 110 attacks, all refused, and proves 112 protections by switching each one off in a scratch copy. Current table: [docs/attack-proof.md](docs/attack-proof.md).
+> As of Oct 18, 2026: `npm test` runs 272 tests, all passing. `npm run prove` runs 110 attacks, all refused, and proves 112 protections: each one is switched off in a scratch copy, and its attack then gets through. Current table: [docs/attack-proof.md](docs/attack-proof.md).
 
 ## Setup (no Terminal)
-Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your free Cloudflare account from your computer (it needs the Grok Bot desktop app). You do four things:
+Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Your Grok Bot installs Holdt on your free Cloudflare account from your computer (it needs the Grok Bot desktop app). Then you:
 
 1. Click **Allow** on Cloudflare's page.
-2. Apple's page opens in front of the Holdt setup page. Make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars. That's how Apple designed them. Paste it on the Holdt page. Holdt checks it with Apple on its own and seals it in your Cloudflare account.
-3. Choose read-only (the default) or changes. Then save a passkey once: **Turn on Face ID** on an iPhone, or **Save passkey** on a Mac (Touch ID or your password).
+2. Apple's page opens in front of the Holdt setup page. Sign in, make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars. Paste it on the Holdt page. Holdt checks it with Apple on its own and seals it in your Cloudflare account.
+3. Choose read-only (the default) or changes. Then click **Save passkey** once (Touch ID or your password on a Mac). iCloud Keychain carries it to your iPhone.
 4. Add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
 
 When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone or iPad (Touch ID on models without Face ID), or **Allow on this Mac** on a Mac (Touch ID or your password). **Don't allow** is there too. Not on a device with your passkey? Choose **Approve on your iPhone instead** and scan the code with your iPhone. Action counts for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
