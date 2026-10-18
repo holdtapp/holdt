@@ -135,6 +135,21 @@ test("redirect policy: only https, loopback http, or cursor: may receive a code"
   assert.equal(c.page?.status ?? 200, 400); assert.match(c.html, /can['’]t connect/);
 });
 
+test("OAuth error redirects follow REDIRECT_ALLOWLIST: a registered stranger's URL is never followed", async () => {
+  await freshEnv({ REDIRECT_ALLOWLIST: CB });
+  for (const evil of ["https://attacker.example/cb", "cursor://evil/cb", "http://127.0.0.1:5999/cb"]) {
+    const reg = await call("/oauth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_name: "x", redirect_uris: [evil], token_endpoint_auth_method: "none", grant_types: ["authorization_code"], response_types: ["code"] }) });
+    const client: any = await reg.json();
+    const q = new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri: evil, state: "s", scope: "calendar" }); // no PKCE: the library raises an error that carries redirectTo
+    const r = await call(`/authorize?${q}`);
+    assert.notEqual(r.status, 302, evil); assert.ok(!(r.headers.get("location") ?? "").startsWith(evil.slice(0, 12)), evil);
+  }
+  const reg = await call("/oauth/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_name: "Grok Bot", redirect_uris: [CB], token_endpoint_auth_method: "none", grant_types: ["authorization_code"], response_types: ["code"] }) });
+  const ok: any = await reg.json();
+  const r = await call(`/authorize?${new URLSearchParams({ response_type: "code", client_id: ok.client_id, redirect_uri: CB, state: "s", scope: "calendar" })}`);
+  if (r.status === 302) assert.ok(r.headers.get("location")!.startsWith(CB), "a listed callback may still get the error");
+});
+
 test("consent page CSP lets the form's final redirect reach the client (cursor: scheme and https origin)", async () => {
   await freshEnv();
   const a = await connect();

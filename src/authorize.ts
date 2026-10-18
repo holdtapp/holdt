@@ -264,7 +264,8 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
     approved.headers.set("Location", redirectTo);
     return new Response(null, { status: 302, headers: approved.headers });
   } catch (e) {
-    if (e instanceof AuthorizationError && (e as any).redirectTo && redirectAllowed((e as any).redirectTo)) return Response.redirect((e as any).redirectTo, 302);
+    // Error redirects follow the same allowlist as codes, so a registered stranger's URL is shown here, never followed.
+    if (e instanceof AuthorizationError && (e as any).redirectTo && redirectAllowed((e as any).redirectTo) && redirectListed(env, (e as any).redirectTo)) return Response.redirect((e as any).redirectTo, 302);
     if (e instanceof AuthorizationError) return page("Holdt: Page expired", messageBody("This page expired", "Nothing was shared. Ask your assistant to connect again for a fresh page."), 400);
     const ref = crypto.randomUUID().slice(0, 6).toUpperCase();
     log.error(`authorize failed (ref ${ref})`, e);
