@@ -134,8 +134,8 @@ ${dead ? help : ""}${allow}${deny}${reviewer ? REVIEWER_HINT : ""}${dead ? "" : 
   return screen({ title: who.title, lede: who.lede, markId: "mk", body, actions });
 }
 const PK_FIELDS = (pk: { token: string }) => `<input type="hidden" name="pk_token" value="${esc(pk.token)}"><input type="hidden" name="pk_id"><input type="hidden" name="pk_cdj"><input type="hidden" name="pk_ad"><input type="hidden" name="pk_sig">`;
-const ADD_DEVICE = "On the computer where you set up Holdt, run this. It opens a one-time Face\u00a0ID link in that computer’s browser:<code>npm run add-device</code>";
-const ADD_DEVICE_QR = "On the computer where you set up Holdt, run this. Then scan the QR code it shows with this device:<code>npm run add-device -- --qr</code>";
+const ADD_DEVICE = "Run this on the computer where you set up Holdt. It opens a one-time setup link in that computer’s browser:<code>npm run add-device</code>";
+const ADD_DEVICE_QR = "Run this on the computer where you set up Holdt, then scan its QR code with this device:<code>npm run add-device -- --qr</code>";
 /** The normal consent page: Allow with Face ID, or scan a QR code and approve on the iPhone. Nothing to type. */
 /** A phone can't scan its own screen, so on a phone the fallback names another device. */
 export const isPhone = (req: Request) => /iPhone|iPad|Android/.test(req.headers.get("user-agent") ?? "");
@@ -159,9 +159,9 @@ function consentFaceBody(d: any, handle: string, writes: string, pk: { token: st
 function noDeviceBody(d: any, handle: string, writes: string, error = "", phone = false) {
   const { who, body } = consentFacts(d, writes);
   const actions = `<form method="post" autocomplete="off"><input type="hidden" name="handle" value="${esc(handle)}"><input type="hidden" name="ctx" value="${esc(d.__ctx ?? "")}">
-<p class="status wait setupwait" id="readymsg" aria-hidden="true" hidden data-bio>${ICON.spinner}<span class="st">Waiting for Face\u00a0ID to be turned\u00a0on.</span></p><p class="sr" id="readylive" role="status" aria-live="polite"></p>${error ? `<p class="status keep" role="alert">${ICON.info}<span class="st">${esc(error)}</span></p>` : ""}
+<p class="status wait setupwait" id="readymsg" aria-hidden="true" hidden data-bio>${ICON.spinner}<span class="st">Waiting for you to turn on Face\u00a0ID.</span></p><p class="sr" id="readylive" role="status" aria-live="polite"></p>${error ? `<p class="status keep" role="alert">${ICON.info}<span class="st">${esc(error)}</span></p>` : ""}
 <button class="btn plain quiet" name="decision" value="deny" formnovalidate>Don’t allow</button>${ownerNote(HELP, phone ? ADD_DEVICE_QR : ADD_DEVICE, true)}</form>`;
-  return screen({ title: who.title, lede: who.lede.replace("Allow this only if you just asked it to connect.", "If you didn’t ask it to connect, don’t allow\u00a0it."), markId: "mk", body, actions });
+  return screen({ title: who.title, lede: who.lede, markId: "mk", body, actions });
 }
 /** Has the owner turned on a recovery code with `npm run new-code`, and is it still usable? Only then does a code field show. */
 async function recoveryLive(env: Env, now = Date.now()) {
@@ -281,7 +281,7 @@ async function enrollPage(env: Env, url: URL, phone = false): Promise<Response> 
     actions: `<p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="go">${ICON.faceId}${ICON.spinner}<span>Turn on Face ID</span></button>
 <button type="button" class="btn plain quiet" id="later">Not now</button>` });
   return page("Holdt: Turn on Face ID", `<div id="setup">${setup}</div>
-<div id="done" hidden>${screen({ title: "Face ID is on", titleId: "title-done", lede: "Next time, tap Allow with Face\u00a0ID. With iCloud Keychain on, your other Apple devices can use it too.", markState: "open", markId: "mkdone", body: `<div class="next" id="next" hidden><p class="say" id="say">${esc(url.origin).replace(/\./g, ".<wbr>")}/<wbr>mcp</p></div>`, actions: `<div id="copywrap" hidden><button type="button" class="btn primary" id="copy">${ICON.copy}<span>Copy address</span></button><p class="foot copymsg" id="copylive" role="status" aria-live="polite"></p></div><p class="foot" id="closeline">You can close this page.</p>` })}</div>
+<div id="done" hidden>${screen({ title: "Face ID is on", titleId: "title-done", lede: "Next time, approve with Face\u00a0ID. With iCloud Keychain on, your other Apple devices can use it too.", markState: "open", markId: "mkdone", body: `<div class="next" id="next" hidden><p class="say" id="say">${esc(url.origin).replace(/\./g, ".<wbr>")}/<wbr>mcp</p></div>`, actions: `<div id="copywrap" hidden><button type="button" class="btn primary" id="copy">${ICON.copy}<span>Copy address</span></button><p class="foot copymsg" id="copylive" role="status" aria-live="polite"></p></div><p class="foot" id="closeline">You can close this page.</p>` })}</div>
 <div id="skip" hidden>${screen({ title: "Face ID not turned on", titleId: "title-skip", lede: "Holdt needs Face ID to approve connections. Turn it on whenever you’re ready.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, addHelp)}` })}</div>
 <div id="dead" hidden>${screen({ title: "This link expired", titleId: "title-dead", lede: "Links last 10 minutes. Make a new one on the computer where you set up Holdt.", markState: "muted", centered: true, actions: `<p class="foot">You can close this page.</p>${ownerNote(HELP, addHelp)}` })}</div>`, 200, undefined, "", ENROLL_SCRIPT);
 }
@@ -321,7 +321,7 @@ function pairPage(env: Env, url: URL): Response {
   const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
   return page("Holdt: Add this device", `<div id="ask">${screen({ title: "Add this device", lede: "Approve from the iPhone you already use with Holdt.", markId: "mk",
     body: `<div class="awaybox lone" id="awaypanel"><div id="qrwrap" class="qrwait"></div>
-<div class="stepsw"><ol class="steps one" data-nobio><li>Scan with its camera, then approve with Face\u00a0ID.</li></ol><p class="status wait" id="awaymsg" aria-hidden="true">${ICON.spinner}<span class="st">Waiting for your iPhone.</span></p></div><noscript><p class="foot">Turn on JavaScript to add this device.</p></noscript></div>`,
+<div class="stepsw"><ol class="steps one" data-nobio><li>Scan it with that iPhone’s camera, then approve with Face\u00a0ID.</li></ol><p class="status wait" id="awaymsg" aria-hidden="true">${ICON.spinner}<span class="st">Waiting for your iPhone.</span></p></div><noscript><p class="foot">Turn on JavaScript to add this device.</p></noscript></div>`,
     actions: `<p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn plain quiet" id="later">Not now</button>` })}</div>
 ${v("ready", { title: "Turn on Face ID", titleId: "t-ready", lede: "Approved. Finish here with a glance.", markId: "mkready",
     body: `<ul class="facts" role="list"><li>${ICON.faceId}<p>Your face stays on your device. Holdt never sees it.</p></li></ul>`,
@@ -427,7 +427,7 @@ function reviewerPage(env: Env): Response {
   const v = (id: string, o: Parameters<typeof screen>[0]) => `<div id="${id}" hidden>${screen(o)}</div>`;
   const close = `<p class="foot">You can close this page.</p>`;
   return page("Holdt: Reviewer access", `<div id="ask">${screen({ title: "Reviewer access", lede: "Turn it on in this browser to try Holdt with a demo calendar.", markId: "mk",
-    body: `<ul class="facts" role="list"><li>${ICON.calendar}<p>A demo calendar, not a real person’s.</p></li><li>${ICON.link}<p>Reviewer access lasts up to 14\u00a0days.</p></li></ul>`,
+    body: `<ul class="facts" role="list"><li>${ICON.calendar}<p>No real person’s events.</p></li><li>${ICON.link}<p>Reviewer access lasts up to 14\u00a0days.</p></li></ul>`,
     actions: `<p class="status" id="msg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="go">${ICON.spinner}<span>Turn on reviewer access</span></button><p class="foot">Nothing changes until you turn it on.</p><noscript><p class="foot">Turn on JavaScript to use this link.</p></noscript>` })}</div>
 ${v("done", { title: "Reviewer access on", titleId: "t-done", lede: "Add this address in your assistant, then allow it when Holdt asks.", markState: "open", markId: "mkdone", body: `<div class="next"><p class="say" id="say"></p></div>`, actions: `<div id="copywrap"><button type="button" class="btn primary" id="copy">${ICON.copy}<span>Copy address</span></button><p class="foot copymsg" id="copylive" role="status" aria-live="polite"></p></div><p class="foot" id="until"></p>` })}
 ${v("dead", { title: "This reviewer link has ended", titleId: "t-dead", lede: "Ask the developer for a new one.", markState: "muted", centered: true, actions: close })}`, 200, undefined, "", REVIEW_SCRIPT);

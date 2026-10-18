@@ -24,8 +24,8 @@ async function freshEnv(over: Record<string, unknown> = {}) {
     PASSKEYS: "on",
     ENROLL_TOKEN_HASH: createHash("sha256").update(ENROLL).digest("hex"), ENROLL_TOKEN_ISSUED: String(Date.now()), ...over };
 }
-// The new-device fixture is frozen at 8:00 PM MT on Oct 17 so light and dark show the same minute.
-const pk = (daysAgo: number, label = "iPhone") => addPasskey(env, { id: randomBytes(16).toString("base64url"), jwk: {}, alg: -7, signCount: 0, createdAt: daysAgo < 1 ? Date.UTC(2026, 9, 18, 2, 0) : Date.now() - daysAgo * 86400_000, label, rpId: new URL(ORIGIN).hostname } as any);
+// The new-device fixture is on the hour, an hour ago, so light and dark show the same minute and it always reads today.
+const pk = (daysAgo: number, label = "iPhone") => addPasskey(env, { id: randomBytes(16).toString("base64url"), jwk: {}, alg: -7, signCount: 0, createdAt: daysAgo < 1 ? Math.floor(Date.now() / 3600_000) * 3600_000 - 3600_000 : Date.now() - daysAgo * 86400_000, label, rpId: new URL(ORIGIN).hostname } as any);
 const server = createServer(async (req, res) => {
   const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
   if (req.url?.startsWith("/__msg/")) { const [t, x, o] = JSON.parse(decodeURIComponent(req.url.slice(7))); res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); res.end(documentHtml(`Holdt: ${t}`, messageBody(t, x, o))); return; }
@@ -65,6 +65,7 @@ const SCREENS: { id: string; name: string; mac?: boolean; go: (p: P) => Promise<
   { id: "06-consent-new-device", name: "Consent with the new-device notice", go: async (p) => { await freshEnv(); await pk(0.02); await p.goto(await authorizeUrl("Cursor")); } },
   { id: "07-consent-approved-on-iphone", mac: true, name: "On a Mac: the iPhone said yes, the Mac finishes by itself", go: async (p) => { await freshEnv(); await pk(30); await holdSubmit(p); await stubFetch(p, { "/authorize/away": { ok: true, status: "approved" } }); await p.goto(await authorizeUrl("Cursor")); await p.click("#mode"); await settle(2600); } },
   { id: "08-consent-no-device", name: "Consent before any device has Face ID (waits, then continues)", go: async (p) => { await freshEnv(); await p.goto(await authorizeUrl("Cursor")); } },
+  { id: "09-consent-no-device-mac", mac: true, name: "On a Mac: consent before any device has a passkey (Setup help opens a one-time setup link in this browser)", go: async (p) => { await freshEnv(); await p.goto(await authorizeUrl("Cursor")); } },
   { id: "11-consent-unknown-app", name: "Consent for an app Holdt can't verify", go: async (p) => { await freshEnv(); await pk(30); await p.goto(await authorizeUrl("Calendar Helper", "https://app.example/oauth/callback")); } },
   { id: "28-review-link", name: "Demo server only: the reviewer link, opened (nothing happens until the tap)", go: async (p) => { await freshEnv(RV_ENV); await p.goto(ORIGIN + "/review#" + RVW.display); } },
   { id: "29-review-on", name: "Demo server only: reviewer access turned on in this browser", go: async (p) => { await freshEnv(RV_ENV); await p.goto(ORIGIN + "/review#" + RVW.display); await p.click("#go"); await settle(900); } },

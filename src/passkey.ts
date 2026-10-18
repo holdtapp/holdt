@@ -154,12 +154,12 @@ export function deviceNotice(creds: StoredCredential[], tz: string, now = Date.n
   const when = (ms: number) => {
     const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: z, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).formatToParts(ms).map((x) => [x.type, x.value]));
     const d = day(ms) === day(now) ? "today" : day(ms) === day(now - 86400_000) ? "yesterday" : `on ${p.month} ${p.day}`;
-    return `${d} at ${p.hour}:${p.minute}\u00a0${p.dayPeriod}`;
+    return `${d} at\u00a0${p.hour}:${p.minute}\u00a0${p.dayPeriod}`;
   };
   const list = recent.slice(0, 3).map((c) => `${deviceName(c.label)} ${when(c.createdAt)}`);
   const joined = list.length === 1 ? list[0] : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
   const lead = list.length === 1 ? `${list[0]!.charAt(0).toUpperCase()}${list[0]!.slice(1).replace(/ (today|yesterday|on )/, " was added $1")}` : `New devices: ${joined}`;
-  return `${lead}. Not you? Tap\u00a0Don't\u00a0allow.`;
+  return `${lead}. Not you? Choose\u00a0Don't\u00a0allow.`;
 }
 export const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
 
@@ -234,7 +234,7 @@ const CODEC = `const b=s=>Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,
 // Android, Linux) has neither, so it gets the Mac treatment with "this device" and "your screen lock" (gen).
 // Every other iPhone has Face ID. Copy written for Face ID is rewritten in place for the others.
 const BIO_KIND = `const _ua=navigator.userAgent,_tch='ontouchend' in document,touch=/Macintosh/.test(_ua)&&!_tch,_bk=touch?'mac':/iPhone/.test(_ua)?(Math.max(screen.width,screen.height)<=667?'touchphone':'face'):/Macintosh|iPad/.test(_ua)?'either':'other',gen=_bk==='mac'||_bk==='other',here=touch?'this Mac':'this device',lockw=touch?'Touch ID or password':'your screen lock';`;
-const BIO_WALK = `const _rw=(root)=>{if(_bk==='face')return;if(gen){const w=document.createTreeWalker(root,4);let n;while((n=w.nextNode()))if(!/Touch|password|screen lock/.test(n.nodeValue)&&!(n.parentElement&&n.parentElement.closest('[data-nobio]')))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,touch?'Touch$1ID or password':'your screen lock').replace(/^your screen lock/,'Your screen lock').replace('Your face stays',touch?'Your fingerprint or password stays':'Your screen lock stays').replace('with a glance',touch?'with Touch ID or your password':'with your screen lock');return;}const one=_bk!=='either',w=document.createTreeWalker(root,4);let n;while((n=w.nextNode()))if(!/Touch|fingerprint/.test(n.nodeValue)&&!(n.parentElement&&n.parentElement.closest('[data-nobio]')))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,one?'Touch$1ID':'Touch$1ID or Face$1ID').replace('Your face stays',one?'Your fingerprint stays':'Your face or fingerprint stays').replace('with a glance',one?'with a touch':'with a glance or a touch');};`;
+const BIO_WALK = `const _rw=(root)=>{if(_bk==='face')return;if(gen){const w=document.createTreeWalker(root,4);let n;while((n=w.nextNode()))if(!/Touch|password|screen lock/.test(n.nodeValue)&&!(n.parentElement&&n.parentElement.closest('[data-nobio]')))n.nodeValue=n.nodeValue.replace(/turn on Face(\\u00a0| )ID/,'save a passkey').replace(/Face(\\u00a0| )ID/g,touch?'Touch$1ID or password':'your screen lock').replace(/^your screen lock/,'Your screen lock').replace('Your face stays',touch?'Your fingerprint or password stays':'Your screen lock stays').replace('with a glance',touch?'with Touch ID or your password':'with your screen lock');return;}const one=_bk!=='either',w=document.createTreeWalker(root,4);let n;while((n=w.nextNode()))if(!/Touch|fingerprint/.test(n.nodeValue)&&!(n.parentElement&&n.parentElement.closest('[data-nobio]')))n.nodeValue=n.nodeValue.replace(/Face(\\u00a0| )ID/g,one?'Touch$1ID':'Touch$1ID or Face$1ID').replace('Your face stays',one?'Your fingerprint stays':'Your face or fingerprint stays').replace('with a glance',one?'with a touch':'with a glance or a touch');};`;
 const TOUCH = `${BIO_KIND}${BIO_WALK}const bio=gen?lockw:_bk==='touchphone'?'Touch ID':_bk==='either'?'Touch ID or Face ID':'Face ID';if(_bk==='touchphone')document.documentElement.classList.add('touch');if(touch)document.documentElement.classList.add('mac');if(gen)document.documentElement.classList.add('key');_rw(document.body);document.title=document.title.replace('Face ID',bio);`;
 /** Pages with no other script: rewrite Face ID inside [data-bio] for the device (a Mac gets Touch ID or password and the passkey glyph). */
 export const BIO_SWAP = `(()=>{${BIO_KIND}${BIO_WALK}if(gen){if(touch)document.documentElement.classList.add('mac');document.documentElement.classList.add('key');document.querySelectorAll('[data-bio]').forEach(_rw);document.title=document.title.replace('Face ID',lockw);return;}if(_bk==='touchphone')document.documentElement.classList.add('touch');document.querySelectorAll('[data-bio]').forEach(_rw);document.title=document.title.replace('Face ID',_bk==='touchphone'?'Touch ID':_bk==='either'?'Touch ID or Face ID':'Face ID');})();`;
@@ -352,7 +352,7 @@ if(gen){$('ready').querySelector('h1').textContent='Save a passkey on '+here;$('
 const stop=()=>{clearInterval(timer);timer=0;};
 const poll=async()=>{if(document.hidden||!claim)return;const r=await post('/pair/status',{claim});if(!r||!r.ok||!timer)return;
 if(r.status==='approved'&&r.publicKey){stop();opts=r;show('ready');}else if(r.status==='denied'){stop();show('no');}else if(r.status==='gone'){stop();show('dead');}};
-(async()=>{const r=await post('/pair/new',{});if(!r.ok)return show(/yet/.test(r.message||'')?'nopk':'dead');claim=r.claim;const w=$('qrwrap');w.innerHTML=r.qr;w.classList.remove('qrwait');live.textContent='QR code shown. Scan it with your iPhone’s camera.';timer=setInterval(poll,2000);})();
+(async()=>{const r=await post('/pair/new',{});if(!r.ok)return show(/yet/.test(r.message||'')?'nopk':'dead');claim=r.claim;const w=$('qrwrap');w.innerHTML=r.qr;w.classList.remove('qrwait');live.textContent='QR code shown. Scan it with that iPhone’s camera.';timer=setInterval(poll,2000);})();
 $('later').addEventListener('click',()=>{stop();show('skip');});$('later2').addEventListener('click',()=>show('skip'));
 const btn=$('go'),msg=$('msg').lastElementChild,live2=$('live2'),blab=btn.lastElementChild,idle=()=>{blab.textContent='Turn on '+bio;};
 const say=m=>{msg.textContent=m;live2.textContent=m;};
