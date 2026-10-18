@@ -436,16 +436,17 @@ ${v("done", { title: "Reviewer access on", titleId: "t-done", lede: "Add this ad
 ${v("dead", { title: "This reviewer link has ended", titleId: "t-dead", lede: "Ask the developer for a new one.", markState: "muted", centered: true, actions: close })}`, 200, undefined, "", REVIEW_SCRIPT);
 }
 const REVIEW_SCRIPT = `const $=id=>document.getElementById(id),VIEWS=["ask","done","dead"],show=id=>{VIEWS.forEach(x=>{$(x).hidden=x!==id;});const h=$(id).querySelector('h1');h.setAttribute('tabindex','-1');h.focus();setTimeout(()=>{document.title='Holdt: '+h.textContent.trim();},0);};
-const KEY='holdt-review',store=(()=>{try{return sessionStorage}catch{return null}})();const code=decodeURIComponent(location.hash.slice(1))||store?.getItem(KEY)||'';if(code&&store)try{store.setItem(KEY,code)}catch{}history.replaceState(null,'',location.pathname);const forget=()=>{try{store?.removeItem(KEY)}catch{}};
+const KEY='holdt-review',store=(()=>{try{return sessionStorage}catch{return null}})();const code=decodeURIComponent(location.hash.slice(1))||store?.getItem(KEY)||'';if(code&&store)try{store.setItem(KEY,code)}catch{}history.replaceState(null,'',location.pathname);const forget=()=>{try{store?.removeItem(KEY);store?.removeItem(KEY+'-on')}catch{}};
 $('say').textContent=location.origin+'/mcp';
 const end=(t,l)=>{const d=$('dead'),e=d.querySelector('.lede');d.querySelector('h1').textContent=t;e.textContent=l;e.hidden=!l;show('dead');};
 if(!code)end('This reviewer link isn’t complete','Open it again from the testing instructions.');
 const btn=$('go'),msg=$('msg').lastElementChild,live=$('live'),lab=btn.lastElementChild;
-btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');lab.textContent='Turning on';msg.textContent='';live.textContent='Turning on reviewer access.';
+const claim=async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');lab.textContent='Turning on';msg.textContent='';live.textContent='Turning on reviewer access.';
 const d=await fetch('/review/claim',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}).then(r=>r.json()).catch(()=>({ok:false,message:'Holdt couldn’t reach the server. Try again.'}));
-if(d.ok||d.ended&&d.message)forget();if(d.ok){$('until').textContent='Reviewer access in this browser ends '+new Date(d.until).toLocaleDateString(undefined,{month:'long',day:'numeric'})+'.';show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));return;}
+if(d.ended&&d.message)forget();if(d.ok){try{store?.setItem(KEY+'-on','1')}catch{}$('until').textContent='Reviewer access in this browser ends '+new Date(d.until).toLocaleDateString(undefined,{month:'long',day:'numeric'})+'.';show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));return;}
 if(d.ended){if(!d.message)end('Couldn’t turn on reviewer access','Ask the developer to check this demo server.');else if(!/has ended/.test(d.message))end(d.message.replace(/\\.$/,''),'');else show('dead');return;}
-btn.disabled=false;btn.removeAttribute('aria-busy');lab.textContent='Turn on reviewer access';msg.textContent=d.message||'That didn’t work. Try again.';live.textContent=msg.textContent;});
+btn.disabled=false;btn.removeAttribute('aria-busy');lab.textContent='Turn on reviewer access';msg.textContent=d.message||'That didn’t work. Try again.';live.textContent=msg.textContent;};
+btn.addEventListener('click',claim);if(code&&store?.getItem(KEY+'-on'))claim();
 const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent.trim());cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in your assistant.';setTimeout(()=>{cl.textContent='Copy address';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy address';$('copylive').textContent='Couldn’t copy. The address is selected.';}});`;
 /** The tap: same-origin JSON only, then a signed pass cookie for this browser. Multi-use, spends nothing. */
 async function reviewerClaim(req: Request, env: Env, url: URL): Promise<Response> {

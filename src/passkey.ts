@@ -359,13 +359,13 @@ let denying=false;$('nope').addEventListener('click',async()=>{if(denying)return
 /** A new device: show a QR code, wait for the iPhone's yes, then make this device's own passkey on a tap.
  * The claim secret stays in this page's memory. It is never in the QR code, so whoever sees the code can't enroll. */
 export const PAIR_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["ask", "ready", "done", "no", "skip", "dead", "nopk"])}${REGISTER}
-let claim='',opts=null,timer=0,off=false;const live=$('live');
+let claim='',opts=null,timer=0,off=false,miss=0;const live=$('live'),WAIT='Waiting for that iPhone.',note=t=>{$('awaymsg').lastElementChild.textContent=t;live.textContent=t;};
 if(gen){$('ready').querySelector('h1').textContent='Save a passkey on '+here;$('go').lastElementChild.textContent='Save passkey';$('done').querySelector('h1').textContent='Passkey saved';$('done').querySelector('.lede').textContent='Next time, '+(_tch?'tap':'click')+' Allow on '+here+'.';}
 const stop=()=>{clearInterval(timer);timer=0;};
-const NET='Holdt couldn’t reach your server. Check your connection, then reload this page.',fail=t=>{const m=$('awaymsg');m.classList.remove('wait');m.querySelector('.spin')?.remove();const q=$('qrwrap');if(q.classList.contains('qrwait'))q.hidden=true;m.lastElementChild.textContent=t;live.textContent=t;};
-const poll=async()=>{if(document.hidden||!claim)return;const r=await post('/pair/status',{claim});if(!r||!timer)return;if(r.net){stop();return fail(NET);}if(!r.ok)return;
+const NET='Holdt couldn’t reach your server. Check your connection, then reload this page.',fail=t=>{const m=$('awaymsg');m.classList.remove('wait');m.querySelector('.spin')?.remove();$('qrwrap').hidden=true;m.lastElementChild.textContent=t;live.textContent=t;};
+const poll=async()=>{if(document.hidden||!claim)return;const r=await post('/pair/status',{claim});if(!r||!timer)return;if(r.net){if(++miss<3)return note('Reconnecting…');stop();return fail(NET);}if(miss){miss=0;note(WAIT);}if(!r.ok)return;
 if(r.status==='approved'&&r.publicKey){stop();opts=r;show('ready');}else if(r.status==='denied'){stop();show('no');}else if(r.status==='gone'){stop();show('dead');}};
-(async()=>{const r=await post('/pair/new',{});if(off)return;if(!r.ok&&r.net)return fail(NET);if(!r.ok)return /yet/.test(r.message||'')?show('nopk'):fail(typo(r.message||r.error_description||'That didn’t work. Reload this page to try again.'));claim=r.claim;const w=$('qrwrap');w.innerHTML=r.qr;w.classList.remove('qrwait');$('scanstep').hidden=false;const t='Waiting for that iPhone.';$('awaymsg').lastElementChild.textContent=t;live.textContent='QR code shown. Scan it with that iPhone’s camera. '+t;timer=setInterval(poll,2000);})();
+(async()=>{const r=await post('/pair/new',{});if(off)return;if(!r.ok&&r.net)return fail(NET);if(!r.ok)return /yet/.test(r.message||'')?show('nopk'):fail(typo(r.message||r.error_description||'That didn’t work. Reload this page to try again.'));claim=r.claim;const w=$('qrwrap');w.innerHTML=r.qr;w.classList.remove('qrwait');$('scanstep').hidden=false;$('awaymsg').lastElementChild.textContent=WAIT;live.textContent='QR code shown. Scan it with that iPhone’s camera. '+WAIT;timer=setInterval(poll,2000);})();
 $('later').addEventListener('click',()=>{off=true;stop();show('skip');});$('later2').addEventListener('click',()=>show('skip'));
 const btn=$('go'),msg=$('msg').lastElementChild,live2=$('live2'),blab=btn.lastElementChild,idle=()=>{blab.textContent=gen?'Save passkey':'Turn on '+bio;};
 const say=m=>{msg.textContent=m;live2.textContent=m;};

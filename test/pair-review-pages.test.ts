@@ -26,10 +26,10 @@ class El {
   setAttribute(k: string, v: string) { this.attrs[k] = v; } removeAttribute(k: string) { delete this.attrs[k]; } hasAttribute(k: string) { return k in this.attrs; }
   remove() { this.removed = true; } focus() {} scrollIntoView() {} addEventListener(e: string, f: Function) { this.on[e] = f; }
 }
-function run(script: string, o: { ua?: string; fetch: (path: string, body: any) => any; hash?: string; ids?: Record<string, El>; create?: () => Promise<any>; touch?: boolean; screen?: { width: number; height: number } }) {
+function run(script: string, o: { ua?: string; fetch: (path: string, body: any) => any; hash?: string; ids?: Record<string, El>; create?: () => Promise<any>; touch?: boolean; screen?: { width: number; height: number }; store?: Map<string, string> }) {
   const els: Record<string, El> = { ...o.ids }, doc: any = { title: "", body: new El(), documentElement: new El(), getElementById: (id: string) => (els[id] ??= new El()), querySelectorAll: () => [], createTreeWalker: () => ({ nextNode: () => null }) };
   if (o.touch) doc.ontouchend = null;
-  const intervals: Function[] = [], store = new Map<string, string>();
+  const intervals: Function[] = [], store = o.store ?? new Map<string, string>();
   const fakeFetch = async (path: string, init: any) => { const r = await o.fetch(path, JSON.parse(init.body)); if (r === "net") throw new TypeError("offline"); return { json: async () => r }; };
   const names = ["document", "navigator", "screen", "fetch", "location", "history", "sessionStorage", "setInterval", "clearInterval", "setTimeout", "requestAnimationFrame", "getSelection", "window"];
   const vals = [doc, { userAgent: o.ua ?? MAC, platform: "MacIntel", credentials: { create: () => o.create!() } }, o.screen ?? { width: 1440, height: 900 }, fakeFetch, { hash: o.hash ?? "", pathname: "/x", search: "", origin: ORIGIN }, { replaceState() {} },
@@ -68,16 +68,29 @@ test("pair page: the QR code brings the scan step and the waiting line, and a sc
   assert.equal(p.$("qrwrap").hidden, false);
 });
 
-test("pair page: a later poll that can't reach the server says so and stops the spinner", async () => {
+test("pair page: a single dropped poll keeps polling, so a later approval is still picked up", async () => {
+  fresh(); const s = scriptOf(await (await call("/pair")).text()); let reply: any = "net";
+  const p = run(s, { ids: PAIR_VIEWS(), fetch: (path) => path === "/pair/new" ? NEW : reply });
+  await settle(); await p.tick();
+  assert.equal(p.$("awaymsg").lastElementChild.textContent, "Reconnecting…"); assert.equal(p.$("live").textContent, "Reconnecting…");
+  assert.equal(p.$("qrwrap").hidden, false);
+  reply = { ok: true, status: "pending" }; await p.tick(); assert.equal(p.$("awaymsg").lastElementChild.textContent, "Waiting for that iPhone.");
+  reply = "net"; await p.tick(); await p.tick(); reply = { ok: true, status: "pending" }; await p.tick();
+  reply = "net"; await p.tick(); assert.equal(p.$("awaymsg").lastElementChild.textContent, "Reconnecting…", "a success reset the count");
+  reply = APPROVED; await p.tick(); assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["ready"]);
+});
+
+test("pair page: three dropped polls in a row say so, stop the spinner and hide the QR code", async () => {
   fresh(); const s = scriptOf(await (await call("/pair")).text()); let net = false;
-  const p = run(s, { ids: PAIR_VIEWS(), fetch: (path) => path === "/pair/new" ? { ok: true, claim: "c", qr: "<svg></svg>" } : net ? "net" : { ok: true, status: "pending" } });
+  const p = run(s, { ids: PAIR_VIEWS(), fetch: (path) => path === "/pair/new" ? NEW : net ? "net" : { ok: true, status: "pending" } });
   await settle(); await p.tick(); assert.equal(p.$("awaymsg").lastElementChild.textContent, "Waiting for that iPhone.");
-  net = true; await p.tick();
+  net = true; await p.tick(); await p.tick(); assert.equal(p.$("qrwrap").hidden, false); await p.tick();
   const t = "Holdt couldn’t reach your server. Check your connection, then reload this page.";
   assert.equal(p.$("awaymsg").lastElementChild.textContent, t); assert.equal(p.$("live").textContent, t);
   assert.equal(p.$("awaymsg").classList.contains("wait"), false); assert.equal(p.$("awaymsg").querySelector(".spin"), null);
-  assert.equal(p.$("qrwrap").hidden, false, "a QR code already shown stays");
+  assert.equal(p.$("qrwrap").hidden, true, "no code to scan once the page has given up");
   assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["ask"]);
+  await p.tick(); assert.equal(p.$("awaymsg").lastElementChild.textContent, t, "polling stopped, so nothing overwrites it");
 });
 
 test("pair page: a device cap or a rate limit shows the server's sentence, never 'This request expired'", async () => {
@@ -220,6 +233,20 @@ test("reviewer page: no code says the link isn't complete, a server sentence sho
   await ended.$("go").on.click!(); assert.equal(ended.$("dead").hidden, false);
   assert.equal(ended.$("dead").querySelector("h1")!.textContent, "", "the page's own 'This reviewer link has ended' title stays");
   const html = await (await call("/review")).text(); assert.match(html, /This reviewer link has ended/);
+});
+
+test("reviewer page: a reload after success claims again and shows the done view, never 'isn’t complete'", async () => {
+  fresh({ REVIEWER_MODE: "on" }); const s = scriptOf(await (await call("/review")).text());
+  const store = new Map<string, string>(), claims: string[] = [], OK = { ok: true, until: Date.UTC(2026, 9, 31) };
+  const first = run(s, { hash: "#RVW-CODE", store, ids: views(["ask", "done", "dead"]), fetch: (_p, b) => (claims.push(b.code), OK) });
+  await first.$("go").on.click!(); assert.equal(first.$("done").hidden, false);
+  const again = run(s, { store, ids: views(["ask", "done", "dead"]), fetch: (_p, b) => (claims.push(b.code), OK) }); await settle();
+  assert.notEqual(again.$("dead").querySelector("h1")!.textContent, "This reviewer link isn’t complete");
+  assert.deepEqual(shown(again, ["ask", "done", "dead"]), ["done"]); assert.deepEqual(claims, ["RVW-CODE", "RVW-CODE"]);
+  const ended = run(s, { store, ids: views(["ask", "done", "dead"]), fetch: () => ({ ok: false, ended: true, message: "This reviewer link has ended. Ask the developer for a new one." }) }); await settle();
+  assert.deepEqual(shown(ended, ["ask", "done", "dead"]), ["dead"]); assert.equal(store.size, 0, "an ended code is forgotten");
+  const opened = run(s, { hash: "#RVW-CODE", ids: views(["ask", "done", "dead"]), fetch: () => { throw new Error("no claim before the tap"); } }); await settle();
+  assert.deepEqual(shown(opened, ["ask", "done", "dead"]), ["ask"], "a first visit still waits for the tap");
 });
 
 test("reviewer error messages use typographic apostrophes", async () => {
