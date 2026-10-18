@@ -4,9 +4,11 @@
 
 Holdt is a small MCP server that runs on **your own Cloudflare account** and lets Grok Bot read your iCloud calendars. **Calendar only: Apple Reminders is not included (see below).** It is read-only unless you turn changes on. With changes on, it still shows you every change first and waits for your yes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
 
-> Status: private beta. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Changes have only been tested against the mock iCloud server so far. v1.0 (this branch) has 178 automated tests, 71 of them attacks, and 74 rows in `npm run prove`. Not deployed, submitted or published.
+> Status: private beta. Reads were verified live against a real iCloud account on Oct 16, 2026 (calendar list, event detail, week view, search). Adding, changing and undoing events were verified live on a real iCloud test account on Oct 17, 2026. All 18 checks passed, including a repeated commit being refused, an undo being refused after a later edit, and every other event staying untouched. v1.0 (this branch) has 214 automated tests. `npm run prove` refuses 89 attacks and proves 88 protections by switching each one off. Not deployed, submitted or published.
 
 ## Setup (about 5 minutes, ESTIMATE)
+You type these commands in Terminal on a Mac (or any command line). You need Node.js and a free Cloudflare account. A step-by-step version in plain English is in docs/setup.md.
+
 1. `npm install`
 2. `npm run cf:login`, then `npm run deploy` (both use the wrangler version pinned in package.json). Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
 3. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens on your computer:
@@ -14,7 +16,7 @@ Holdt is a small MCP server that runs on **your own Cloudflare account** and let
    - **Test connection** shows "Found N calendars".
    - Choose read-only or "changes with my yes", then **Save**.
 4. Setup shows your connector address (`https://holdt.<you>.workers.dev/mcp`) and an 8-digit approval code. In Grok Bot, open **Connect Apps → Add custom MCP server**, paste the address, and enter the code on the approval page that opens. The code works once, for 15 minutes. Lost it? `npm run setup -- --new-code`.
-5. Optional, one-tap connect: set `PASSKEYS = "on"` in wrangler.toml and deploy, then run `npm run setup -- --add-device` and open the link it prints on your iPhone. After that, connecting is **Allow with Face ID**, with nothing to type. The code stays as the fallback. See docs/passkey-preview-plan.md.
+5. Optional, one-tap connect: set `PASSKEYS = "on"` in wrangler.toml and deploy, then run `npm run setup -- --add-device` and open the link it prints on your iPhone. After that, connecting is **Allow with Face ID**, with nothing to type. The code stays as the fallback. See docs/SECURITY.md, "Passkey one-tap connect".
 
 Your password only goes to Apple and to your own Cloudflare secrets (via `wrangler secret put` on stdin). It is never written to disk, logged, or put on a command line. To disconnect, remove the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
 
@@ -38,21 +40,21 @@ Apple's Reminders app (iOS 13 and later) keeps its lists in a private store that
 Anything we built would read the wrong list, so v1 leaves Reminders out. You can ask your bot to put a timed calendar event with an alert on your calendar instead. The old CalDAV reminder code is kept behind `REMINDERS_EXPERIMENTAL=true` (off, unsupported) for a possible future version. To check an account yourself, see docs/reminders-probe.md.
 
 ## Safety design
-- **Undo, on your yes.** Every change Holdt makes is logged for 30 days and comes with a revert token that works for 7 days. Undoing an edit puts the old version back, but only if nobody changed the event since. Undoing an add removes that event only if Holdt added it in the last 24 hours and it's unchanged. There is no other way for Holdt to remove anything.
+- **Undo, on your yes.** Every change Holdt makes is logged for 30 days and comes with a revert token that works for 7 days. Undoing an edit puts the old version back, but only if the event hasn't changed since. Undoing an add removes that event only if Holdt added it in the last 24 hours and it hasn't changed since, even by Holdt. Undo a later edit first, then the add. There is no other way for Holdt to remove anything.
 - **Two-step writes.** `prepare_*` changes nothing and returns an HMAC-signed token bound to the exact change, valid for 10 minutes. `commit_*` only accepts that token.
 - **No double writes.** Replays are blocked by token nonces, `If-None-Match: *` on creates and `If-Match` ETags on updates, so a change can't land twice and a stale preview can't overwrite newer edits.
 - **Writes are attempted exactly once.** An ambiguous failure returns "re-check before retrying". Reads retry 429/5xx with backoff.
 - **Credentials only go to trusted hosts:** the configured host or `*.icloud.com`, over HTTPS. Redirects elsewhere are refused (tested).
 - **Prompt injection is contained.** Anyone can put an event on your calendar by inviting you, so event text is treated as untrusted. Every result labels it as data, text that reads like orders to an AI is flagged, events from other people's invitations can't be edited, and preview lines can't be forged by a hostile title. See docs/attack-proof.md.
 - **Logs are redacted:** passwords, tokens, Basic auth, emails, principal paths and iCal bodies. A test checks every log line from the whole suite.
-- **OAuth 2.1 on `/mcp`** via @cloudflare/workers-oauth-provider: PKCE S256, RFC 9728 protected resource metadata, RFC 8707 audience-bound tokens, RFC 9207 `iss` on the redirect, refresh rotation and RFC 7009 revocation. Grok Bot connects with Dynamic Client Registration. Client ID Metadata Documents (MCP 2026-07-28) are supported but off unless you set `CIMD = "on"`, because they make the Worker fetch a web address the caller picks. Connecting needs a passkey (Face ID) or a one-time 8-digit code from setup, so no key ever goes in chat. Approvals, codes and confirm tokens are single use across every Cloudflare location (a Durable Object), sign-ups and approvals are rate limited, and only the callback addresses in REDIRECT_ALLOWLIST can receive access. See docs/SECURITY.md. `npm run setup -- --revoke-all` cuts off every connection.
+- **OAuth 2.1 on `/mcp`** via @cloudflare/workers-oauth-provider: PKCE S256, RFC 9728 protected resource metadata, RFC 8707 audience-bound tokens, RFC 9207 `iss` on the redirect, refresh rotation and RFC 7009 revocation. Grok Bot connects with Dynamic Client Registration. Client ID Metadata Documents (MCP 2026-07-28) are supported but off unless you set `CIMD = "on"`, because they make the Worker fetch a web address the caller picks. Connecting needs a passkey (Face ID) or a one-time 8-digit code from setup, so no key ever goes in chat. Approvals, codes and confirm tokens are single use across every Cloudflare location (a Durable Object), sign-ups and approvals are rate limited, and only the callback addresses in REDIRECT_ALLOWLIST can receive access. See docs/SECURITY.md. `npm run setup -- --revoke-all` cuts off every connection. A separate demo server can also accept one shared reviewer code for marketplace review. It is off unless that server sets `REVIEWER_MODE = "on"`, lasts 14 days and can be revoked at any time. See docs/reviewer-testing.md.
 - **MCP 2026-07-28 and earlier.** Stateless requests (`server/discover`, per-request `_meta` version, `resultType`, cacheable `tools/list`) and the older `initialize` handshake (2025-11-25 back to 2024-11-05). Every tool has accurate `readOnlyHint` / `destructiveHint` / `idempotentHint` annotations, and every read tool has an `outputSchema`.
 
 ## Time rules
 Times without an offset are in your time zone (set by setup). Plain English works too: "tomorrow at 3pm", "next friday", "end of month", "the last friday of november", "in 2 weeks". "Next friday" means the Friday of next week. A clock time that falls in the spring-forward gap moves to the first valid time. Every preview spells out the date, so check it before saying yes. A date alone means that whole day in your zone, so "from 2026-10-17 to 2026-10-17" is all of Saturday Oct 17. All-day events stay on their date wherever you are. Repeating events are expanded per date, including "2nd Tuesday", "last Friday", "1st and 15th" and yearly rules like Thanksgiving. Rare rules (BYSETPOS, week numbers) show the first date with a note.
 
 ## Develop
-`npm test` (178 tests, 71 of them attacks) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
+`npm test` (214 tests) · `npm run prove` (switches each protection off and proves its attack then succeeds, see docs/attack-proof.md) · `npm run typecheck` · `npx tsx scripts/shoot-setup.ts` (renders setup screenshots against the mock, dev only)
 
 ---
 Holdt is an independent product. It is not made by, affiliated with or endorsed by Apple Inc. iCloud and Apple are trademarks of Apple Inc.
