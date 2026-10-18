@@ -180,3 +180,13 @@ test("status lines are read once, focus survives a failed sheet, and icons hang 
   // The QR code stays black on white in dark mode, so a camera reads it.
   const { qrSvg } = await import("../src/qr.js"); assert.match(qrSvg("https://x.example/ok#a", "QR"), /<rect width="\d+" height="\d+" fill="#fff"\/><path d="[^"]+" fill="#000"\/>/);
 });
+
+test("pages that also open on a computer never say tap (R44): no-device consent, add this device, the reviewer link", async () => {
+  await fresh({ APPROVAL_CODE_HASH: undefined });
+  const pages = [visible((await consentHtml("Cursor", GROK)).html), visible(await (await call("/pair")).text())];
+  await fresh({ REVIEWER_MODE: "on" }); pages.push(visible(await (await call("/review")).text()));
+  for (const p of pages) assert.doesNotMatch(p, /\btap\b/i, p.slice(0, 80));
+  assert.match(pages[0], /If you didn’t ask it to connect, don’t allow it\./);
+  assert.match(pages[1], /Approve from the iPhone you already use with Holdt\./);
+  assert.match(pages[2], /Nothing changes until you turn it on\./);
+});

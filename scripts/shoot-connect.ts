@@ -30,7 +30,7 @@ const server = createServer(async (req, res) => {
   const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
   if (req.url?.startsWith("/__msg/")) { const [t, x, o] = JSON.parse(decodeURIComponent(req.url.slice(7))); res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); res.end(documentHtml(`Holdt: ${t}`, messageBody(t, x, o))); return; }
   const rq = new Request(ORIGIN + req.url, { method: req.method, headers: req.headers as any, body: req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks), redirect: "manual" });
-  (rq as any).cf = { city: "Denver", regionCode: "CO" }; // what Cloudflare would attach
+  (rq as any).cf = { city: "Portland", regionCode: "OR" }; // what Cloudflare would attach
   const r = await providerFor(ORIGIN, fetch).fetch(rq, env, { waitUntil() {}, passThroughOnException() {}, props: undefined } as any);
   const h: Record<string, string[]> = {}; r.headers.forEach((v, k) => { (h[k] ??= []).push(v); }); if (r.headers.getSetCookie) h["set-cookie"] = r.headers.getSetCookie();
   res.writeHead(r.status, h); res.end(Buffer.from(await r.arrayBuffer()));
@@ -81,7 +81,7 @@ const SCREENS: { id: string; name: string; mac?: boolean; go: (p: P) => Promise<
   { id: "23-iphone-approved", name: "iPhone: approved", go: async (p) => { await freshEnv(); await pk(30); await stubGet(p); await stubFetch(p, { "/ok/approve": { ok: true, status: "approved", kind: "consent" } }); await p.goto(await awayLink()); await settle(400); await p.click("#yes"); } },
   { id: "24-iphone-expired", name: "iPhone: request expired", go: async (p) => { await freshEnv(); await pk(30); const l = await awayLink(); const real = Date.now; Date.now = () => real() + 6 * 60_000; try { await p.goto(l); await settle(600); } finally { Date.now = real; } } },
   { id: "25-pair-new-device", name: "Add this device: QR code for the iPhone to approve", go: async (p) => { await freshEnv(); await pk(30); await p.goto(`${ORIGIN}/pair`); } },
-  { id: "26-iphone-approve-device", name: "iPhone: approve adding a new device", go: async (p) => { await freshEnv(); await pk(30); const r: any = await (await nodeFetch(`${ORIGIN}/pair/new`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "User-Agent": "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)" }, body: "{}" })).json(); await p.goto(r.link); } },
+  { id: "26-iphone-approve-device", name: "iPhone: approve adding a new device", go: async (p) => { await freshEnv(); await pk(30); const r: any = await (await nodeFetch(`${ORIGIN}/pair/new`, { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN, "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" }, body: "{}" })).json(); await p.goto(r.link); } },
   { id: "27-pair-ready", name: "New device approved: one click turns on Face ID here", go: async (p) => { await freshEnv(); await pk(30); await stubFetch(p, { "/pair/status": { ok: true, status: "approved", ...FAKE_OPTS } }); await p.goto(`${ORIGIN}/pair`); await settle(2600); } },
 ];
 const browser = await puppeteer.launch({ executablePath: process.env.CHROME_PATH ?? "/usr/bin/google-chrome", args: ["--no-sandbox", "--font-render-hinting=none"], headless: true });
