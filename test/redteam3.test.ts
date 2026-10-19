@@ -65,6 +65,18 @@ test("REDTEAM L5: IPv4-mapped addresses are keyed by their IPv4, never all by 0:
   assert.equal(ipKey("2001:db8:1:2:3:4:5:6"), "2001:db8:1:2::/64");
 });
 
+test("REDTEAM F4: an event_id with an encoded slash, backslash or dot is refused before any request", async () => {
+  const t = makeTools(mock, { now: NOW });
+  const id = (href: string) => Buffer.from(`home\n${href}`).toString("base64url");
+  for (const tail of ["..%2fwork%2freview.ics", "..%2Fwork%2Freview.ics", "x%5c..%5cwork%5creview.ics", "%2e%2e/work/review.ics", "%2E%2E%2Fwork/review.ics"]) {
+    mock.requests = [];
+    await assert.rejects(t.call("get_event", { event_id: id(`${mock.base}123456789/calendars/home/${tail}`) }), /isn't valid/, tail);
+    assert.ok(!mock.requests.some((r) => r.method === "GET" || r.method === "REPORT" && r.body.includes("multiget")), `no read for ${tail}`);
+  }
+  const ok: any = await t.call("get_event", { event_id: id(`${mock.base}123456789/calendars/home/dentist.ics`) });
+  assert.equal(ok.title, "Dentist", "a plain href still works");
+});
+
 test("REDTEAM F2: the iPhone approval page never says access goes to Grok Bot alone", async () => {
   const { askHtml } = await import("../src/authorize.js");
   const h = askHtml("consent", "Denver, US", "just now", { redirectUri: "https://www.cursor.com/agents/mcp/oauth/callback" }, "off, so it can't add or change events");

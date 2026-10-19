@@ -116,7 +116,8 @@ export class Tools {
     const [cid, href] = dec64(id).split("\n"); if (!cid || !href) throw new UserError("That id isn't valid. List the items again and use an id from the result.");
     const c = await this.col(cid, kind);
     let ok = false; try { const u = new URL(href), b = new URL(c.href); const base = b.pathname.endsWith("/") ? b.pathname : b.pathname + "/"; ok = u.origin === b.origin && u.pathname.startsWith(base) && u.pathname.length > base.length; } catch { ok = false; }
-    if (!ok) throw new UserError("That id isn't valid. List the items again and use an id from the result.");
+    // An encoded slash, backslash or dot could be decoded by the server after the prefix check passed, so it is refused.
+    if (!ok || /%(2f|5c|2e)/i.test(href)) throw new UserError("That id isn't valid. List the items again and use an id from the result.");
     return { c, href };
   }
   private keys() { return [this.cfg.confirmSecret, ...(this.cfg.previousSecrets ?? [])]; }
