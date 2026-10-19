@@ -135,6 +135,16 @@ test("setup: a wrong password says so on the field, seals nothing, and tries run
   assert.equal((await save(c.cookie)).status, 429, "a session has a fixed number of live checks");
 });
 
+test("setup: 20 saves at once on one session reach Apple at most MAX_SETUP_TRIES times (red team L1)", async () => {
+  const token = freshEnv(); const c = await claim(token); cal.requests = [];
+  const pw = (i: number) => `zzzz-zzzz-zzzz-z${String.fromCharCode(97 + i)}zz`;
+  const rs = await Promise.all(Array.from({ length: 20 }, (_, i) => save(c.cookie, { password: pw(i) })));
+  const tried = new Set(cal.requests.map((r) => r.headers.authorization).filter(Boolean));
+  assert.ok(tried.size <= MAX_SETUP_TRIES, `${tried.size} passwords reached Apple`);
+  assert.equal(rs.filter((r) => r.status === 429).length, 20 - tried.size, "every other post is refused with 429");
+  assert.equal((await save(c.cookie)).status, 429, "and the session stays out of tries");
+});
+
 test("setup again: a new link replaces the setup and cuts every earlier connection", async () => {
   const t1 = freshEnv(); const c1 = await claim(t1); await save(c1.cookie);
   const before = (await withSealed(env)).GRANT_EPOCH;

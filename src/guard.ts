@@ -43,6 +43,15 @@ export class Guard extends DurableObject {
       return { ok: false, reason: "wrong", left: maxTries - n - 1 };
     });
   }
+  /** One setup live check (src/setup-web.ts), charged atomically: false once the session has used all its tries. */
+  setupTry(sessionId: string, maxTries: number): Promise<boolean> {
+    return this.serial(async () => {
+      const k = `setup-tries:${String(sessionId).slice(0, 64)}`;
+      const n = ((await this.ctx.storage.get(k)) as number | undefined) ?? 0;
+      if (n >= maxTries) return false;
+      await this.ctx.storage.put(k, n + 1); return true;
+    });
+  }
   // ---- passkeys: one record per credential, so a counter update can never be lost to another login's write ----
   pkList(ns: string): Promise<unknown[]> {
     return this.serial(async () => [...((await this.ctx.storage.list({ prefix: `pk:${ns}:` })) as Map<string, unknown>).values()]);

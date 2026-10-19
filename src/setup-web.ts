@@ -142,7 +142,10 @@ async function save(req: Request, env: Env, url: URL, fetchImpl?: typeof fetch, 
   const e = normalizeEmail(b?.email); if (!e.ok) return json({ ok: false, field: "email", message: e.message });
   const p = normalizeAppPassword(b?.password); if (!p.ok) return json({ ok: false, field: "password", message: p.message.replace("Copy it again from Apple's page.", "Check it on Apple’s page.") });
   registerSecret(p.value); registerSecret(e.value);
-  await store(env).put(`setup-session:${s.id}`, { ...s, tries: s.tries + 1 });
+  // Charged before Apple is asked. The Durable Object counts in one step, so parallel posts can't all read the same count.
+  const g: any = guardFor(env);
+  if (g) { if (!(await g.setupTry(s.id, MAX_SETUP_TRIES))) return json({ ok: false, ended: true }, 429); }
+  else await store(env).put(`setup-session:${s.id}`, { ...s, tries: s.tries + 1 });
   let count = 0;
   try {
     const cols = await new CalDavClient({ baseUrl: env.CALDAV_URL ?? "https://caldav.icloud.com/", username: e.value, password: p.value, maxRetries: 2, fetch: (fetchImpl ?? ((u: any, i: any) => fetch(u, i))) as any }).listCollections();
@@ -154,8 +157,7 @@ async function save(req: Request, env: Env, url: URL, fetchImpl?: typeof fetch, 
   }
   if (!count) return json({ ok: false, message: "Apple accepted the password, but this account has no calendars Holdt can read." });
   // One save per link. Spent before sealing, so a second request riding the same cookie can't race it.
-  const g: any = guardFor(env);
-  if (g && !(await g.spend(`setup-save:${s.id}`, s.exp))) return json({ ok: false, ended: true }, 403);
+  if (g &&!(await g.spend(`setup-save:${s.id}`, s.exp))) return json({ ok: false, ended: true }, 403);
   await store(env).put(`setup-session:${s.id}`, { ...s, tries: s.tries + 1, done: true });
   const enroll = rand(32);
   const rec: SetupRecord = { email: e.value, password: p.value, timezone: validZone(b?.timezone) ?? "UTC", writes: b?.writes === true, confirm: rand(32), epoch: rand(24),
