@@ -8,7 +8,7 @@ import { registerEnvSecrets, SEC_HEADERS } from "./worker.js";
 import { log } from "./redact.js";
 import { guardFor } from "./guard.js";
 import { reviewerState, checkReviewerCode, readReviewerPass, mintReviewerPass } from "./reviewer.js";
-import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, loadPasskeys, deviceNotice, usableHere, json, sameOriginJson, readJson, LOGIN_SCRIPT, ENROLL_SCRIPT, CONSENT_SCRIPT, READY_SCRIPT, OK_SCRIPT, PAIR_SCRIPT, BIO_SWAP } from "./passkey.js";
+import { loginOptions, checkPasskeyLogin, enrollApi, passkeysOn, loadPasskeys, deviceNotice, usableHere, bindHandle, json, sameOriginJson, readJson, LOGIN_SCRIPT, ENROLL_SCRIPT, CONSENT_SCRIPT, READY_SCRIPT, OK_SCRIPT, PAIR_SCRIPT, BIO_SWAP } from "./passkey.js";
 import { awayApi, createConsentAway, takeConsentAway, whereFrom } from "./away.js";
 import { qrSvg } from "./qr.js";
 import { esc, screen, documentHtml, ICON, ownerNote, endScreen } from "./ui.js";
@@ -227,7 +227,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
       if (!redirectAllowed(request.redirectUri) || !redirectListed(env, request.redirectUri) || !clientListed(env, request.clientId)) return page("Holdt: Can't connect", messageBody("This app can’t connect", `Holdt doesn’t allow <strong>${esc(hostOf(request.redirectUri))}</strong> to connect. Nothing was shared.`, { html: true, owner: `If you trust this app, on the computer where you set up Holdt:<ol><li>Add this callback to <code>REDIRECT_ALLOWLIST</code> in <code>wrangler.toml</code>.<code>${esc(request.redirectUri.slice(0, 200))}</code></li><li>Run this to deploy.<code>npm run deploy</code></li></ol>` }), 400);
       const details = await oauth.describeConsent(request);
       const consent = await oauth.beginConsent(request);
-      (details as any).__ctx = await signCtx(env, { clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
+      (details as any).__ctx = await signCtx(env, { h: await bindHandle(consent.handle), clientName: details.clientName, clientDomain: details.clientDomain, redirectHost: details.redirectHost, redirectIsLoopback: details.redirectIsLoopback, redirectUri: request.redirectUri });
       (details as any).redirectUri = request.redirectUri;
       return renderConsent(env, req, url, details, consent.handle, { headers: consent.headers, redirectUri: request.redirectUri });
     }
@@ -250,7 +250,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
     if (!verdict.ok) {
       log.warn(`${viaAway ? "iPhone approval" : viaPasskey ? "passkey" : viaReviewer ? "reviewer pass" : "approval code"} rejected: ${verdict.reason.slice(0, 80)}`);
       const ctxRaw = String(form.get("ctx") ?? "");
-      const details: any = (await readCtx(env, ctxRaw)) ?? { clientName: "the app", redirectHost: "" };
+      const details: any = (await readCtx(env, ctxRaw, handle)) ??{ clientName: "the app", redirectHost: "" };
       details.__ctx = ctxRaw;
       if (!viaPasskey && !viaAway && verdict.reason === "used") { const known = details.redirectUri ? knownApp(details.redirectUri) : undefined; return page("Holdt: Already connected", messageBody(known ? `${known} is already connected` : "You’re already connected", known ? `You said yes earlier. Close this page to go back to ${known}.` : "You said yes earlier. Close this page to go back to your assistant.", { mark: "closed", noClose: true }), 400); }
       // A fresh challenge (and a fresh QR code) for the retry: the old ones are spent, whether or not they verified.
@@ -342,7 +342,7 @@ async function consentApi(req: Request, env: Env, url: URL): Promise<Response> {
   const bad = sameOriginJson(req, url); if (bad) return bad;
   let b: any; try { b = await readJson(req); } catch { return json({ ok: false }, 400); }
   if (url.pathname === "/authorize/ready") { let ready = false; try { ready = passkeysOn(env) && usableHere(await loadPasskeys(env), url).length > 0; } catch { /* not yet */ } return json({ ok: true, ready }); }
-  const handle = String(b?.handle ?? ""), d = await readCtx(env, String(b?.ctx ?? ""));
+  const handle = String(b?.handle ?? ""), d = await readCtx(env, String(b?.ctx ?? ""), handle);
   if (!handle || !d || !passkeysOn(env)) return json({ ok: false }, 400);
   const away = await createConsentAway(env, handle, whereFrom(req), d, writesFor(env));
   const link = `${url.origin}/ok#${away.secret}`;
@@ -416,7 +416,13 @@ async function mac(env: Env, data: string) {
 }
 const safeEq = (a: string, b: string) => { let d = a.length ^ b.length; for (let i = 0; i < Math.min(a.length, b.length); i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; };
 async function signCtx(env: Env, o: object) { const d = btoa(unescape(encodeURIComponent(JSON.stringify(o)))); return `${d}.${await mac(env, d)}`; }
-async function readCtx(env: Env, s: string) { const [d, m] = s.split("."); if (!d || !m || !safeEq(m, await mac(env, d))) return undefined; try { return JSON.parse(decodeURIComponent(escape(atob(d)))); } catch { return undefined; } }
+/** The ctx is bound to its consent handle, so one flow's name and callback can't be shown for another flow's request. */
+async function readCtx(env: Env, s: string, handle: string) {
+  const [d, m] = s.split("."); if (!d || !m || !safeEq(m, await mac(env, d))) return undefined;
+  let o: any; try { o = JSON.parse(decodeURIComponent(escape(atob(d)))); } catch { return undefined; }
+  if (typeof o?.h !== "string" || !safeEq(o.h, await bindHandle(handle))) return undefined;
+  const { h: _h, ...rest } = o; return rest;
+}
 
 /** A separate key per purpose, derived from CONFIRM_SECRET (HMAC as a KDF), so a token for one purpose can never verify as another. */
 export async function subkey(secret: string, label: string): Promise<ArrayBuffer> {

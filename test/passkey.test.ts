@@ -245,6 +245,17 @@ test("ATTACK P12: the setup link is the owner's proof: hash only, fragment only,
   assert.match((await enroll(await new VirtualAuthenticator(ORIGIN).init())).message, /already used/);
   assert.ok(!logs.some((l) => l.includes(ENROLL)), "never logged");
 });
+test("F3 (red team): a signed consent ctx works only with the consent handle it was made for", async () => {
+  await freshEnv(); await enroll(await new VirtualAuthenticator(ORIGIN).init());
+  const A = await consent("https://www.cursor.com/agents/mcp/oauth/callback"), B = await consent();
+  const f = (h: string, n: string) => unesc(h.match(new RegExp(`name="${n}" value="([^"]*)"`))?.[1] ?? "");
+  const away = (handle: string, c: string) => post("/authorize/away/new", { handle, ctx: c });
+  assert.equal((await away(f(B.html, "handle"), f(B.html, "ctx"))).status, 200, "its own ctx still works");
+  assert.equal((await away(f(B.html, "handle"), f(A.html, "ctx"))).status, 400, "flow A's vouched-for Grok Bot name can't describe flow B's request");
+  const retry = await (await B.submit({ ctx: f(A.html, "ctx"), decision: "approve", code: "00000000" })).text();
+  assert.doesNotMatch(retry, /Connect Grok Bot/, "the re-shown page doesn't take the name from another flow's ctx");
+});
+
 test("a new device shows on the next consent pages and in connection_status for 7 days", async () => {
   await freshEnv(); const a = await new VirtualAuthenticator(ORIGIN).init(); await enroll(a);
   const withNotice = (await consent("https://www.cursor.com/agents/mcp/oauth/callback")).html;
