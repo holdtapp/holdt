@@ -77,6 +77,20 @@ test("REDTEAM F4: an event_id with an encoded slash, backslash or dot is refused
   assert.equal(ok.title, "Dentist", "a plain href still works");
 });
 
+test("REDTEAM U1: commit_update_event fails closed when only one of the preview and current ETags is missing", async () => {
+  const noTag = () => { mock.reportEtag = () => ""; mock.getEtag = () => ""; }, tags = () => { mock.reportEtag = null; mock.getEtag = null; };
+  const t = makeTools(mock, { now: NOW }); const id = await dentistId(t), key = "/123456789/calendars/home/dentist.ics";
+  // The preview read came back with no ETag, then the event changed in iCloud (new ETag) before the yes.
+  noTag(); const p: any = await t.call("prepare_update_event", { event_id: id, title: "Dentist (moved)" }); tags();
+  const it = mock.items.get(key)!; mock.items.set(key, { ics: it.ics.replace("SUMMARY:Dentist", "SUMMARY:Dentist with Sam"), etag: mock.etagSeq++ });
+  mock.requests = [];
+  await assert.rejects(t.call("commit_update_event", { confirm_token: p.confirm_token }), /changed in iCloud after the preview/);
+  // And the other way: the preview had an ETag, the read at commit has none.
+  const q: any = await t.call("prepare_update_event", { event_id: id, title: "Dentist (moved)" });
+  noTag(); await assert.rejects(t.call("commit_update_event", { confirm_token: q.confirm_token }), /changed in iCloud after the preview/); tags();
+  assert.equal(mock.requests.filter((r) => r.method === "PUT").length, 0, "nothing was written");
+});
+
 test("REDTEAM F2: the iPhone approval page never says access goes to Grok Bot alone", async () => {
   const { askHtml } = await import("../src/authorize.js");
   const h = askHtml("consent", "Denver, US", "just now", { redirectUri: "https://www.cursor.com/agents/mcp/oauth/callback" }, "off, so it can't add or change events");

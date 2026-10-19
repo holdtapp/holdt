@@ -310,6 +310,8 @@ export class Tools {
         const v = await verify<any>(this.keys(), a.confirm_token, "update_event", this.used); if (!v.ok) throw new UserError(v.reason);
         const { cid, href, etag, patch } = v.payload; const c = await this.col(cid, "VEVENT");
         const r = await this.dav.get(href);
+        // Fail closed when only one read had an ETag: the compare below can't tell whether the event changed.
+        if (!etag !== !r.etag) throw new UserError("This event changed in iCloud after the preview. Nothing was changed. Ask for a fresh preview.");
         if (etag && r.etag && r.etag !== etag) throw new UserError("This event changed in iCloud after the preview. Nothing was changed. Ask for a fresh preview.");
         const written = patchEvent(r.ics, patch);
         const put = await this.dav.put(href, written, { etag: r.etag || etag });
