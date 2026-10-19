@@ -147,7 +147,8 @@ test("a change sealed under another SEAL_KEY can't be undone and nothing is writ
   await assert.rejects(other().call("prepare_undo", { revert_token: c.revert_token }), /can't read that change well enough/);
   const u: any = await T({ sealKey }).call("prepare_undo", { revert_token: c.revert_token });
   await assert.rejects(other().call("commit_undo", { confirm_token: u.confirm_token }), /can't read that change well enough/);
-  assert.equal(((await other().call("list_changes", {})) as any).changes[0].title, "(can't be read)");
+  const l: any = await other().call("list_changes", {});
+  assert.equal(l.changes[0].title, "(can't be read)"); assert.equal(l.changes[0].can_undo, false); assert.equal(l.changes[0].revert_token, undefined);
   assert.equal(method("PUT").length, puts, "nothing was sent to iCloud");
 });
 
@@ -158,5 +159,6 @@ test("an added event logged under another SEAL_KEY can't be removed, and no requ
   await assert.rejects(other().call("prepare_undo", { revert_token: c.revert_token }), /can't read that change well enough/);
   await assert.rejects(other().call("commit_undo", { confirm_token: u.confirm_token }), /can't read that change well enough/);
   assert.equal(mock.requests.length, sent, "no request reached iCloud");
+  assert.equal(((await other().call("list_changes", {})) as any).changes[0].can_undo, false);
   assert.ok([...mock.items.values()].some((x) => x.ics.includes("Holdt test")), "the event is still there");
 });
