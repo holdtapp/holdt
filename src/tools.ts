@@ -190,6 +190,8 @@ export class Tools {
     if (t.allDay) return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" }).format(t.utc);
     return new Intl.DateTimeFormat("en-US", { timeZone: this.cfg.timezone, weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(t.utc);
   }
+  /** Start and end as a preview shows them. All-day ends are exclusive here and shown as the last day. */
+  private range(start: ITime, end: ITime) { return `${this.show(start)}${start.allDay ? (end.utc - start.utc > DAY ? ` to ${this.show({ ...end, utc: end.utc - DAY })}` : " (all day)") : ` to ${this.show(end)}`}`; }
 
   async call(name: string, a: Args): Promise<unknown> {
     if (REMINDER_TOOLS.has(name) && !this.cfg.remindersExperimental) throw new UserError("Reminders aren't included in this version. Apple keeps the Reminders app's lists in a private store that outside connectors can't reach. You can ask me to put a timed event with an alert on your calendar instead.");
@@ -241,7 +243,7 @@ export class Tools {
         const rrule = a.repeat ? this.rrule(a.repeat, start) : undefined;
         const uid = `${crypto.randomUUID()}@icloud-mcp`;
         const payload = { cid: c.id, uid, title: a.title.trim(), start, end, location: a.location?.trim() || undefined, notes: a.notes?.trim() || undefined, alerts: a.alerts_minutes_before, rrule };
-        const lines = [`Add to "${oneLine(c.name, 60)}": ${oneLine(payload.title, MAX.title)}`, `When: ${this.show(start)}${start.allDay ? (end.utc - start.utc > DAY ? ` to ${this.show({ ...end, utc: end.utc - DAY })}` : " (all day)") : ` to ${this.show(end)}`}`];
+        const lines = [`Add to "${oneLine(c.name, 60)}": ${oneLine(payload.title, MAX.title)}`, `When: ${this.range(start, end)}`];
         if (rrule) lines.push(`Repeats: ${this.describeRepeat(a.repeat)}`);
         if (payload.location) lines.push(`Where: ${oneLine(payload.location, MAX.location)}`);
         if (payload.alerts?.length) lines.push(`Alerts: ${payload.alerts.map((m: number) => humanMinutes(m)).join(", ")} before`);
@@ -284,8 +286,9 @@ export class Tools {
           if (a.end && e.allDay) e = { ...e, utc: e.utc + DAY };
           if (s.allDay !== e.allDay) throw new UserError("Start and end must both be dates or both be times.");
           if (e.utc <= s.utc) throw new UserError("The end must be after the start.");
+          if (e.utc - s.utc > 366 * DAY) throw new UserError("Events longer than a year aren't supported.");
           patch.start = s; patch.end = e;
-          diff.push(`When: ${this.show(oldStart)} → ${this.show(s)}`);
+          diff.push(`When: ${this.range(oldStart, oldEnd)} → ${this.range(s, e)}`);
         }
         if (a.location !== undefined) { patch.location = a.location.trim() || null; diff.push(`Where: "${oneLine(cur.location ?? "")}" → "${patch.location ? oneLine(patch.location, MAX.location) : "(none)"}"`); }
         if (a.notes !== undefined) { patch.notes = a.notes.trim() || null; diff.push(patch.notes ? `Notes → "${oneLine(patch.notes, MAX.notes)}"` : "Notes: removed"); }
