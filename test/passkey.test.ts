@@ -255,6 +255,6 @@ test("a new device shows on the next consent pages and in connection_status for 
   const s1 = await st(); assert.equal(s1.passkeys.length, 1); assert.equal(s1.passkeys[0].added_with, "setup link"); assert.match(s1.device_notice, /New device added .*reset-passkeys/);
   const recs = await kv.list({ prefix: "passkey:" }); for (const k of recs.keys) { const c = JSON.parse((await kv.get(k.name))!); c.createdAt -= 8 * 86400_000; await kv.put(k.name, JSON.stringify(c)); }
   const later = (await consent()).html; assert.doesNotMatch(later, /id="pk"[^>]*data-auto/, "an unverified app always waits for a tap");
-  assert.match((await consent("https://www.cursor.com/agents/mcp/oauth/callback")).html, /id="pk"[^>]*data-auto/, "reconnecting a verified app opens the passkey sheet by itself");
+  assert.doesNotMatch((await consent("https://www.cursor.com/agents/mcp/oauth/callback")).html, /data-auto/, "anyone can register on Grok Bot's callback, so even there the sheet waits for a tap (red team M1/F2)");
   assert.doesNotMatch(later, /was added today|New devices:/); const s2 = await st(); assert.equal(s2.device_notice, undefined); assert.equal(s2.passkeys.length, 1);
 });

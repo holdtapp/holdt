@@ -33,7 +33,8 @@ test("ATTACK CF1: naming, Grok Bot only for Grok Bot's exact callback, never fro
   assert.deepEqual(Object.values(KNOWN_CALLBACKS), ["Grok Bot"]);
   await fresh();
   const known = visible((await consentHtml("Cursor", GROK)).html);
-  assert.match(known, /Connect Grok Bot to your iCloud Calendar\?/); assert.match(known, /Access goes to Grok Bot alone\. Allow this only if you just asked it to connect\./);
+  assert.match(known, /Connect Grok Bot to your iCloud Calendar\?/); assert.match(known, /Access goes to the Grok Bot account that started this connect\. Allow this only if you just asked your own Grok Bot to connect\./);
+  assert.doesNotMatch(known, /alone/, "a stranger can register on the same callback, so the page never says access goes to Grok Bot alone");
   assert.doesNotMatch(known, /Cursor|verify|registered itself/);
   // A stranger that names itself Grok Bot gets quotes and the plain truth
   const fake = visible((await consentHtml("Grok Bot", "https://app.example/cb")).html);
@@ -117,7 +118,7 @@ test("look: AA contrast in light and dark, 44 pt targets, safe areas, Dynamic Ty
 
 test("connect: every app gets the safety line, a wrong code comes back empty and focused, a dead code puts help first", async () => {
   await fresh({ PASSKEYS: "off" });
-  for (const [n, r] of [["Calendar Helper", "https://app.example/cb"], ["", "https://app.example/cb"], ["Cursor", GROK]]) assert.match(visible((await consentHtml(n, r)).html), /Allow (this )?only if you just asked it to connect\./);
+  for (const [n, r] of [["Calendar Helper", "https://app.example/cb"], ["", "https://app.example/cb"], ["Cursor", GROK]]) assert.match(visible((await consentHtml(n, r)).html), /Allow (this )?only if you just asked (it|your own Grok Bot) to connect\./);
   const { html } = await consentHtml("Cursor", GROK);
   const field = (h: string, k: string) => h.match(new RegExp(`name="${k}" value="([^"]*)"`))![1]!;
   const post = async (code: string) => (await call("/authorize", { method: "POST", body: new URLSearchParams({ handle: field(html, "handle").replace(/&#(\d+);/g, (_, x) => String.fromCharCode(+x)), ctx: field(html, "ctx").replace(/&#(\d+);/g, (_, x) => String.fromCharCode(+x)), code, decision: "approve" }) })).text();
@@ -186,7 +187,7 @@ test("pages that also open on a computer never say tap (R44): no-device consent,
   const pages = [visible((await consentHtml("Cursor", GROK)).html), visible(await (await call("/pair")).text())];
   await fresh({ REVIEWER_MODE: "on" }); pages.push(visible(await (await call("/review")).text()));
   for (const p of pages) assert.doesNotMatch(p, /\btap\b/i, p.slice(0, 80));
-  assert.match(pages[0], /Access goes to Grok Bot alone\. Allow this only if you just asked it to connect\./);
+  assert.match(pages[0], /Access goes to the Grok Bot account that started this connect\. Allow this only if you just asked your own Grok Bot to connect\./);
   assert.match(pages[1], /Approve from the iPhone you already use with Holdt\./);
   assert.match(pages[2], /Demo events only\./);
 });
@@ -200,14 +201,12 @@ test("Mac Safari keeps a 17 px base: -apple-system-body only where touch-callout
   assert.match(p, /Not you\? Choose Don[’']t allow\./); assert.doesNotMatch(p, /\btap\b/i);
 });
 
-test("R45: reconnect opens the passkey sheet on load, once, only when the server marks it; a refusal or cancel is silent and Allow stays", async () => {
+test("R45 (red team M1/F2): the consent page never opens the passkey sheet without a tap, even on Grok Bot's shared callback", async () => {
   const { CONSENT_SCRIPT } = await import("../src/passkey.js");
-  assert.match(CONSENT_SCRIPT, /if\(btn\.hasAttribute\('data-auto'\)&&!btn\.hidden&&!msg\.textContent\.trim\(\)&&!f\.classList\.contains\('away'\)&&document\.visibilityState==='visible'\)/);
-  assert.match(CONSENT_SCRIPT, /seen=true;try\{seen=!!sessionStorage\.getItem\(k\)/, "no storage, no automatic try");
+  assert.doesNotMatch(CONSENT_SCRIPT, /data-auto|connect-auto|setTimeout\(\(\)=>\{[^}]*go\(/, "no automatic try");
+  assert.equal(CONSENT_SCRIPT.match(/\bgo\(/g)?.length, 1, "go() is called from the Allow click only");
+  assert.match(CONSENT_SCRIPT, /btn\.addEventListener\('click',\(\)=>go\(\)\)/, "Allow with Face ID is the one way in");
   assert.match(CONSENT_SCRIPT, /live\.textContent='';setTimeout\(\(\)=>\{live\.textContent=t;\},150\)/, "a server-rendered error is announced");
-  assert.match(CONSENT_SCRIPT, /sessionStorage\.setItem\(k,'1'\)/, "one automatic try per request");
-  assert.match(CONSENT_SCRIPT, /if\(auto\|\|\(e&&e\.name==='AbortError'\)\)return;fails\+\+;/, "an automatic try never shows an error or counts as a failure");
-  assert.match(CONSENT_SCRIPT, /btn\.addEventListener\('click',\(\)=>go\(false\)\)/, "Allow with Face ID stays as the fallback");
   assert.match(CONSENT_SCRIPT, /ac\.abort\(\)/, "switching to the QR code closes the sheet");
   assert.doesNotThrow(() => new Function(CONSENT_SCRIPT));
 });

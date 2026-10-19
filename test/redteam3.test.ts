@@ -18,3 +18,10 @@ test("REDTEAM F1: an update with only a new end shows that end, and is held to t
   const s: any = await t.call("prepare_update_event", { event_id: id, start: "2026-10-30T09:00" });
   assert.match(s.preview, /→ Fri, Oct 30, 2026, 9:00 AM MDT to Fri, Oct 30, 2026, 10:00 AM MDT/);
 });
+
+test("REDTEAM F2: the iPhone approval page never says access goes to Grok Bot alone", async () => {
+  const { askHtml } = await import("../src/authorize.js");
+  const h = askHtml("consent", "Denver, US", "just now", { redirectUri: "https://www.cursor.com/agents/mcp/oauth/callback" }, "off, so it can't add or change events");
+  assert.match(h, /Access goes to the Grok Bot account that started this connect\./);
+  assert.doesNotMatch(h, /alone/);
+});

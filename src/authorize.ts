@@ -65,7 +65,8 @@ const ASK = `<span class="ask">Allow this only if you just asked it to connect.<
 /** Who is asking, in words a person can trust. Exported for the tests. */
 export function clientLine(d: { clientName?: string; clientDomain?: string; redirectHost?: string; redirectUri?: string }) {
   const known = d.redirectUri ? knownApp(d.redirectUri) : undefined;
-  if (known) return { known: true, title: `Connect ${known} to your iCloud Calendar?`, lede: `Access goes to ${esc(known)} alone. ${ASK}` };
+  // Every user of that app shares its callback, so the name says which app, never whose account.
+  if (known) return { known: true, title: `Connect ${known} to your iCloud Calendar?`, lede: `Access goes to the ${esc(known)} account that started this connect. <span class="ask">Allow this only if you just asked your own ${esc(known)} to connect.</span>` };
   if (d.clientDomain) return { known: false, title: `Connect ${d.clientName || d.clientDomain} to your iCloud Calendar?`, lede: `Published by <strong>${esc(d.clientDomain)}</strong>. ${ASK}` };
   return { known: false, title: "Connect an app to your iCloud Calendar?", lede: d.clientName ? `It calls itself “${esc(d.clientName)},” but Holdt can't verify that. ${ASK}` : `It didn't give a name, and Holdt can't verify where it's from. ${ASK}` };
 }
@@ -150,7 +151,7 @@ function consentFaceBody(d: any, handle: string, writes: string, pk: { token: st
 <button class="btn secondary" id="awaygo" name="decision" value="away">I approved on ${phone ? "another device" : "my iPhone"}</button></div>`;
   const help = ownerNote(HELP, `<p>Your passkey syncs to your Apple devices with iCloud Keychain, so most need nothing more.</p><p>For a device that doesn’t sync, <a href="/pair" target="_blank" rel="noopener">add it</a> and approve it from a device that already has your Holdt passkey.</p>${notice ? `<p>Didn’t add a device? Turn Face ID off everywhere, then set it up again.<code>npm run reset-passkeys</code></p>` : ""}`);
   const actions = `<form method="post" autocomplete="off"${error ? ' class="away"' : ""}>${hidden}${PK_FIELDS(pk)}
-<p class="status" id="pkmsg" aria-hidden="true">${ICON.info}<span class="st">${esc(error)}</span></p><p class="sr" id="live" role="status" aria-live="polite">${esc(error)}</p><button type="button" class="btn primary" id="pk" hidden data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}"${who.known && !notice && !error ? " data-auto" : ""}>${ICON.faceId}${ICON.spinner}<span id="pklabel">Allow with Face ID</span></button>
+<p class="status" id="pkmsg" aria-hidden="true">${ICON.info}<span class="st">${esc(error)}</span></p><p class="sr" id="live" role="status" aria-live="polite">${esc(error)}</p><button type="button" class="btn primary" id="pk" hidden data-o="${esc(JSON.stringify({ challenge: pk.challenge, rpId: pk.rpId, ids: pk.ids }))}">${ICON.faceId}${ICON.spinner}<span id="pklabel">Allow with Face ID</span></button>
 <p class="status ok" id="awayok" aria-hidden="true" hidden>${ICON.checkCircle}<span class="st">Approved on ${Other}. Finishing up.</span></p>
 <div class="alt" id="altwrap">${panel}
 <button type="button" class="btn plain" id="mode" aria-controls="awaypanel" aria-expanded="${error ? "true" : "false"}" hidden><span class="off">${ICON.device}Approve on ${other} instead</span><span class="on">${ICON.faceId}<span id="modeface">Use Face ID on this device</span></span></button>
@@ -312,7 +313,7 @@ export function askHtml(kind: "consent" | "pair", from: string, when: string, ap
     body: `<div class="callout">${ICON.alert}<p>Allow this only for a device you’re holding right now. If someone asked you to add it, tap Don’t\u00a0allow.</p></div><ul class="facts" role="list"><li>${/iPad/.test(from) ? ICON.tablet : /Mac|PC|computer/.test(from) ? ICON.laptop : /iPhone|phone|Android/.test(from) ? ICON.device : ICON.devices}<p>It can approve Holdt connections.</p></li></ul>`, actions: btns });
   const { who, body } = consentFacts(app ?? {}, writes || "off, so it can't add or change events", undefined, app?.redirectIsLoopback ? "" : `<div class="callout">${ICON.alert}<p>Approve only a request you just started yourself. Never one someone sent you.</p></div>`, true);
   // The name line keeps the same trust rule as the consent page: vouched for only on Grok Bot's exact callback.
-  const trust = who.known ? `Access goes to ${esc(String(knownApp(app.redirectUri) ?? "")).replace(/ /g, "\u00a0")} alone.` : who.lede.replace(` ${ASK}`, "");
+  const trust = who.known ? `Access goes to the ${esc(String(knownApp(app.redirectUri) ?? "")).replace(/ /g, "\u00a0")} account that started this connect.` : who.lede.replace(` ${ASK}`, "");
   return screen({ title: who.title, lede: `${asked} ${trust}`, markId: "mk", body, actions: btns });
 }
 

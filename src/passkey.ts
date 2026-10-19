@@ -312,18 +312,16 @@ f.classList.add('js');btn.hidden=false;mode.hidden=false;mode.addEventListener('
 if(f.classList.contains('away'))setMode(true);
 if(!window.PublicKeyCredential){btn.hidden=true;mode.hidden=true;setMode(true);}
 let ac=null;
-const go=async(auto)=>{if(busy||done)return;busy=true;btn.setAttribute('aria-disabled','true');if(!auto)msg.textContent='';ac=window.AbortController?new AbortController():null;try{
+const go=async()=>{if(busy||done)return;busy=true;btn.setAttribute('aria-disabled','true');msg.textContent='';ac=window.AbortController?new AbortController():null;try{
 const c=await navigator.credentials.get({publicKey:{challenge:b(o.challenge),rpId:o.rpId,allowCredentials:o.ids.map(id=>({type:'public-key',id:b(id),transports:['internal','hybrid']})),userVerification:'required',timeout:120000},signal:ac?ac.signal:undefined});
 if(done)return;f.pk_id.value=c.id;f.pk_cdj.value=u(c.response.clientDataJSON);f.pk_ad.value=u(c.response.authenticatorData);f.pk_sig.value=u(c.response.signature);
 btn.setAttribute('aria-busy','true');lab.textContent='Approving';live.textContent='Approving. One moment.';finish(false);
-}catch(e){busy=false;btn.removeAttribute('aria-disabled');if(done)return;if(auto||(e&&e.name==='AbortError'))return;fails++;
+}catch(e){busy=false;btn.removeAttribute('aria-disabled');if(done)return;if(e&&e.name==='AbortError')return;fails++;
 if(fails>1){setMode(true);msg.parentNode.classList.add('keep');say(pn+' didn’t finish.\\nScan the QR code with '+(other==='your iPhone'?'your iPhone':'another device')+' instead.');}else say(pn+' didn’t finish.\\nTry again, or approve on '+(other==='your iPhone'?'your\u00a0iPhone':'another\u00a0device')+'.');}};
-btn.addEventListener('click',()=>go(false));
-// Reconnecting a verified app with no security notice: the system sheet opens by itself, once per request, so it is one glance with no tap. A browser that
-// needs a tap first refuses at once, and a cancel is silent: the Allow button stays, as before. Switching to the QR code closes the sheet.
-mode.addEventListener('click',()=>{if(ac&&f.classList.contains('away'))ac.abort();});
-// A page that already shows an error waits for a tap, and without storage to remember the one try, so does every page.
-if(btn.hasAttribute('data-auto')&&!btn.hidden&&!msg.textContent.trim()&&!f.classList.contains('away')&&document.visibilityState==='visible'){let k='connect-auto:'+f.handle.value,seen=true;try{seen=!!sessionStorage.getItem(k);sessionStorage.setItem(k,'1');}catch(e){}if(!seen)setTimeout(()=>{if(!done&&!f.classList.contains('away')&&document.visibilityState==='visible')go(true);},450);}`;
+// The sheet opens only from a tap on Allow. Anyone can send the owner a connect link for the shared Grok Bot callback,
+// so the owner reads who is asking before Face ID starts. Switching to the QR code closes the sheet.
+btn.addEventListener('click',()=>go());
+mode.addEventListener('click',()=>{if(ac&&f.classList.contains('away'))ac.abort();});`;
 
 /** Consent page before any device has Face ID: wait, and carry on by itself once one does. */
 export const READY_SCRIPT = `${POST}
