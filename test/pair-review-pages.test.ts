@@ -235,6 +235,29 @@ test("enroll page: each device hears its own words, a phone is told to tap and a
   assert.equal(phone.$("msg").lastElementChild.textContent, "This device already uses Face ID with Holdt.", "an iPhone keeps Face ID");
 });
 
+test("enroll page: the mark closes at the sheet's yes, stays closed while saving, shows closed on done, and lifts again if the save fails", async () => {
+  fresh(); const s = scriptOf(await (await call("/enroll")).text());
+  const OPTS = { ok: true, challenge_token: "t", publicKey: APPROVED.publicKey };
+  for (const [ua, busy] of [[MAC, "Saving passkey"], [IPHONE, "Turning on"]] as const) {
+    let finish!: (v: any) => void;
+    const p = run(s, { ua, hash: "#tok", ids: views(["setup", "done", "skip", "dead"]), create: SAVED, fetch: (path) => path === "/enroll/options" ? OPTS : new Promise((r) => { finish = r; }) });
+    await settle(); assert.equal(p.$("mk").classList.contains("drop"), false, ua);
+    const click = p.$("go").on.click!(); await settle();
+    assert.equal(p.$("mk").classList.contains("drop"), true, `${ua}: closed at the yes, not after the server`);
+    assert.equal(p.$("go").lastElementChild.textContent, busy, ua); assert.equal(p.$("setup").hidden, false, ua);
+    finish({ ok: true, count: 2 }); await click;
+    assert.deepEqual(shown(p, ["setup", "done", "skip", "dead"]), ["done"], ua);
+    assert.equal(p.$("mkdone").classList.contains("closed"), true, ua); assert.equal(p.$("mkdone").classList.contains("drop"), false, `${ua}: no second drop`);
+  }
+  const bad = run(s, { hash: "#tok", ids: views(["setup", "done", "skip", "dead"]), create: SAVED, fetch: (path) => path === "/enroll/options" ? OPTS : { ok: false, message: "Face ID wasn't saved. Reload this page and try again." } });
+  await settle(); await bad.$("go").on.click!(); await settle();
+  assert.equal(bad.$("mk").classList.contains("drop"), false, "the mark lifts again");
+  assert.equal(bad.$("msg").lastElementChild.textContent, "Couldn’t save the passkey. Reload this page and try again.");
+  const no = run(s, { hash: "#tok", ids: views(["setup", "done", "skip", "dead"]), create: async () => { throw Object.assign(new Error("no"), { name: "NotAllowedError" }); }, fetch: () => OPTS });
+  await settle(); await no.$("go").on.click!(); await settle();
+  assert.equal(no.$("mk").classList.contains("drop"), false, "a cancelled sheet never closes the mark");
+});
+
 test("device cap messages name passkeys, never Face ID, because the server can't know the device", async () => {
   const src = (await import("node:fs")).readFileSync(new URL("../src/passkey.ts", import.meta.url), "utf8") + (await import("node:fs")).readFileSync(new URL("../src/away.ts", import.meta.url), "utf8");
   for (const m of src.match(/Holdt already has \$\{MAX_PASSKEYS\}[^`]*/g)!) { assert.match(m, /passkeys, the most it allows/); assert.doesNotMatch(m, /Face|Touch/); }

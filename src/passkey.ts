@@ -281,13 +281,14 @@ const idle=()=>{blab.textContent=gen?'Save passkey':'Turn on '+bio;};
 btn.addEventListener('click',async()=>{btn.disabled=true;say('');try{
 let r=await(Date.now()-preAt<240000&&pre?pre:fetchOpts());if(!r.ok&&r.net)r=await fetchOpts();
 if(!r.ok){if(r.net||/most it allows/.test(r.message||''))throw new Error(r.message);return dead(r.message);}
-const d=await register(r,{token:t},()=>{btn.setAttribute('aria-busy','true');blab.textContent=gen?'Saving passkey':'Turning on';live.textContent=(gen?'Saving passkey':'Turning on '+bio)+'. One moment.';});
+const d=await register(r,{token:t},()=>{$('mk').classList.add('drop');btn.setAttribute('aria-busy','true');blab.textContent=gen?'Saving passkey':'Turning on';live.textContent=(gen?'Saving passkey':'Turning on '+bio)+'. One moment.';});
 if(!d.ok){if(/already used|expired/.test(d.message||''))return dead(d.message);throw new Error(d.message);}
 const h=$('done').querySelector('h1');h.textContent=bio+' is on';
 const lede=$('done').querySelector('.lede');lede.textContent=fromSetup?'Now add this address in your assistant.':touch?'Next time, click Allow on this Mac. With iCloud Keychain on, your other Apple devices can use it too.':gen?'Next time, '+(_tch?'tap':'click')+' Allow on this device.':lede.textContent;if(gen)$('done').querySelector('h1').textContent='Passkey saved';
 if(fromSetup){$('next').hidden=false;$('copywrap').hidden=false;$('closeline').textContent='You can close this page after you copy it.';const cl=$('copy').lastElementChild;$('copy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('say').textContent.trim());cl.textContent='Copied';$('copylive').textContent='Copied. Paste it in your assistant.';setTimeout(()=>{cl.textContent='Copy address';},2000);}catch(e){const r=document.createRange();r.selectNodeContents($('say'));const s=getSelection();s.removeAllRanges();s.addRange(r);cl.textContent='Copy address';$('copylive').textContent='Couldn’t copy. The address is selected.';}});}
-show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
-}catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';fetchOpts();
+// The mark closed on the yes (the sheet), so the done view shows it closed, with no second drop.
+$('mkdone').classList.add('closed');show('done');
+}catch(e){$('mk').classList.remove('drop');btn.disabled=false;btn.removeAttribute('aria-busy');idle();live.textContent='';fetchOpts();
 if(e&&e.name==='NotAllowedError')say(sf+'.\\nTry again when you’re\u00a0ready.');else if(e&&e.name==='InvalidStateError')say(dupw);else say(sorry((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;
 
 /** The consent page: Face ID here (the sheet can also offer a nearby phone), or scan the QR code and approve on the iPhone.
