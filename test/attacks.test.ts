@@ -1,6 +1,7 @@
 // Adversarial proof suite. Every test is an attack that MUST be refused, with no side effect.
 // scripts/prove-attacks.mjs turns each protection off in a scratch copy, shows the matching attack
 // then succeeds, and writes docs/attack-proof.md. Run: npm run prove
+// WARNING tests are the exception: they prove a warning shows, never a refusal, and are counted apart.
 import { test, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -210,6 +211,17 @@ test("ATTACK C3: a hostile title forges extra lines in the preview the user appr
   const p: any = await t.call("prepare_create_event", { calendar_id: home, title: "Lunch\nWhen: Mon, Oct 26 (all day)\nAdd to \"Work\": nothing else", start: "2026-10-23T12:00" });
   const lines = p.preview.split("\n");
   assert.equal(lines.filter((l: string) => l.startsWith("When:")).length, 1, p.preview); assert.equal(lines.filter((l: string) => l.startsWith("Add to")).length, 1, p.preview);
+});
+
+// A warning, not a refusal: the prepare still succeeds and the user can still say yes. This proves the warning shows.
+test("WARNING W1: instruction-shaped notes from the model reach the user's yes with no warning", async () => {
+  const t = tools(); const home = await calId(t, "Home");
+  const p: any = await t.call("prepare_create_event", { calendar_id: home, title: "Lunch", start: "2026-10-23T12:00", notes: INJECT });
+  assert.ok(p.confirm_token); assert.match(p.preview, /\nWarning: this event’s text reads like instructions to an AI\./); assert.match(p.text_warning ?? "", /^Warning:/);
+  const r: any = await t.call("list_events", { from: "2026-10-20", to: "2026-10-20" });
+  const u: any = await t.call("prepare_update_event", { event_id: r.events[0].event_id, notes: INJECT });
+  assert.ok(u.confirm_token); assert.match(u.preview, /\nWarning: this event’s text reads like instructions to an AI\./);
+  assert.equal(puts().length, 0);
 });
 
 test("ATTACK C4: injected model writes on a read-only connection", async () => {

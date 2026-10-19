@@ -79,6 +79,9 @@ export const UNTRUSTED_NOTE = "Event titles, locations and notes are written by 
 // Text that reads like orders to an AI. Flagged so the model and the user see it, never acted on.
 const INJECTION = /\b(ignore|disregard|forget)\b.{0,40}\b(instructions?|prompts?|rules)\b|\b(system|developer)\s*prompt\b|\b(prepare|commit)_(create|update)_event\b|\bconfirm_token\b|\byou are (now )?(an?|the) (ai|assistant|agent)\b|\bcall (the )?(tool|function)\b/i;
 export const looksLikeInstructions = (...texts: (string | undefined)[]) => texts.some((t) => !!t && INJECTION.test(t));
+// A warning on a preview whose new text reads like instructions to an AI. Only a label: the user can still say yes.
+export const TEXT_WARNING = "Warning: this event’s text reads like instructions to an AI. Check it before you say yes.";
+const textWarning = (...texts: (string | undefined)[]) => looksLikeInstructions(...texts) ? TEXT_WARNING : undefined;
 /** One line, no control characters, bounded. Keeps event text from forging extra lines in a preview the user approves. */
 export const oneLine = (s: string, n = 120) => { const t = String(s ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, " ").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
 const enc64 = (s: string) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -245,7 +248,9 @@ export class Tools {
         if (payload.notes) lines.push(`Notes: ${oneLine(payload.notes, MAX.notes)}`);
         const clash = start.allDay ? undefined : await this.clashes(start.utc, end.utc, undefined, !!rrule);
         if (clash) lines.push(...clash.lines);
-        return { preview: lines.join("\n"), confirm_token: await issue(this.cfg.confirmSecret, "create_event", payload), expires_in_minutes: 10, next_step: clash ? "Show this preview, including the overlap and the open times. If the user picks an open time, call prepare_create_event again with it. Call commit_create_event only if the user says yes to this exact preview." : "Show this preview. Call commit_create_event only if the user says yes.", conflicts: clash?.conflicts, alternatives: clash?.alternatives, text_warning: clash?.warn };
+        const warn = textWarning(payload.title, payload.location, payload.notes);
+        if (warn) lines.push(warn);
+        return { preview: lines.join("\n"), confirm_token: await issue(this.cfg.confirmSecret, "create_event", payload), expires_in_minutes: 10, next_step: clash ? "Show this preview, including the overlap and the open times. If the user picks an open time, call prepare_create_event again with it. Call commit_create_event only if the user says yes to this exact preview." : "Show this preview. Call commit_create_event only if the user says yes.", conflicts: clash?.conflicts, alternatives: clash?.alternatives, text_warning: [clash?.warn, warn].filter(Boolean).join(" ") || undefined };
       }
       case "commit_create_event": {
         this.requireWrites();
@@ -288,7 +293,9 @@ export class Tools {
         const payload = { cid: c.id, href, etag: r.etag, patch };
         const clash = patch.start && !patch.start.allDay ? await this.clashes(patch.start.utc, patch.end.utc, href) : undefined;
         if (clash) diff.push(...clash.lines);
-        return { preview: [`Change "${oneLine(cur.title)}" in ${oneLine(c.name, 60)}${recurring ? " (all repeats)" : ""}:`, ...diff].join("\n"), confirm_token: await issue(this.cfg.confirmSecret, "update_event", payload), expires_in_minutes: 10, next_step: clash ? "Show this preview, including the overlap and the open times. If the user picks an open time, call prepare_update_event again with it. Call commit_update_event only if the user says yes to this exact preview." : "Show this preview. Call commit_update_event only if the user says yes.", conflicts: clash?.conflicts, alternatives: clash?.alternatives, text_warning: clash?.warn };
+        const warn = textWarning(patch.title, patch.location, patch.notes);
+        if (warn) diff.push(warn);
+        return { preview: [`Change "${oneLine(cur.title)}" in ${oneLine(c.name, 60)}${recurring ? " (all repeats)" : ""}:`, ...diff].join("\n"), confirm_token: await issue(this.cfg.confirmSecret, "update_event", payload), expires_in_minutes: 10, next_step: clash ? "Show this preview, including the overlap and the open times. If the user picks an open time, call prepare_update_event again with it. Call commit_update_event only if the user says yes to this exact preview." : "Show this preview. Call commit_update_event only if the user says yes.", conflicts: clash?.conflicts, alternatives: clash?.alternatives, text_warning: [clash?.warn, warn].filter(Boolean).join(" ") || undefined };
       }
       case "commit_update_event": {
         this.requireWrites();

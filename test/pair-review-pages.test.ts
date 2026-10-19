@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MockKV } from "./kv-mock.js";
-import { providerFor } from "../src/worker.js";
+import { providerFor, handleRequest } from "../src/worker.js";
 import { checkReviewerCode } from "../src/reviewer.js";
 import { ICON } from "../src/ui.js";
 
@@ -133,6 +133,38 @@ test("pair page on a computer: a cancelled sheet leaves Save passkey, never 'Tur
   }
 });
 
+test("pair page: the mark closes at the sheet's yes, stays closed while saving, shows closed on done, and lifts again if the save fails", async () => {
+  fresh(); const s = scriptOf(await (await call("/pair")).text());
+  for (const [ua, busy] of [[MAC, "Saving passkey"], [IPHONE, "Turning on"]] as const) {
+    let finish!: (v: any) => void;
+    const p = run(s, { ua, ids: PAIR_VIEWS(), create: SAVED, fetch: (path) => path === "/pair/new" ? NEW : path === "/pair/status" ? APPROVED : new Promise((r) => { finish = r; }) });
+    await settle(); await p.tick(); assert.equal(p.$("mkready").classList.contains("drop"), false, ua);
+    const click = p.$("go").on.click!(); await settle();
+    assert.equal(p.$("mkready").classList.contains("drop"), true, `${ua}: closed at the yes, not after the server`);
+    assert.equal(p.$("go").lastElementChild.textContent, busy, ua); assert.equal(p.$("ready").hidden, false, ua);
+    finish({ ok: true, count: 2 }); await click;
+    assert.deepEqual(shown(p, ["ask", "ready", "done", "no", "skip", "dead", "nopk"]), ["done"], ua);
+    assert.equal(p.$("mkdone").classList.contains("closed"), true, ua); assert.equal(p.$("mkdone").classList.contains("drop"), false, `${ua}: no second drop`);
+  }
+  const bad = run(s, { ids: PAIR_VIEWS(), create: SAVED, fetch: (path) => path === "/pair/new" ? NEW : path === "/pair/status" ? APPROVED : { ok: false, message: "Face ID wasn't saved. Reload this page and try again." } });
+  await settle(); await bad.tick(); await bad.$("go").on.click!(); await settle();
+  assert.equal(bad.$("mkready").classList.contains("drop"), false, "the mark lifts again");
+  assert.equal(bad.$("msg").lastElementChild.textContent, "Couldn’t save the passkey. Reload this page and try again.");
+  const no = run(s, { ids: PAIR_VIEWS(), create: async () => { throw Object.assign(new Error("no"), { name: "NotAllowedError" }); }, fetch: (path) => path === "/pair/new" ? NEW : APPROVED });
+  await settle(); await no.tick(); await no.$("go").on.click!(); await settle();
+  assert.equal(no.$("mkready").classList.contains("drop"), false, "a cancelled sheet never closes the mark");
+});
+
+test("pair page: once it gives up, the scan step goes with the QR code", async () => {
+  fresh(); const s = scriptOf(await (await call("/pair")).text()); let net = false;
+  const p = run(s, { ids: PAIR_VIEWS(), fetch: (path) => path === "/pair/new" ? NEW : net ? "net" : { ok: true, status: "pending" } });
+  await settle(); assert.equal(p.$("scanstep").hidden, false);
+  net = true; await p.tick(); await p.tick(); assert.equal(p.$("scanstep").hidden, false, "still reconnecting, so the step still applies");
+  await p.tick();
+  assert.equal(p.$("scanstep").hidden, true, "nothing asks for a scan that can no longer work"); assert.equal(p.$("qrwrap").hidden, true);
+  assert.equal(p.$("awaymsg").lastElementChild.textContent, "Holdt couldn’t reach your server. Check your connection, then reload this page.");
+});
+
 test("pair page HTML: the wait is in #live on first paint, an info icon waits behind the spinner, and the nopk lede names no biometric", async () => {
   fresh(); const html = await (await call("/pair")).text();
   assert.match(html, /<p class="sr" id="live" role="status" aria-live="polite">One moment\.<\/p>/);
@@ -247,6 +279,21 @@ test("reviewer page: a reload after success claims again and shows the done view
   assert.deepEqual(shown(ended, ["ask", "done", "dead"]), ["dead"]); assert.equal(store.size, 0, "an ended code is forgotten");
   const opened = run(s, { hash: "#RVW-CODE", ids: views(["ask", "done", "dead"]), fetch: () => { throw new Error("no claim before the tap"); } }); await settle();
   assert.deepEqual(shown(opened, ["ask", "done", "dead"]), ["ask"], "a first visit still waits for the tap");
+});
+
+test("reviewer page: a rate limit says so, with the server's own 429 sentence, and keeps the link", async () => {
+  fresh({ REVIEWER_MODE: "on", RL_APPROVE: { limit: async () => ({ success: false }) } });
+  const res = await handleRequest(new Request(ORIGIN + "/review/claim", { method: "POST", headers: { "Content-Type": "application/json", Origin: ORIGIN }, body: "{}" }), env, { waitUntil() {}, passThroughOnException() {}, props: undefined });
+  assert.equal(res.status, 429); const limited: any = await res.json();
+  assert.deepEqual(limited, { error: "rate_limited", error_description: "Too many requests. Wait a minute and try again." });
+  const s = scriptOf(await (await call("/review")).text());
+  for (const [r, want] of [[limited, "Too many requests. Wait a minute and try again."], [{ error: "rate_limited" }, "Too many tries. Wait a minute and try again."], [{ error: "rate_limited", error_description: "slow down" }, "Too many tries. Wait a minute and try again."]] as const) {
+    const store = new Map<string, string>(), p = run(s, { hash: "#RVW-CODE", store, ids: views(["ask", "done", "dead"]), fetch: () => r });
+    await p.$("go").on.click!();
+    assert.equal(p.$("msg").lastElementChild.textContent, want); assert.equal(p.$("live").textContent, want);
+    assert.deepEqual(shown(p, ["ask", "done", "dead"]), ["ask"]); assert.equal(p.$("go").lastElementChild.textContent, "Turn on reviewer access");
+    assert.equal(store.get("holdt-review"), "RVW-CODE", "a rate limit doesn’t end the link");
+  }
 });
 
 test("reviewer error messages use typographic apostrophes", async () => {

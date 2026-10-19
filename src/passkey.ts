@@ -362,7 +362,7 @@ export const PAIR_SCRIPT = `${CODEC}${TOUCH}${POST}${VIEWS(["ask", "ready", "don
 let claim='',opts=null,timer=0,off=false,miss=0;const live=$('live'),WAIT='Waiting for that iPhone.',note=t=>{$('awaymsg').lastElementChild.textContent=t;live.textContent=t;};
 if(gen){$('ready').querySelector('h1').textContent='Save a passkey on '+here;$('go').lastElementChild.textContent='Save passkey';$('done').querySelector('h1').textContent='Passkey saved';$('done').querySelector('.lede').textContent='Next time, '+(_tch?'tap':'click')+' Allow on '+here+'.';}
 const stop=()=>{clearInterval(timer);timer=0;};
-const NET='Holdt couldn’t reach your server. Check your connection, then reload this page.',fail=t=>{const m=$('awaymsg');m.classList.remove('wait');m.querySelector('.spin')?.remove();$('qrwrap').hidden=true;m.lastElementChild.textContent=t;live.textContent=t;};
+const NET='Holdt couldn’t reach your server. Check your connection, then reload this page.',fail=t=>{const m=$('awaymsg');m.classList.remove('wait');m.querySelector('.spin')?.remove();$('qrwrap').hidden=true;$('scanstep').hidden=true;m.lastElementChild.textContent=t;live.textContent=t;};
 const poll=async()=>{if(document.hidden||!claim)return;const r=await post('/pair/status',{claim});if(!r||!timer)return;if(r.net){if(++miss<3)return note('Reconnecting…');stop();return fail(NET);}if(miss){miss=0;note(WAIT);}if(!r.ok)return;
 if(r.status==='approved'&&r.publicKey){stop();opts=r;show('ready');}else if(r.status==='denied'){stop();show('no');}else if(r.status==='gone'){stop();show('dead');}};
 (async()=>{const r=await post('/pair/new',{});if(off)return;if(!r.ok&&r.net)return fail(NET);if(!r.ok)return /yet/.test(r.message||'')?show('nopk'):fail(typo(r.message||r.error_description||'That didn’t work. Reload this page to try again.'));claim=r.claim;const w=$('qrwrap');w.innerHTML=r.qr;w.classList.remove('qrwait');$('scanstep').hidden=false;$('awaymsg').lastElementChild.textContent=WAIT;live.textContent='QR code shown. Scan it with that iPhone’s camera. '+WAIT;timer=setInterval(poll,2000);})();
@@ -370,8 +370,9 @@ $('later').addEventListener('click',()=>{off=true;stop();show('skip');});$('late
 const btn=$('go'),msg=$('msg').lastElementChild,live2=$('live2'),blab=btn.lastElementChild,idle=()=>{blab.textContent=gen?'Save passkey':'Turn on '+bio;};
 const say=m=>{msg.textContent=m;live2.textContent=m;};
 btn.addEventListener('click',async()=>{btn.disabled=true;btn.setAttribute('aria-busy','true');say('');try{
-const d=await register(opts,{pair:claim},()=>{blab.textContent=gen?'Saving passkey':'Turning on';live2.textContent=(gen?'Saving passkey':'Turning on '+bio)+'. One moment.';});
+const d=await register(opts,{pair:claim},()=>{$('mkready').classList.add('drop');blab.textContent=gen?'Saving passkey':'Turning on';live2.textContent=(gen?'Saving passkey':'Turning on '+bio)+'. One moment.';});
 if(!d.ok){if(/already used/.test(d.message||'')){const x=$('dead');x.querySelector('h1').textContent='This approval was already used';x.querySelector('.lede').textContent='Start again on this device.';show('dead');return;}if(/expired/.test(d.message||'')){show('dead');return;}throw new Error(d.message);}
-show('done');requestAnimationFrame(()=>$('mkdone').classList.add('drop'));
-}catch(e){btn.disabled=false;btn.removeAttribute('aria-busy');idle();
+// The mark closed on the yes (the sheet), so the done view shows it closed, with no second drop.
+$('mkdone').classList.add('closed');show('done');
+}catch(e){$('mkready').classList.remove('drop');btn.disabled=false;btn.removeAttribute('aria-busy');idle();
 if(e&&e.name==='NotAllowedError')say(sf+'.\\nTry again when you’re\u00a0ready.');else if(e&&e.name==='InvalidStateError')say(dupw);else say(sorry((e&&e.message)||'That didn’t work. Try again.'));btn.focus();}});`;

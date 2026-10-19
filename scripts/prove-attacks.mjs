@@ -46,6 +46,7 @@ const ROWS = [
   { id: "B6", attack: "Spend a create token on commit_update_event", protection: "Action binding inside the token", patches: [M("src/confirm.ts", "if (t.a !== action) return", "if (false) return")], breaks: ["B6"], note: "With the binding off the commit still crashes before any write (0 PUTs), so the clean refusal is the binding." },
   { id: "C1", attack: "Injected invite text gets the model to change the invite", protection: "Refuse edits to events with ATTENDEE or ORGANIZER", patches: [M("src/tools.ts", "if (hasInvitees(r.ics)) throw", "if (false) throw")], breaks: ["C1"] },
   { id: "C2", attack: "Injected text reaches the model unmarked", protection: "text_warning flag + event_text_is_data note", patches: [M("src/tools.ts", "export const looksLikeInstructions = (...texts: (string | undefined)[]) =>", "export const looksLikeInstructions = (...texts: (string | undefined)[]) => false &&")], breaks: ["C2"] },
+  { id: "W1", attack: "Instruction-shaped notes from the model reach the user's yes with no warning", protection: "Warning line on new and edited event text (a warning, not a refusal)", patches: [M("src/tools.ts", "looksLikeInstructions(...texts) ? TEXT_WARNING", "false ? TEXT_WARNING")], breaks: ["W1"], note: "A warning, not a refusal. With the check on, the prepare still succeeds and the event can still be added on the user's yes. The row proves only that the warning line shows, and it is not counted as a refused attack." },
   { id: "C3", attack: "Hostile title forges extra lines in the approval preview", protection: "oneLine() on every preview field", patches: [M("src/tools.ts", "export const oneLine = (s: string, n = 120) => {", "export const oneLine = (s: string, n = 120) => { return String(s);")], breaks: ["C3"] },
   { id: "C4", attack: "Injected model writes on a read-only connection", protection: "WRITES_ENABLED gate", patches: [M("src/tools.ts", "  private requireWrites() {", "  private requireWrites() { return;")], breaks: ["C4"] },
   { id: "D1", attack: "Crafted event_id reads a calendar outside the allowlist", protection: "event_id path must sit inside its calendar", patches: [M("src/tools.ts", "ok = u.origin === b.origin && u.pathname.startsWith(base) && u.pathname.length > base.length;", "ok = true;")], breaks: ["D1"] },
@@ -136,9 +137,12 @@ const NOT_TOGGLED = [
   ["C5", "Call a delete or invite tool", "Architecture: no such tool exists, so there is nothing to switch off. The only removal path is commit_undo for an event Holdt added in the last 24 hours (rows E1 to E5)."],
 ];
 
+// WARNING tests prove a label shows, not that an attack is refused, so they are counted apart.
+const WARNINGS = new Set();
+const tally = (r) => { const a = Object.entries(r).filter(([k]) => !WARNINGS.has(k)), w = Object.entries(r).filter(([k]) => WARNINGS.has(k)); return `${a.length} attacks, ${a.filter(([, v]) => v).length} refused${w.length ? `. Warning checks: ${w.length}, warning shown in ${w.filter(([, v]) => v).length} (a label, not a refusal)` : ""}`; };
 function run(dir, pattern) {
   const r = spawnSync(process.execPath, ["--import", "./test/register.mjs", "--import", "tsx", "--test", `--test-name-pattern=${pattern}`, "test/attacks.test.ts", "test/redteam.test.ts", "test/redteam2.test.ts", "test/guard.test.ts", "test/passkey.test.ts", "test/away.test.ts", "test/undo.test.ts", "test/roundtrip.test.ts", "test/icloud-rewrite.test.ts", "test/etag.test.ts", "test/reviewer.test.ts", "test/connect-ui.test.ts", "test/setup-web.test.ts"], { cwd: dir, encoding: "utf8" });
-  const res = {}; for (const m of (r.stdout ?? "").matchAll(/^(not ok|ok) \d+ - (?:ATTACK|REDTEAM) (\w+):/gm)) res[m[2]] = m[1] === "ok";
+  const res = {}; for (const m of (r.stdout ?? "").matchAll(/^(not ok|ok) \d+ - (ATTACK|REDTEAM|WARNING) (\w+):/gm)) { res[m[3]] = m[1] === "ok"; if (m[2] === "WARNING") WARNINGS.add(m[3]); }
   return res;
 }
 function scratch() {
@@ -148,22 +152,23 @@ function scratch() {
   return d;
 }
 const out = []; let allOk = true;
-const base = run(root, "ATTACK|REDTEAM"); const baseOk = Object.keys(base).length > 0 && Object.values(base).every(Boolean);
-if (!baseOk) { console.error("Baseline: some attacks are NOT refused with every protection on:", base); process.exit(1); }
-console.log(`baseline: ${Object.keys(base).length} attacks, all refused`);
+const base = run(root, "ATTACK|REDTEAM|WARNING"); const baseOk = Object.keys(base).length > 0 && Object.values(base).every(Boolean);
+if (!baseOk) { console.error("Baseline: some attacks are NOT refused (or warnings not shown) with every protection on:", base); process.exit(1); }
+console.log(`baseline: ${tally(base)}`);
 for (const row of ROWS) {
   const d = scratch();
   try {
     for (const p of row.patches) { const f = join(d, p.file); const s = readFileSync(f, "utf8"); if (!s.includes(p.find)) throw new Error(`${row.id}: patch target not found in ${p.file}: ${p.find}`); writeFileSync(f, s.replace(p.find, p.replace)); }
     const ids = [...(row.breaks ?? []), ...(row.holds ?? [])];
-    const r = run(d, `(ATTACK|REDTEAM) (${ids.map((x) => x.split(" ")[0]).join("|")}):`);
+    const r = run(d, `(ATTACK|REDTEAM|WARNING) (${ids.map((x) => x.split(" ")[0]).join("|")}):`);
     const broke = (row.breaks ?? []).every((id) => r[id] === false), held = (row.holds ?? []).every((id) => r[id] === true);
     const proven = broke && held; allOk &&= proven;
-    out.push({ ...row, proven, offResult: row.layered ? (held ? "still refused (next layer caught it)" : "SUCCEEDED") : broke ? "SUCCEEDED" : "still refused" });
+    const warn = (row.breaks ?? []).every((id) => WARNINGS.has(id));
+    out.push({ ...row, proven, offResult: row.layered ? (held ? "still refused (next layer caught it)" : "SUCCEEDED") : broke ? (warn ? "SUCCEEDED (no warning shown)" : "SUCCEEDED") : warn ? "warning still shown" : "still refused" });
     console.log(`${proven ? "PROVEN" : "NOT PROVEN"}  ${row.id}  ${row.protection}`);
   } finally { rmSync(d, { recursive: true, force: true }); }
 }
-const after = run(root, "ATTACK|REDTEAM"); const afterOk = Object.values(after).every(Boolean);
+const after = run(root, "ATTACK|REDTEAM|WARNING"); const afterOk = Object.values(after).every(Boolean);
 const commit = (() => { try { return execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8" }).trim(); } catch { return "unknown"; } })();
 // Tree ids of everything the proof runs on. A later commit that only adds this file keeps the same ids, so anyone can check
 // the proof matches a release with: git rev-parse <commit>:src <commit>:test <commit>:setup <commit>:package.json
@@ -172,10 +177,10 @@ const when = new Date().toLocaleString("en-US", { timeZone: "America/Denver", da
 const md = [`# Holdt attack proof`, ``, `Generated by \`npm run prove\` (scripts/prove-attacks.mjs) at ${when}, on commit ${commit}${execFileSync("git", ["status", "--porcelain", "src", "test", "setup", "scripts", "package.json"], { cwd: root, encoding: "utf8" }).trim() ? " plus uncommitted changes" : ""}. Trees proven: ${trees}.`,
   `Attacks live in test/attacks.test.ts and run against the same Worker code \`wrangler dev\` serves, with a mock iCloud and an attacker-controlled server on localhost.`, ``,
   `Method: every protection is switched off in a scratch copy (the real source is never edited), the matching attack is run, and it must now succeed. "Layered" rows switch off one layer and show the next one still stops the attack. Then every protection is back on and every attack is refused again.`, ``,
-  `Baseline, all protections on: ${Object.keys(base).length} attacks, ${Object.values(base).filter(Boolean).length} refused.`, ``,
+  `Baseline, all protections on: ${tally(base)}.`, ``,
   `| Row | Attack | Protection switched off | Result with it off | Proven |`, `|---|---|---|---|---|`,
   ...out.map((r) => `| ${r.id} | ${r.attack} | ${r.protection} | ${r.offResult} | ${r.proven ? "yes" : "**no**"} |`), ``,
-  `Re-enabled: ${Object.keys(after).length} attacks, ${Object.values(after).filter(Boolean).length} refused.`, ``,
+  `Re-enabled: ${tally(after)}.`, ``,
   ...out.filter((r) => r.note).map((r) => `Note on ${r.id}: ${r.note}`), ``,
   `## Refused by structure or by the OAuth library (not switched off here)`, `| Row | Attack | Why it fails |`, `|---|---|---|`, ...NOT_TOGGLED.map((r) => `| ${r[0]} | ${r[1]} | ${r[2]} |`), ``,
   `## What the server cannot prove`, `The server can't see the conversation, so it can't prove the user said yes. A model that follows injected text could still prepare and commit a new event on a writable calendar. The design caps that damage: no delete or invite tools exist, events from other people can't be edited, every write is one exact previewed change, nothing leaves iCloud through Holdt, and read-only is one setting away. Event text is labelled as untrusted data in every result and in the server instructions.`, ``];
