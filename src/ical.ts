@@ -258,7 +258,7 @@ const INVITE_LINE = /^(ATTENDEE|ORGANIZER)[;:]/i;
 export function assertSafeIcs(ics: string, invitesBefore = 0): string {
   const lines = unfold(ics); let invites = 0;
   for (const l of lines) {
-    if (/[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u2028\u2029]/.test(l) || !/^[A-Za-z][A-Za-z0-9-]*(;[^:]*)?:/.test(l)) throw new Error("refusing to write a malformed calendar line");
+    if (/[\u0000-\u0008\u000a-\u001f\u007f]/.test(l) || !/^[A-Za-z][A-Za-z0-9-]*(;[^:]*)?:/.test(l)) throw new Error("refusing to write a malformed calendar line");
     if (INVITE_LINE.test(l)) invites++;
   }
   if (invites > invitesBefore) throw new Error("refusing to add an invitee to an event");
