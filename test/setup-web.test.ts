@@ -135,7 +135,7 @@ test("setup: a wrong password says so on the field, seals nothing, and tries run
   assert.equal((await save(c.cookie)).status, 429, "a session has a fixed number of live checks");
 });
 
-test("setup: 20 saves at once on one session reach Apple at most MAX_SETUP_TRIES times (red team L1)", async () => {
+test("REDTEAM L1: 20 setup saves at once on one session reach Apple at most MAX_SETUP_TRIES times", async () => {
   const token = freshEnv(); const c = await claim(token); cal.requests = [];
   const pw = (i: number) => `zzzz-zzzz-zzzz-z${String.fromCharCode(97 + i)}zz`;
   const rs = await Promise.all(Array.from({ length: 20 }, (_, i) => save(c.cookie, { password: pw(i) })));

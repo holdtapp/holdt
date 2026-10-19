@@ -79,7 +79,7 @@ test("REDTEAM F4: an event_id with an encoded slash, backslash or dot is refused
   assert.equal(ok.title, "Dentist", "a plain href still works");
 });
 
-test("REDTEAM U1: commit_update_event fails closed when only one of the preview and current ETags is missing", async () => {
+test("REDTEAM X13: commit_update_event fails closed when only one of the preview and current ETags is missing", async () => {
   const noTag = () => { mock.reportEtag = () => ""; mock.getEtag = () => ""; }, tags = () => { mock.reportEtag = null; mock.getEtag = null; };
   const t = makeTools(mock, { now: NOW }); const id = await dentistId(t), key = "/123456789/calendars/home/dentist.ics";
   // The preview read came back with no ETag, then the event changed in iCloud (new ETag) before the yes.

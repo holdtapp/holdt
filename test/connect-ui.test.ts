@@ -201,7 +201,7 @@ test("Mac Safari keeps a 17 px base: -apple-system-body only where touch-callout
   assert.match(p, /Not you\? Choose Don[’']t allow\./); assert.doesNotMatch(p, /\btap\b/i);
 });
 
-test("R45 (red team M1/F2): the consent page never opens the passkey sheet without a tap, even on Grok Bot's shared callback", async () => {
+test("REDTEAM X4: (R45, red team M1/F2) the consent page never opens the passkey sheet without a tap, even on Grok Bot's shared callback", async () => {
   const { CONSENT_SCRIPT } = await import("../src/passkey.js");
   assert.doesNotMatch(CONSENT_SCRIPT, /data-auto|connect-auto|setTimeout\(\(\)=>\{[^}]*go\(/, "no automatic try");
   assert.equal(CONSENT_SCRIPT.match(/\bgo\(/g)?.length, 1, "go() is called from the Allow click only");

@@ -245,7 +245,7 @@ test("ATTACK P12: the setup link is the owner's proof: hash only, fragment only,
   assert.match((await enroll(await new VirtualAuthenticator(ORIGIN).init())).message, /already used/);
   assert.ok(!logs.some((l) => l.includes(ENROLL)), "never logged");
 });
-test("F3 (red team): a signed consent ctx works only with the consent handle it was made for", async () => {
+test("REDTEAM F3: a signed consent ctx works only with the consent handle it was made for", async () => {
   await freshEnv(); await enroll(await new VirtualAuthenticator(ORIGIN).init());
   const A = await consent("https://www.cursor.com/agents/mcp/oauth/callback"), B = await consent();
   const f = (h: string, n: string) => unesc(h.match(new RegExp(`name="${n}" value="([^"]*)"`))?.[1] ?? "");
