@@ -21,7 +21,7 @@ You need a free Cloudflare account, an Apple Account with two-factor authenticat
 4. Click **Save passkey** once (Touch ID or your password on a Mac, your screen lock on other computers). On a Mac, if iCloud Keychain is on, your iPhone gets the passkey too.
 5. In Grok Bot, add the address from the last page under **Connect Apps → Add custom MCP server**.
 
-When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (**Touch ID** on a Home-button iPhone, **Touch ID or Face ID** on an iPad), or **Allow on this Mac** on a Mac (Touch ID or your password). On a device without your passkey, choose **Approve on your iPhone instead** and scan the code with it. Every path's steps and the threat model are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
+When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (**Touch ID** on a Home-button iPhone, **Touch ID or Face ID** on an iPad), or **Allow on this Mac** on a Mac (Touch ID or your password). On a computer without your passkey, choose **Approve on your iPhone instead** and scan the code with it. Every path's steps and the threat model are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
 
 ### For developers: Terminal setup
 You need Node.js and a free Cloudflare account. A step-by-step version is in [docs/setup.md](docs/setup.md).
