@@ -306,8 +306,8 @@ ${v("nopk", { title: "This device can’t approve yet", titleId: "t-nopk", lede:
 export function askHtml(kind: "consent" | "pair", from: string, when: string, app: any, writes: string) {
   const btns = `<p class="status" id="askmsg" aria-hidden="true">${ICON.info}<span class="st"></span></p><p class="sr" id="live" role="status" aria-live="polite"></p><button type="button" class="btn primary" id="yes">${ICON.faceId}${ICON.spinner}<span id="yeslabel">Allow with Face ID</span></button>
 <button type="button" class="btn plain quiet" id="nope">Don’t allow</button>`;
-  // Where the request came from leads, in the same words on both kinds, and never breaks across lines.
-  const place = esc(from).replace(/ /g, "\u00a0");
+  // Where the request came from leads, in the same words on both kinds. It breaks only before "that says" and "near".
+  const place = esc(from).replace(/ /g, "\u00a0").replace(/\u00a0(that|near)\u00a0/g, " $1\u00a0");
   const asked = `From <strong>${place}</strong>, ${esc(when)}.`;
   if (kind === "pair") return screen({ title: "Add a new device?", lede: asked, markId: "mk",
     body: `<div class="callout">${ICON.alert}<p>Allow this only for a device you’re holding right now. If someone asked you to add it, tap Don’t\u00a0allow.</p></div><ul class="facts" role="list"><li>${/iPad/.test(from) ? ICON.tablet : /Mac|PC|computer/.test(from) ? ICON.laptop : /iPhone|phone|Android/.test(from) ? ICON.device : ICON.devices}<p>It can approve Holdt connections.</p></li></ul>`, actions: btns });

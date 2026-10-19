@@ -10,7 +10,7 @@
 //   replay    the Face ID challenge is single use and bound to this request. A request is decided once and used once.
 //   race      approving needs an enrolled passkey. A pairing approval can only be claimed with the secret that never
 //             leaves the new device's page, so someone who sees the QR code can't enroll in its place.
-//   phishing  the approve page names the app, where access goes, and the device and place the request came from.
+//   phishing  the approve page names the app, where access goes, the place the request came from, and the device type it claims.
 import type { Env } from "./worker.js";
 import { guardFor } from "./guard.js";
 import { verifyAssertion, WebAuthnError, b64u } from "./webauthn.js";
@@ -28,10 +28,12 @@ const claimBind = async (claim: string) => `claim:${await hex(`claim:${String(cl
 const random = () => b64u(crypto.getRandomValues(new Uint8Array(32)));
 const KV_TTL = 600;
 
-/** Who asked, as a person would say it: "a Mac near Denver, CO". Cloudflare's own geo fields, never a header the client sets. */
+/** Who asked, as a person would say it: "a device that says it’s a Mac near Denver, CO". The place is Cloudflare's own geo
+ * fields. The device type comes from the User-Agent, which the client sets, so the page says it is only what the device says. */
 export function whereFrom(req: Request): string {
   const ua = req.headers.get("user-agent") ?? "";
-  const device = /iPhone/.test(ua) ? "an iPhone" : /iPad/.test(ua) ? "an iPad" : /Android/.test(ua) ? "an Android device" : /Macintosh|Mac OS X/.test(ua) ? "a Mac" : /Windows/.test(ua) ? "a Windows PC" : /CrOS/.test(ua) ? "a Chromebook" : /Linux/.test(ua) ? "a Linux computer" : "a device";
+  const kind = /iPhone/.test(ua) ? "an iPhone" : /iPad/.test(ua) ? "an iPad" : /Android/.test(ua) ? "an Android device" : /Macintosh|Mac OS X/.test(ua) ? "a Mac" : /Windows/.test(ua) ? "a Windows PC" : /CrOS/.test(ua) ? "a Chromebook" : /Linux/.test(ua) ? "a Linux computer" : "";
+  const device = kind ? `a device that says it’s ${kind}` : "a device";
   const cf = (req as any).cf ?? {};
   const city = typeof cf.city === "string" ? cf.city.replace(/[^\p{L}\p{M} .'-]/gu, "").slice(0, 40) : "";
   const region = typeof cf.regionCode === "string" && /^[A-Z0-9]{1,3}$/.test(cf.regionCode) ? cf.regionCode : typeof cf.country === "string" && /^[A-Z]{2}$/.test(cf.country) ? cf.country : "";
@@ -135,7 +137,7 @@ export async function awayApi(req: Request, env: Env, now = Date.now()): Promise
     if (!creds.length) return json({ ok: false, gone: "nopk", message: "No device has Face ID for Holdt yet." }, 400);
     const c = await newChallenge(env, "away", `away:${id}`, now);
     const { askHtml } = await import("./authorize.js");
-    return json({ ok: true, kind: rec.kind, device: String(rec.from ?? "").replace(/^an? /, "").split(" near ")[0].slice(0, 40), html: askHtml(rec.kind, rec.from, ago(now - rec.created), rec.app, rec.writes ?? ""), challenge_token: c.token, challenge: c.challenge, rpId: url.hostname, ids: creds.map((x) => x.id) });
+    return json({ ok: true, kind: rec.kind, device: String(rec.from ?? "").split(" near ")[0].replace(/^a device that says it’s /, "").replace(/^an? /, "").slice(0, 40), html: askHtml(rec.kind, rec.from, ago(now - rec.created), rec.app, rec.writes ?? ""), challenge_token: c.token, challenge: c.challenge, rpId: url.hostname, ids: creds.map((x) => x.id) });
   }
   if (p === "/ok/deny") {
     if (!(await once(env, `away-decide:${id}`, rec.created + AWAY_TTL_MS))) return json({ ok: false, gone: "decided", message: GONE.decided }, 400);
