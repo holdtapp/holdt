@@ -1,6 +1,6 @@
 // Cloudflare Worker entry (self-host). OAuth 2.1 via @cloudflare/workers-oauth-provider:
-// Grok Bot registers itself (DCR), the owner approves on /authorize with a one-time setup code,
-// and /mcp only ever sees requests carrying a valid access token. No key is ever pasted into chat.
+// Grok Bot registers itself (DCR), the owner approves on /authorize with a passkey (Face ID or Touch ID, here or on
+// their iPhone, with an owner-issued recovery code only as a fallback), and /mcp only ever sees requests carrying a valid access token. No key is ever pasted into chat.
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { CalDavClient } from "./caldav.js";
 import { Tools } from "./tools.js";
