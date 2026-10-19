@@ -157,7 +157,7 @@ async function save(req: Request, env: Env, url: URL, fetchImpl?: typeof fetch, 
   }
   if (!count) return json({ ok: false, message: "Apple accepted the password, but this account has no calendars Holdt can read." });
   // One save per link. Spent before sealing, so a second request riding the same cookie can't race it.
-  if (g &&!(await g.spend(`setup-save:${s.id}`, s.exp))) return json({ ok: false, ended: true }, 403);
+  if (g && !(await g.spend(`setup-save:${s.id}`, s.exp))) return json({ ok: false, ended: true }, 403);
   await store(env).put(`setup-session:${s.id}`, { ...s, tries: s.tries + 1, done: true });
   const enroll = rand(32);
   const rec: SetupRecord = { email: e.value, password: p.value, timezone: validZone(b?.timezone) ?? "UTC", writes: b?.writes === true, confirm: rand(32), epoch: rand(24),
