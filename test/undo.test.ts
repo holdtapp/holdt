@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { makeMock, seed, makeTools } from "./helpers.js";
 import { MockKV } from "./kv-mock.js";
 import { kvUsedStore } from "../src/worker.js";
+import { randomBytes } from "node:crypto";
 
 const mock = makeMock();
 before(() => mock.start()); after(() => mock.stop());
@@ -104,4 +105,48 @@ test("ATTACK E6: undo re-checks that the calendar is still writable, at preview 
     await assert.rejects(T().call("commit_undo", { confirm_token: p.confirm_token }), /read-only in iCloud now/);
     assert.equal(mock.requests.slice(before).filter((r) => r.method === "DELETE" || r.method === "PUT").length, 0, "nothing was sent to iCloud");
   } finally { mock.cols.home!.readOnly = false; }
+});
+
+// Change log sealing (P2). A storage-only reader sees ciphertext, and undo still restores the exact old bytes.
+const sealKey = randomBytes(32).toString("base64url");
+const rawLog = () => [...kv.m].filter(([k]) => k.startsWith("chg:")).map(([, e]) => e.v).join("\n");
+async function withNotes() {
+  const href = [...mock.items.keys()].find((k) => k.endsWith("dentist.ics"))!;
+  mock.items.set(href, { ics: mock.items.get(href)!.ics.replace("LOCATION:12 Main St", "LOCATION:12 Main St\r\nDESCRIPTION:Gate code 4417"), etag: mock.etagSeq++ });
+  return { href, before: mock.items.get(href)!.ics };
+}
+
+test("ATTACK E7: a storage-only reader can't read the title or pre-edit event in the change log, and undo restores the exact old bytes", async () => {
+  const t = () => T({ sealKey }); const { href, before } = await withNotes();
+  const p: any = await t().call("prepare_update_event", { event_id: await dentistId(t()), title: "Checkup", location: "", notes: "" });
+  const c: any = await t().call("commit_update_event", { confirm_token: p.confirm_token });
+  assert.ok(rawLog().length > 0);
+  for (const s of ["Dentist", "Gate code 4417", "12 Main St", "Checkup"]) assert.ok(!rawLog().includes(s), `raw KV holds "${s}"`);
+  const l: any = await t().call("list_changes", {}); assert.equal(l.changes[0].title, "Checkup");
+  const u: any = await t().call("prepare_undo", { revert_token: c.revert_token });
+  assert.match(u.preview, /Title: "Checkup" → "Dentist"/);
+  await t().call("commit_undo", { confirm_token: u.confirm_token });
+  assert.equal(mock.items.get(href)!.ics, before);
+  for (const s of ["Dentist", "Gate code 4417", "12 Main St", "Checkup"]) assert.ok(!rawLog().includes(s), `raw KV holds "${s}" after undo`);
+});
+
+test("change log entries written in plain text before SEAL_KEY was set still undo exactly", async () => {
+  const { href, before } = await withNotes();
+  const p: any = await T().call("prepare_update_event", { event_id: await dentistId(), notes: "" });
+  const c: any = await T().call("commit_update_event", { confirm_token: p.confirm_token });
+  assert.match(rawLog(), /Gate code 4417/, "without SEAL_KEY the log is plain text");
+  const u: any = await T({ sealKey }).call("prepare_undo", { revert_token: c.revert_token });
+  await T({ sealKey }).call("commit_undo", { confirm_token: u.confirm_token });
+  assert.equal(mock.items.get(href)!.ics, before);
+});
+
+test("a change sealed under another SEAL_KEY can't be undone and nothing is written", async () => {
+  const p: any = await T({ sealKey }).call("prepare_update_event", { event_id: await dentistId(), title: "Checkup" });
+  const c: any = await T({ sealKey }).call("commit_update_event", { confirm_token: p.confirm_token });
+  const other = () => T({ sealKey: randomBytes(32).toString("base64url") }); const puts = method("PUT").length;
+  await assert.rejects(other().call("prepare_undo", { revert_token: c.revert_token }), /can't read that change well enough/);
+  const u: any = await T({ sealKey }).call("prepare_undo", { revert_token: c.revert_token });
+  await assert.rejects(other().call("commit_undo", { confirm_token: u.confirm_token }), /can't read that change well enough/);
+  assert.equal(((await other().call("list_changes", {})) as any).changes[0].title, "(can't be read)");
+  assert.equal(method("PUT").length, puts, "nothing was sent to iCloud");
 });

@@ -5,6 +5,7 @@
 const enc = new TextEncoder(), dec = new TextDecoder();
 const b64 = (b: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(b)));
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+export const unb64u = (s: string) => unb64(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4));
 
 export interface Sealed { v: 1; kekId: string; wrappedKey: string; iv: string; ct: string }
 export async function importKek(raw32: Uint8Array) { if (raw32.length !== 32) throw new Error("KEK must be 32 bytes"); return crypto.subtle.importKey("raw", raw32 as BufferSource, "AES-KW", false, ["wrapKey", "unwrapKey"]); }

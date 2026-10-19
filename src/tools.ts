@@ -5,11 +5,12 @@ import { resolvePhrase, Resolved } from "./phrases.js";
 import { issue, verify, UsedStore, NO_SPEND } from "./confirm.js";
 import { Journal, KVLike, Change, ownerKey, newId, REVERT_TTL_MS, MAX_BEFORE } from "./journal.js";
 import { log } from "./redact.js";
+import { importKek, unb64u } from "./vault.js";
 import { eventFingerprint } from "./fingerprint.js";
 import { Iv, merge, subtract, parseWorkingHours, workWindows, nearestSlots } from "./free.js";
 import { deviceName } from "./passkey.js";
 
-export interface Config { timezone: string; /** Older keys still accepted for verification during a CONFIRM_SECRET rotation. Never used to issue. */ previousSecrets?: string[]; /** Where the change log lives (the Worker passes OAUTH_KV). Without it, commits return no revert_token. */ journal?: KVLike; /** Whose change log this is, e.g. the iCloud email. Stored only as a hash. */ owner?: string; /** Clock override for tests. */ now?: () => number; /** Passkeys enrolled for one-tap connect (the Worker passes them when PASSKEYS is on). */ devices?: () => Promise<{ label?: string; createdAt: number; via?: string }[]>; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Where used confirm-token nonces are remembered. Defaults to this instance only; the Worker passes a KV-backed store. */ usedStore?: UsedStore; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
+export interface Config { timezone: string; /** Older keys still accepted for verification during a CONFIRM_SECRET rotation. Never used to issue. */ previousSecrets?: string[]; /** Where the change log lives (the Worker passes OAUTH_KV). Without it, commits return no revert_token. */ journal?: KVLike; /** Whose change log this is, e.g. the iCloud email. Stored only as a hash. */ owner?: string; /** SEAL_KEY (32 bytes, base64url). With it the change log seals titles and pre-edit events. Without it they are plain text. */ sealKey?: string; /** Clock override for tests. */ now?: () => number; /** Passkeys enrolled for one-tap connect (the Worker passes them when PASSKEYS is on). */ devices?: () => Promise<{ label?: string; createdAt: number; via?: string }[]>; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Where used confirm-token nonces are remembered. Defaults to this instance only; the Worker passes a KV-backed store. */ usedStore?: UsedStore; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
 export const REMINDER_TOOLS = new Set(["list_reminder_lists", "list_reminders", "prepare_add_reminder", "commit_add_reminder", "prepare_complete_reminder", "commit_complete_reminder"]);
 export const toolsFor = (cfg: { remindersExperimental?: boolean }) => TOOLS.filter((t) => cfg.remindersExperimental || !REMINDER_TOOLS.has(t.name));
 export interface ToolDef { name: string; title: string; description: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations: Record<string, boolean | string> }
@@ -123,7 +124,7 @@ export class Tools {
   private keys() { return [this.cfg.confirmSecret, ...(this.cfg.previousSecrets ?? [])]; }
   private now() { return (this.cfg.now ?? Date.now)(); }
   private jr?: Promise<{ j: Journal; o: string } | undefined>;
-  private journal() { return (this.jr ??= (async () => { if (!this.cfg.journal) return undefined; const o = await ownerKey(this.cfg.owner ?? "owner"); return { j: new Journal(this.cfg.journal, o), o }; })()); }
+  private journal() { return (this.jr ??= (async () => { if (!this.cfg.journal) return undefined; const o = await ownerKey(this.cfg.owner ?? "owner"); return { j: new Journal(this.cfg.journal, o, this.cfg.sealKey ? await importKek(unb64u(this.cfg.sealKey)) : undefined), o }; })()); }
   /** Log a commit and mint its revert token. A logging failure never undoes the user's change; it just means no undo. */
   // The fingerprint comes from a fresh GET right after the PUT, i.e. what iCloud actually stored, falling back to what
   // Holdt wrote if that read fails. Either way only user-visible fields count (see fingerprint.ts).
@@ -364,6 +365,7 @@ export class Tools {
         this.assertOwner(v.payload.o, jr.o);
         const ch = await jr.j.get(v.payload.o, v.payload.id); if (!ch) throw new UserError("Holdt has no record of that change.");
         if (ch.undone) throw new UserError("That change was already taken back. Nothing was done twice.");
+        if (ch.action !== "create" && !ch.before) throw new UserError("Holdt can't read that change well enough to take it back safely. Nothing was changed.");
         const uc = await this.col(ch.cid, "VEVENT");
         if (!uc.writable) throw new UserError(`"${oneLine(uc.name, 60)}" is read-only in iCloud now, so Holdt can't take this change back. Nothing was changed.`);
         // Read, check the content is what the user saw at the preview (the real safety check), then write pinned to that
