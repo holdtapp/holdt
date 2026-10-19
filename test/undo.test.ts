@@ -140,7 +140,7 @@ test("change log entries written in plain text before SEAL_KEY was set still und
   assert.equal(mock.items.get(href)!.ics, before);
 });
 
-test("a change sealed under another SEAL_KEY can't be undone and nothing is written", async () => {
+test("ATTACK E8: a change sealed under another SEAL_KEY can't be undone and nothing is written", async () => {
   const p: any = await T({ sealKey }).call("prepare_update_event", { event_id: await dentistId(), title: "Checkup" });
   const c: any = await T({ sealKey }).call("commit_update_event", { confirm_token: p.confirm_token });
   const other = () => T({ sealKey: randomBytes(32).toString("base64url") }); const puts = method("PUT").length;
