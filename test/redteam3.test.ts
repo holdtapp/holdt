@@ -44,13 +44,15 @@ test("REDTEAM L3: the label chosen at enrollment never reaches connection_status
   assert.ok(!JSON.stringify(s).includes(label));
 });
 
-test("REDTEAM L4: NEL and other C1 controls never survive escapeText, propLine or assertSafeIcs", async () => {
+test("REDTEAM L4: NEL and other C1 controls never survive escapeText or propLine, and stored events stay editable", async () => {
   const { escapeText, propLine, assertSafeIcs } = await import("../src/ical.js");
   assert.equal(escapeText("hello\u0085SUMMARY:pwned\u009b\u0080"), "helloSUMMARY:pwned", "C1 controls, NEL included, are dropped");
   assert.equal(escapeText("a b c"), "a\\nb\\nc", "U+2028/9 still become \\n");
   for (const ch of ["\u0085", "\u0080", "\u009f", " ", " "]) {
     assert.throws(() => propLine("SUMMARY", `a${ch}b`), /control character/, JSON.stringify(ch));
-    assert.throws(() => assertSafeIcs(`BEGIN:VCALENDAR\r\nSUMMARY:a${ch}SUMMARY:b\r\nEND:VCALENDAR\r\n`), /malformed/, JSON.stringify(ch));
+    // The last gate also checks lines kept from the stored event, so it stays at C0: an iCloud event that already holds
+    // one of these characters must stay editable and undoable. New text can't carry them (escapeText and propLine above).
+    assert.doesNotThrow(() => assertSafeIcs(`BEGIN:VCALENDAR\r\nSUMMARY:a${ch}b\r\nEND:VCALENDAR\r\n`), JSON.stringify(ch));
   }
   assert.doesNotThrow(() => propLine("SUMMARY", "Café\tnaïve"), "Latin-1 letters and TAB are still fine");
 });
@@ -96,4 +98,18 @@ test("REDTEAM F2: the iPhone approval page never says access goes to Grok Bot al
   const h = askHtml("consent", "Denver, US", "just now", { redirectUri: "https://www.cursor.com/agents/mcp/oauth/callback" }, "off, so it can't add or change events");
   assert.match(h, /Access goes to the Grok Bot account that started this connect\./);
   assert.doesNotMatch(h, /alone/);
+});
+
+test("REDTEAM F1b: undo of an edit shows the full time range it puts back, not only the start", async () => {
+  const { MockKV } = await import("./kv-mock.js"); const { kvUsedStore } = await import("../src/worker.js");
+  const kv = new MockKV();
+  const t = () => makeTools(mock, { now: NOW, journal: kv as any, owner: "test.user@example.com", usedStore: kvUsedStore(kv) });
+  const id = await dentistId(t());
+  const p: any = await t().call("prepare_update_event", { event_id: id, end: "2026-10-29T15:00" });
+  const c: any = await t().call("commit_update_event", { confirm_token: p.confirm_token });
+  const u: any = await t().call("prepare_undo", { revert_token: c.revert_token });
+  const when = u.preview.split("\n").find((l: string) => l.startsWith("When:"));
+  assert.ok(when, u.preview);
+  assert.match(when, / to .*→ .* to /, when);
+  assert.match(when, /15:00|3:00 PM/, "the end being taken back is shown");
 });

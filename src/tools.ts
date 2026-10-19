@@ -351,7 +351,7 @@ export class Tools {
           const A = this.normEvent(c, r, now, undefined, true), Bv = this.normEvent(c, { ...r, ics: ch.before! }, was, undefined, true);
           lines = [`Put "${oneLine(A.title)}" in ${oneLine(c.name, 60)} back the way it was before ${this.show({ utc: ch.at, allDay: false })}:`];
           if (A.title !== Bv.title) lines.push(`Title: "${oneLine(A.title)}" → "${oneLine(Bv.title)}"`);
-          if (A.start !== Bv.start || A.end !== Bv.end) lines.push(`When: ${A.start} → ${Bv.start}`);
+          if (A.start !== Bv.start || A.end !== Bv.end) lines.push(`When: ${A.start} to ${A.end} → ${Bv.start} to ${Bv.end}`);
           if ((A.location ?? "") !== (Bv.location ?? "")) lines.push(`Where: "${oneLine(A.location ?? "")}" → "${oneLine(Bv.location ?? "") || "(none)"}"`);
           if ((A.notes ?? "") !== (Bv.notes ?? "")) lines.push(`Notes: "${oneLine(A.notes ?? "", 200)}" → "${oneLine(Bv.notes ?? "", MAX.notes) || "(none)"}"`);
         }
