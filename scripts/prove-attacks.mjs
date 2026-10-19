@@ -143,6 +143,7 @@ const ROWS = [
   { id: "X11", attack: "An event_id with an encoded slash, backslash or dot climbs out of its calendar after the path check", protection: "Encoded %2f, %5c and %2e refused in event ids", patches: [M("src/tools.ts", "if (!ok || /%(2f|5c|2e)/i.test(href)) throw", "if (!ok) throw")], breaks: ["F4"] },
   { id: "X12", attack: "Pair one flow's signed ctx (vouched-for Grok Bot name) with another flow's consent handle", protection: "Signed consent ctx bound to its consent handle", patches: [M("src/authorize.ts", "if (typeof o?.h !== \"string\" || !safeEq(o.h, await bindHandle(handle))) return undefined;", "")], breaks: ["F3"] },
   { id: "X13", attack: "An event changes in iCloud between preview and yes while one of the two reads has no ETag", protection: "commit_update_event fails closed when only one ETag is known", patches: [M("src/tools.ts", "if (!etag !== !r.etag) throw", "if (false) throw")], breaks: ["X13"] },
+  { id: "X14", attack: "The iPhone approval page tells the owner access goes to Grok Bot alone, though any stranger can use that shared callback", protection: "Approval page says access goes to the Grok Bot account that started this connect", patches: [M("src/authorize.ts", "account that started this connect.` : who.lede", "alone.` : who.lede")], breaks: ["F2"] },
 ];
 const NOT_TOGGLED = [
   ["A3", "Replay an OAuth authorization code", "@cloudflare/workers-oauth-provider (single-use codes). Third-party code, not patched here. Attack refused."],
