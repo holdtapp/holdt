@@ -250,7 +250,7 @@ export async function authorizeHandler(req: Request, env: Env): Promise<Response
     if (!verdict.ok) {
       log.warn(`${viaAway ? "iPhone approval" : viaPasskey ? "passkey" : viaReviewer ? "reviewer pass" : "approval code"} rejected: ${verdict.reason.slice(0, 80)}`);
       const ctxRaw = String(form.get("ctx") ?? "");
-      const details: any = (await readCtx(env, ctxRaw, handle)) ??{ clientName: "the app", redirectHost: "" };
+      const details: any = (await readCtx(env, ctxRaw, handle)) ?? { clientName: "the app", redirectHost: "" };
       details.__ctx = ctxRaw;
       if (!viaPasskey && !viaAway && verdict.reason === "used") { const known = details.redirectUri ? knownApp(details.redirectUri) : undefined; return page("Holdt: Already connected", messageBody(known ? `${known} is already connected` : "You’re already connected", known ? `You said yes earlier. Close this page to go back to ${known}.` : "You said yes earlier. Close this page to go back to your assistant.", { mark: "closed", noClose: true }), 400); }
       // A fresh challenge (and a fresh QR code) for the retry: the old ones are spent, whether or not they verified.
