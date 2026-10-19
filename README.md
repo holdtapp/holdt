@@ -13,7 +13,7 @@ Holdt is a small MCP server that lets Grok Bot read your iCloud calendars. It ru
 > Verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: adding, changing and undoing, a repeated commit refused, an undo after a later edit refused, and every other event left untouched (18 of 18 checks, [docs/live-test-2026-10-17.md](docs/live-test-2026-10-17.md)). Not covered yet: a conflict from an edit made on an iPhone, and an event across the Nov 1 DST change.
 
 ## Setup (no Terminal)
-You need a free Cloudflare account and an Apple Account with two-factor authentication. Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Grok Bot installs Holdt on your Cloudflare account from your computer (it needs the Grok Bot desktop app). Then you:
+You need a free Cloudflare account and an Apple Account with two-factor authentication. Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Grok Bot installs Holdt on your Cloudflare account from your computer (it needs the Grok Bot desktop app). Along the way you:
 
 1. Click **Allow** on Cloudflare's page.
 2. Apple's page opens in front of the Holdt setup page. Sign in, make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars.
