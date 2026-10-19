@@ -30,9 +30,10 @@ export function parseIcs(text: string): Component {
 }
 export const getProp = (c: Component, n: string) => c.props.find((p) => p.name === n);
 export function unescapeText(v: string) { return v.replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1"); }
-/** RFC 5545 TEXT. Every line break form (CRLF, CR, LF, U+2028/9) becomes \\n, and other control characters are dropped,
+/** RFC 5545 TEXT. Every line break form (CRLF, CR, LF, U+2028/9) becomes \\n, and other control characters (C0, DEL,
+ * and C1 including NEL U+0085, which some readers treat as a line break) are dropped,
  * so user text can never start a new property line. */
-export function escapeText(v: string) { return v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r\n|\r|\n|\u2028|\u2029/g, "\\n"); }
+export function escapeText(v: string) { return v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r\n|\r|\n|\u2028|\u2029/g, "\\n"); }
 
 // ---------- time ----------
 /** Offset (ms) of zone at a UTC instant. */
@@ -198,7 +199,7 @@ export function foldLine(line: string): string {
 }
 export function propLine(name: string, value: string, params: Record<string, string> = {}): string {
   // Invariant: a property is exactly one logical line. Nothing caller-supplied may carry a line break or control character.
-  if ([name, value, ...Object.keys(params), ...Object.values(params)].some((x) => /[\u0000-\u0008\u000a-\u001f\u007f]/.test(String(x)))) throw new Error(`refusing to write a control character into ${String(name).slice(0, 20)}`);
+  if ([name, value, ...Object.keys(params), ...Object.values(params)].some((x) => /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u2028\u2029]/.test(String(x)))) throw new Error(`refusing to write a control character into ${String(name).slice(0, 20)}`);
   const ps = Object.entries(params).map(([k, v]) => `;${k}=${/[:;,]/.test(v) ? `"${v}"` : v}`).join("");
   return foldLine(`${name}${ps}:${value}`);
 }
@@ -257,7 +258,7 @@ const INVITE_LINE = /^(ATTENDEE|ORGANIZER)[;:]/i;
 export function assertSafeIcs(ics: string, invitesBefore = 0): string {
   const lines = unfold(ics); let invites = 0;
   for (const l of lines) {
-    if (/[\u0000-\u0008\u000a-\u001f\u007f]/.test(l) || !/^[A-Za-z][A-Za-z0-9-]*(;[^:]*)?:/.test(l)) throw new Error("refusing to write a malformed calendar line");
+    if (/[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u2028\u2029]/.test(l) || !/^[A-Za-z][A-Za-z0-9-]*(;[^:]*)?:/.test(l)) throw new Error("refusing to write a malformed calendar line");
     if (INVITE_LINE.test(l)) invites++;
   }
   if (invites > invitesBefore) throw new Error("refusing to add an invitee to an event");

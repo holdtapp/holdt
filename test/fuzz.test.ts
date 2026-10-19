@@ -57,7 +57,7 @@ function checkWrites() {
     assert.doesNotMatch(r.body, /\r(?!\n)/, "no bare CR");
     for (const l of unfold(r.body)) {
       assert.match(l, /^[A-Za-z][A-Za-z0-9-]*(;[^:]*)?:/, `one property per line: ${JSON.stringify(l).slice(0, 80)}`);
-      assert.doesNotMatch(l, /[\u0000-\u0008\u000a-\u001f\u007f]/, "no control characters");
+      assert.doesNotMatch(l, /[\u0000-\u0008\u000a-\u001f\u007f-\u009f\u2028\u2029]/, "no control characters or Unicode line breaks (C0, DEL, C1 incl. NEL, U+2028/9)");
       assert.doesNotMatch(l, /^(ATTENDEE|ORGANIZER|ATTACH)[;:]/i, `no smuggled ${l.slice(0, 20)}`);
       assert.doesNotMatch(l, /^ACTION:EMAIL/i);
     }

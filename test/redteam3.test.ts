@@ -44,6 +44,17 @@ test("REDTEAM L3: the label chosen at enrollment never reaches connection_status
   assert.ok(!JSON.stringify(s).includes(label));
 });
 
+test("REDTEAM L4: NEL and other C1 controls never survive escapeText, propLine or assertSafeIcs", async () => {
+  const { escapeText, propLine, assertSafeIcs } = await import("../src/ical.js");
+  assert.equal(escapeText("hello\u0085SUMMARY:pwned\u009b\u0080"), "helloSUMMARY:pwned", "C1 controls, NEL included, are dropped");
+  assert.equal(escapeText("a b c"), "a\\nb\\nc", "U+2028/9 still become \\n");
+  for (const ch of ["\u0085", "\u0080", "\u009f", " ", " "]) {
+    assert.throws(() => propLine("SUMMARY", `a${ch}b`), /control character/, JSON.stringify(ch));
+    assert.throws(() => assertSafeIcs(`BEGIN:VCALENDAR\r\nSUMMARY:a${ch}SUMMARY:b\r\nEND:VCALENDAR\r\n`), /malformed/, JSON.stringify(ch));
+  }
+  assert.doesNotThrow(() => propLine("SUMMARY", "Café\tnaïve"), "Latin-1 letters and TAB are still fine");
+});
+
 test("REDTEAM F2: the iPhone approval page never says access goes to Grok Bot alone", async () => {
   const { askHtml } = await import("../src/authorize.js");
   const h = askHtml("consent", "Denver, US", "just now", { redirectUri: "https://www.cursor.com/agents/mcp/oauth/callback" }, "off, so it can't add or change events");
