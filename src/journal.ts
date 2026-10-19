@@ -4,10 +4,10 @@
 // With a KEK (from SEAL_KEY) the title and the pre-edit event are sealed (src/vault.ts, associated data chg:<owner>:<id>),
 // so a storage-only reader can't read them. Without SEAL_KEY (terminal setup) they are stored in plain text, as before.
 // Entries written in plain text stay readable, so undo of edits made before sealing keeps working until they expire.
-// An entry sealed under another key can't be opened: its title reads "(can't be read)" and an edit can't be undone.
+// An entry sealed under another key can't be opened: its title reads "(can't be read)" and it can't be undone.
 import { seal, open, type Sealed } from "./vault.js";
 export interface KVLike { get(k: string): Promise<string | null>; put(k: string, v: string, o?: { expirationTtl?: number }): Promise<unknown>; list(o: { prefix: string; limit?: number; cursor?: string }): Promise<{ keys: { name: string }[]; list_complete?: boolean; cursor?: string }> }
-export interface Change { id: string; at: number; action: "create" | "update" | "undo"; cid: string; href: string; uid: string; title: string; before?: string; afterEtag: string; /** eventFingerprint of the event as iCloud stored it right after Holdt's write. Undo compares this, not the ETag. */ afterFp?: string; undone?: number; of?: string }
+export interface Change { id: string; at: number; action: "create" | "update" | "undo"; cid: string; href: string; uid: string; title: string; before?: string; afterEtag: string; /** eventFingerprint of the event as iCloud stored it right after Holdt's write. Undo compares this, not the ETag. */ afterFp?: string; undone?: number; of?: string; /** Sealed under another key (wrong or rotated SEAL_KEY). Never undone. */ unreadable?: true }
 
 export const CHANGE_TTL_S = 30 * 86400, OWN_CREATE_TTL_S = 24 * 3600, REVERT_TTL_MS = 7 * 86400_000, MAX_BEFORE = 200_000;
 const pad = (n: number) => String(n).padStart(13, "0");
@@ -33,7 +33,7 @@ export class Journal {
     const { sealed, ...c } = JSON.parse(v) as Change & { sealed?: Sealed };
     if (!sealed) return c;
     try { if (this.kek) return { ...c, ...(JSON.parse(await open(this.kek, k, sealed)) as Pick<Change, "title" | "before">) }; } catch { /* sealed under another key */ }
-    return { ...c, title: "(can't be read)" };
+    return { ...c, title: "(can't be read)", unreadable: true };
   }
   async record(c: Change) { await this.put(c); if (c.action === "create") await this.kv.put(ownKey(this.owner, c.uid), String(c.at), { expirationTtl: OWN_CREATE_TTL_S }); }
   async get(owner: string, id: string): Promise<Change | undefined> { if (owner !== this.owner || !/^[0-9]{13}-[0-9a-f]{8}$/.test(id)) return undefined; return this.read(key(owner, id)); }

@@ -149,6 +149,7 @@ export class Tools {
     if (!ch) throw new UserError("Holdt has no record of that change. It may be older than 30 days.");
     if (ch.undone) throw new UserError("That change was already taken back.");
     if (ch.action === "undo") throw new UserError("An undo can't itself be undone. Ask me to make the change again instead.");
+    if (ch.unreadable) throw new UserError("Holdt can't read that change well enough to take it back safely. Nothing was changed.");
     return { jr, ch };
   }
   /** A revert or undo token only works for the account whose change log minted it. */
@@ -365,7 +366,7 @@ export class Tools {
         this.assertOwner(v.payload.o, jr.o);
         const ch = await jr.j.get(v.payload.o, v.payload.id); if (!ch) throw new UserError("Holdt has no record of that change.");
         if (ch.undone) throw new UserError("That change was already taken back. Nothing was done twice.");
-        if (ch.action !== "create" && !ch.before) throw new UserError("Holdt can't read that change well enough to take it back safely. Nothing was changed.");
+        if (ch.unreadable || (ch.action !== "create" && !ch.before)) throw new UserError("Holdt can't read that change well enough to take it back safely. Nothing was changed.");
         const uc = await this.col(ch.cid, "VEVENT");
         if (!uc.writable) throw new UserError(`"${oneLine(uc.name, 60)}" is read-only in iCloud now, so Holdt can't take this change back. Nothing was changed.`);
         // Read, check the content is what the user saw at the preview (the real safety check), then write pinned to that
