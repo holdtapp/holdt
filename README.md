@@ -2,26 +2,26 @@
 
 An AI shouldn't change your calendar without your yes.
 
-**Holdt, said holt.** Reads your calendar. Changes nothing until you say yes.
+**Holdt, said holt.** Reads your calendar. Writes only what it previewed first.
 
-Holdt is a small MCP server that lets Grok Bot read your iCloud calendars. It runs on **your own Cloudflare account**. With changes on, every change starts as a preview, and Grok Bot is told to show it to you and ask first. Holdt can't see your answer, so it accepts only that previewed change, once, within 10 minutes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
+Holdt is a small MCP server, running on **your own Cloudflare account**, that lets Grok Bot read your iCloud calendars. With changes on, every change starts as a preview, and Grok Bot is told to show it and ask you first. Holdt can't see your answer, so it accepts only that previewed change, once, within 10 minutes. Never deletes your events. It can only take back its own, on your yes. It never sends invitations.
 
 **Calendar only: Apple Reminders is not included (see below).** Events with invitees or an organizer can't be edited, and the time of a repeating event can't be changed yet.
 
 > **Status:** v1.0.3, self-hosted.
-> As of Oct 18, 2026: `npm test` runs 299 tests, all passing. `npm run prove` runs 110 attacks against a mock iCloud, and all are refused. It then switches off each of 112 protections in a scratch copy: for 101 the matching attack gets through, and for the 11 layered ones the next layer still refuses it. Table: [docs/attack-proof.md](docs/attack-proof.md).
+> As of Oct 18, 2026: `npm test` runs 299 tests, all passing. `npm run prove` runs 110 attacks against a mock iCloud, all refused. It then switches off each of 112 protections in a scratch copy: for 101 the matching attack gets through, and for the 11 layered ones the next layer still refuses it. Table: [docs/attack-proof.md](docs/attack-proof.md).
 > Verified live on an iCloud test account, Oct 17, 2026, on a pre-release build: adding, changing and undoing, a repeated commit refused, an undo after a later edit refused, and every other event left untouched (18 of 18 checks, [docs/live-test-2026-10-17.md](docs/live-test-2026-10-17.md)). Not covered yet: a conflict from an edit made on an iPhone, and an event across the Nov 1 DST change.
 
 ## Setup (no Terminal)
-You need a free Cloudflare account and an Apple Account with two-factor authentication. Send this link to your Grok Bot: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." Grok Bot installs Holdt on your Cloudflare account from your computer (it needs the Grok Bot desktop app). Along the way you:
+You need a free Cloudflare account, an Apple Account with two-factor authentication, and the Grok Bot desktop app. Send Grok Bot this link: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." It installs Holdt on your Cloudflare account from your computer. Along the way you:
 
 1. Click **Allow** on Cloudflare's page.
 2. Apple's page opens in front of the Holdt setup page. Sign in, make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars.
-3. On the Holdt page, read-only is chosen. Pick changes if you want them, then enter your Apple Account email and paste the password. Holdt checks it with Apple and seals it in your Cloudflare account.
+3. On the Holdt page, read-only is the default. Pick changes if you want them, then enter your Apple Account email and paste the password. Holdt checks it with Apple and seals it in your Cloudflare account.
 4. Click **Save passkey** once (Touch ID or your password on a Mac, your screen lock on other computers). On a Mac, if iCloud Keychain is on, your iPhone gets the passkey too.
-5. Add the address the last page shows in Grok Bot under **Connect Apps → Add custom MCP server**.
+5. In Grok Bot, add the address from the last page under **Connect Apps → Add custom MCP server**.
 
-When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (**Touch ID** on a Home-button iPhone, **Touch ID or Face ID** on an iPad), or **Allow on this Mac** on a Mac (Touch ID or your password). On a device without your passkey, choose **Approve on your iPhone instead** and scan the code with your iPhone. The steps for every path, and the threat model, are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
+When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (**Touch ID** on a Home-button iPhone, **Touch ID or Face ID** on an iPad), or **Allow on this Mac** on a Mac (Touch ID or your password). On a device without your passkey, choose **Approve on your iPhone instead** and scan the code with it. Every path's steps and the threat model are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
 
 ### For developers: Terminal setup
 You need Node.js and a free Cloudflare account. A step-by-step version is in [docs/setup.md](docs/setup.md).
@@ -30,12 +30,12 @@ You need Node.js and a free Cloudflare account. A step-by-step version is in [do
 2. `npm run cf:login`
 3. `npx --no-install wrangler kv namespace create OAUTH_KV`, and paste the id it prints over `REPLACE_WITH_YOUR_KV_ID` under `binding = "OAUTH_KV"` in wrangler.toml.
 4. `npm run deploy`. Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
-5. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens on your computer. Make an app-specific password on Apple's page, paste it, enter your Apple Account email, **Test connection**, turn on **Let Grok Bot add and change events** if you want changes, then **Save and finish**.
+5. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens. Make an app-specific password on Apple's page, paste it, enter your Apple Account email, **Test connection**, turn on **Let Grok Bot add and change events** if you want changes, then **Save and finish**.
 6. Save opens a one-time passkey link in the same browser. Click **Save passkey** (on an iPhone it reads **Turn on Face ID**, **Turn on Touch ID** on a Home-button iPhone, or **Turn on Touch ID or Face ID** on an iPad). On a Mac, if iCloud Keychain is on, your iPhone gets the passkey too. The last screen shows your connector address with a Copy button.
 
 Adding a device later: `WORKER_URL=https://holdt.<you>.workers.dev npm run add-device` opens a fresh link in your browser. Click **Save passkey** there. For a phone, `npm run add-device -- --qr` prints a QR code. Lost every device? `npm run new-code` prints a one-time recovery code, and the approval page shows a code field for 15 minutes.
 
-Your password goes only to Apple and your own Cloudflare account. On the no-Terminal path it is sealed (AES-256-GCM, key in your Cloudflare secrets) in Holdt's storage. On the Terminal path it goes to `wrangler secret put` on stdin. It is never written to disk on your computer, logged, or put on a command line. To cut Holdt off from iCloud, revoke the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
+Your password goes only to Apple and your own Cloudflare account. On the no-Terminal path it is sealed in Holdt's storage (AES-256-GCM, key in your Cloudflare secrets). On the Terminal path it goes to `wrangler secret put` on stdin. It is never written to disk on your computer, logged, or put on a command line. To cut Holdt off from iCloud, revoke the password at account.apple.com → Sign-In and Security → App-Specific Passwords.
 
 ## Tools
 | Tool | Kind |

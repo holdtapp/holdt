@@ -3,7 +3,7 @@
   "version": "1.0.3",
   "private": true,
   "type": "module",
-  "description": "Holdt for iCloud Calendar. Reads your calendar. Changes nothing until you say yes. Self-hosted MCP server for Grok Bot on Cloudflare Workers.",
+  "description": "Holdt for iCloud Calendar. Reads your calendar. Writes only what it previewed first. Self-hosted MCP server for Grok Bot on Cloudflare Workers.",
   "license": "MIT",
   "scripts": {
     "test": "node --import ./test/register.mjs --import tsx --test --test-concurrency=1 test/*.test.ts",
