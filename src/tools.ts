@@ -7,6 +7,7 @@ import { Journal, KVLike, Change, ownerKey, newId, REVERT_TTL_MS, MAX_BEFORE } f
 import { log } from "./redact.js";
 import { eventFingerprint } from "./fingerprint.js";
 import { Iv, merge, subtract, parseWorkingHours, workWindows, nearestSlots } from "./free.js";
+import { deviceName } from "./passkey.js";
 
 export interface Config { timezone: string; /** Older keys still accepted for verification during a CONFIRM_SECRET rotation. Never used to issue. */ previousSecrets?: string[]; /** Where the change log lives (the Worker passes OAUTH_KV). Without it, commits return no revert_token. */ journal?: KVLike; /** Whose change log this is, e.g. the iCloud email. Stored only as a hash. */ owner?: string; /** Clock override for tests. */ now?: () => number; /** Passkeys enrolled for one-tap connect (the Worker passes them when PASSKEYS is on). */ devices?: () => Promise<{ label?: string; createdAt: number; via?: string }[]>; writesEnabled: boolean; calendarAllowlist?: string[]; confirmSecret: string; /** Where used confirm-token nonces are remembered. Defaults to this instance only; the Worker passes a KV-backed store. */ usedStore?: UsedStore; /** Experimental, off in v1: Apple's upgraded Reminders aren't reachable over CalDAV (verified on a real account, Oct 16 2026). */ remindersExperimental?: boolean }
 export const REMINDER_TOOLS = new Set(["list_reminder_lists", "list_reminders", "prepare_add_reminder", "commit_add_reminder", "prepare_complete_reminder", "commit_complete_reminder"]);
@@ -180,13 +181,14 @@ export class Tools {
     if (r.kind === "range") throw new UserError(`"${String(s).slice(0, 40)}" covers several days. Give one day or time, like next monday or next monday at 3pm.`);
     return r.start;
   }
-  /** Passkeys and a "new device added" notice (last 7 days) for connection_status. Show the notice to the user. */
+  /** Passkeys and a "new device added" notice (last 7 days) for connection_status. Show the notice to the user.
+   * Whoever enrolls picks the label, so only the fixed name the consent page uses (deviceName) reaches the model. */
   private async deviceInfo() {
     if (!this.cfg.devices) return {};
     let ds: { label?: string; createdAt: number; via?: string }[] = []; try { ds = await this.cfg.devices(); } catch { return {}; }
     const now = this.now(), recent = ds.filter((d) => now - d.createdAt < 7 * DAY).sort((a, b) => b.createdAt - a.createdAt);
-    return { passkeys: ds.map((d) => ({ device: oneLine(d.label || "unnamed device", 40), added: this.show({ utc: d.createdAt, allDay: false }), added_with: d.via })),
-      device_notice: recent.length ? `${recent.map((d) => `New device added ${this.show({ utc: d.createdAt, allDay: false })}${d.label ? ` (${oneLine(d.label, 40)})` : ""}`).join(". ")}. Tell the user. If they didn't add it, they should run npm run setup -- --reset-passkeys.` : undefined };
+    return { passkeys: ds.map((d) => ({ device: deviceName(d.label), added: this.show({ utc: d.createdAt, allDay: false }), added_with: d.via })),
+      device_notice: recent.length ? `${recent.map((d) => `New device added ${this.show({ utc: d.createdAt, allDay: false })} (${deviceName(d.label)})`).join(". ")}. Tell the user. If they didn't add it, they should run npm run setup -- --reset-passkeys.` : undefined };
   }
   private show(t: ITime) {
     if (t.allDay) return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" }).format(t.utc);
