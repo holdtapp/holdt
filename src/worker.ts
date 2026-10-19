@@ -168,9 +168,11 @@ export async function rateLimited(req: Request, env: Env, path: string): Promise
   }
   return false;
 }
-/** IPv6 callers usually own a whole /64, so key them by that prefix. IPv4 stays exact. */
+/** IPv6 callers usually own a whole /64, so key them by that prefix. IPv4 stays exact, including IPv4-mapped
+ * (::ffff:a.b.c.d), whose first 64 bits are zero for every IPv4 caller. */
 export function ipKey(ip: string) {
   if (!ip.includes(":")) return ip;
+  const v4 = ip.match(/^(?:::|(?:0{1,4}:){5})ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i); if (v4) return v4[1]!;
   let [head, tail] = ip.toLowerCase().split("::") as [string, string | undefined];
   const h = head ? head.split(":") : [], t = tail ? tail.split(":") : [];
   const groups = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];

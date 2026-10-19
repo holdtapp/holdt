@@ -55,6 +55,16 @@ test("REDTEAM L4: NEL and other C1 controls never survive escapeText, propLine o
   assert.doesNotThrow(() => propLine("SUMMARY", "Café\tnaïve"), "Latin-1 letters and TAB are still fine");
 });
 
+test("REDTEAM L5: IPv4-mapped addresses are keyed by their IPv4, never all by 0:0:0:0::/64", async () => {
+  const { ipKey } = await import("../src/worker.js");
+  assert.equal(ipKey("::ffff:1.2.3.4"), "1.2.3.4");
+  assert.equal(ipKey("::FFFF:8.8.8.8"), "8.8.8.8");
+  assert.equal(ipKey("0:0:0:0:0:ffff:9.9.9.9"), "9.9.9.9");
+  assert.equal(ipKey("1.2.3.4"), "1.2.3.4");
+  assert.equal(ipKey("2001:db8:1:2::1.2.3.4"), "2001:db8:1:2::/64", "a real IPv6 with a dotted tail stays keyed by its /64");
+  assert.equal(ipKey("2001:db8:1:2:3:4:5:6"), "2001:db8:1:2::/64");
+});
+
 test("REDTEAM F2: the iPhone approval page never says access goes to Grok Bot alone", async () => {
   const { askHtml } = await import("../src/authorize.js");
   const h = askHtml("consent", "Denver, US", "just now", { redirectUri: "https://www.cursor.com/agents/mcp/oauth/callback" }, "off, so it can't add or change events");
