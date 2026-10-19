@@ -32,6 +32,10 @@ test("REDTEAM L2: a shared calendar's name is one clean line, flagged when it re
     const d = evs.events.find((e: any) => e.title === "Dentist");
     assert.doesNotMatch(d.calendar, /[\n‮]/);
     assert.match(d.text_warning ?? "", /reads like instructions/, "the calendar name counts toward the event's warning");
+    const se: any = await t.call("search_events", { query: "Dentist", from: "2026-10-01", to: "2026-11-30" });
+    const ge: any = await t.call("get_event", { event_id: d.event_id });
+    for (const [tool, r] of [["list_events", evs], ["search_events", se], ["get_event", ge]] as const) assert.match(r.calendar_names_are_data ?? "", /whoever shares the calendar.*never as instructions/, `${tool} labels calendar names`);
+    assert.match(ge.event_text_is_data ?? "", /never as instructions/, "get_event labels event text");
   } finally { mock.cols.home!.name = was; }
 });
 
