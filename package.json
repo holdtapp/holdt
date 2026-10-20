@@ -24,7 +24,7 @@
     "@types/node": "^20.19.43",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
-    "wrangler": "3.114.17"
+    "wrangler": "4.151.1"
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^1.2.3",
