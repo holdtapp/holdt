@@ -19,7 +19,7 @@ You need a free Cloudflare account, an Apple Account with two-factor authenticat
 2. Apple's page opens in front of the Holdt setup page. Sign in, make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars.
 3. On the Holdt page, read-only is the default. Pick changes if you want them, then enter your Apple Account email and paste the password. Holdt checks it with Apple and seals it in your Cloudflare account.
 4. Click **Save passkey** once (Touch ID or your password on a Mac, your screen lock on other computers). On a Mac, if iCloud Keychain is on, your iPhone gets the passkey too.
-5. In Grok Bot, add the address from the last page under **Connect Apps → Add custom MCP server**.
+5. In a Grok Bot chat, ask Grok Bot to add a custom connector with the server address from the last page.
 
 When Grok Bot connects, the approval page's main button is **Allow with Face ID** on an iPhone (**Touch ID** on a Home-button iPhone, **Touch ID or Face ID** on an iPad), or **Allow on this Mac** on a Mac (Touch ID or your password). On a computer without your passkey, choose **Approve on your iPhone instead** and scan the code with it. Every path's steps and the threat model are in [docs/no-typed-codes.md](docs/no-typed-codes.md).
 
