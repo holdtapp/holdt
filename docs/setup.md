@@ -42,6 +42,8 @@ If the folder has a different name, use that name instead.
 
 Run these one at a time:
 
+New Cloudflare account? Verify your email first, or the deploy fails with code 10034.
+
 ```
 npm install
 npm run cf:login
@@ -49,7 +51,7 @@ npx --no-install wrangler kv namespace create OAUTH_KV
 npm run deploy
 ```
 
-- `npm run cf:login` opens your browser. Sign in to Cloudflare and press Allow.
+- `npm run cf:login` opens your browser. Sign in to Cloudflare and press Authorize.
 - `npx --no-install wrangler kv namespace create OAUTH_KV` makes Holdt's storage on your account and prints a line like `id = "0123abcd..."`. Open `wrangler.toml` in the Holdt folder, find `binding = "OAUTH_KV"`, and paste your id over `REPLACE_WITH_YOUR_KV_ID` under it. Deploy fails until you do.
 - `npm run deploy` prints your Holdt address. It looks like `https://holdt.you.workers.dev`. Keep it handy. If it prints no `workers.dev` address, open Workers & Pages in the Cloudflare dashboard once so your account gets a `workers.dev` subdomain, then run it again.
 

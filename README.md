@@ -15,7 +15,7 @@ Holdt is a small MCP server, running on **your own Cloudflare account**, that le
 ## Setup (no Terminal)
 You need a free Cloudflare account, an Apple Account with two-factor authentication, and the Grok Bot desktop app. Send Grok Bot this link: **https://github.com/holdtapp/holdt/blob/main/docs/agent-setup.md**, and say "Set up Holdt for my iCloud Calendar." It installs Holdt on your Cloudflare account from your computer. Along the way you:
 
-1. Click **Allow** on Cloudflare's page.
+1. Click **Authorize** on Cloudflare's page. New Cloudflare account? Verify your email first, or the deploy fails with code 10034.
 2. Apple's page opens in front of the Holdt setup page. Sign in, make an app-specific password named Holdt and copy it. Like every app-specific password, it reaches more of iCloud than calendars.
 3. On the Holdt page, read-only is the default. Pick changes if you want them, then enter your Apple Account email and paste the password. Holdt checks it with Apple and seals it in your Cloudflare account.
 4. Click **Save passkey** once (Touch ID or your password on a Mac, your screen lock on other computers). On a Mac, if iCloud Keychain is on, your iPhone gets the passkey too.
@@ -29,6 +29,7 @@ You need Node.js and a free Cloudflare account. A step-by-step version is in [do
 1. `npm install`
 2. `npm run cf:login`
 3. `npx --no-install wrangler kv namespace create OAUTH_KV`, and paste the id it prints over `REPLACE_WITH_YOUR_KV_ID` under `binding = "OAUTH_KV"` in wrangler.toml.
+   New Cloudflare account? Verify your email first, or the deploy fails with code 10034.
 4. `npm run deploy`. Note your Worker address, e.g. `https://holdt.<you>.workers.dev`.
 5. `WORKER_URL=https://holdt.<you>.workers.dev npm run setup`. A one-screen page opens. Make an app-specific password on Apple's page, paste it, enter your Apple Account email, **Test connection**, turn on **Let Grok Bot add and change events** if you want changes, then **Save and finish**.
 6. Save opens a one-time passkey link in the same browser. Click **Save passkey** (on an iPhone it reads **Turn on Face ID**, **Turn on Touch ID** on a Home-button iPhone, or **Turn on Touch ID or Face ID** on an iPad). On a Mac, if iCloud Keychain is on, your iPhone gets the passkey too. The last screen shows your connector address with a Copy button.
