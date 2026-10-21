@@ -13,7 +13,6 @@ Holdt runs on your own free Cloudflare account. Your Apple password goes only to
 
 ## 1. Get Holdt
 
-<!-- LINK GOES LIVE ONLY WHEN THE REPO IS PUBLIC under the holdtapp GitHub organization (decision 4, Oct 18, 2026). -->
 Download Holdt from its GitHub page at [github.com/holdtapp/holdt](https://github.com/holdtapp/holdt). Press Code, then Download ZIP, and unzip it. The folder is usually named holdt-main. Or, if you use git, clone it. The folder is then named holdt.
 
 Then go into that folder. If it unzipped to your Downloads folder:
@@ -90,8 +89,8 @@ Save opens a page called **Save a passkey on this Mac** (on Windows or Linux, **
 
 ## 4. Add Holdt to Grok Bot
 
-1. In Grok Bot, open **Connect Apps**, then **Add custom MCP server**.
-2. Paste your connector address, the one ending in `/mcp`.
+1. In a Grok Bot chat, ask Grok Bot to add a custom connector.
+2. Give it your connector address, the one ending in `/mcp`.
 3. An approval page opens. Check that it says "Connect Grok Bot to your iCloud Calendar?"
 4. Click **Allow on this Mac** (Allow with Face ID on an iPhone). Nothing to type.
 
@@ -103,7 +102,7 @@ That's it. Try asking "What's on my calendar this week?"
 
 - **Every change waits for your yes.** With changes on, Holdt shows a preview first and only makes the change after you agree. It never deletes your events and never sends invitations. It can take back its own changes, on your yes.
 - **Lost every device with your passkey?** Run `npm run new-code` in the Holdt folder. It prints a one-time recovery code, and for 15 minutes the approval page shows a field for it. Type it yourself, never paste it into a chat.
-- **Turn changes on later.** In the Cloudflare dashboard, open Workers & Pages, then holdt, then Settings, then Variables and Secrets. Set WRITES_ENABLED to true and save.
+- **Turn changes on later.** If you set up with this Terminal guide, open Workers & Pages in the Cloudflare dashboard, then holdt, then Settings, then Variables and Secrets. Set WRITES_ENABLED to true and save. If you set up without Terminal (docs/agent-setup.md), that setting has no effect. Ask Grok Bot to make a new setup link with `--new-link` and pick changes there.
 - **Add a device.** Apple devices on the same Apple Account get your Holdt passkey through iCloud Keychain. For another device, run `WORKER_URL=https://holdt.you.workers.dev npm run add-device` (it opens the link in this computer's browser) or the same with `npm run add-device -- --qr` and scan the code with that phone. On Windows, set `WORKER_URL` first the same way as in step 3. Without `WORKER_URL` it stops and asks for it, and nothing changes. Or open **Setup help** on the approval page, tap **add it**, and approve from your iPhone.
 - **Reset passkeys.** If the approval page says a device you don't recognize was added, tap Don't allow. Then run `npm run reset-passkeys` in the Holdt folder. Every passkey stops working at once. Then run `npm run add-device` with `WORKER_URL` set, as above, to add your own again.
 - **Cut off every connection.** Run `npm run revoke-all`.
